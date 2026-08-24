@@ -11621,6 +11621,11 @@ const ECHO_VEIL = (() => {
     enableThreads: true,
     enableRelationships: true,
     enableKnowledge: true,
+    // Hard epistemic guard: Story Card/world truth is not automatically NPC knowledge.
+    // The firewall maintains explicit "does not know" gaps and places them near
+    // the top of the director packet so they survive tight context budgets.
+    enableKnowledgeFirewall: true,
+    enableKnowledgeRepair: true,
     enableContinuity: true,
     enableOffscreenAgency: true,
     enablePacing: true,
@@ -11655,6 +11660,7 @@ const ECHO_VEIL = (() => {
     maxRecentFingerprints: 12,
     maxRelations: 72,
     maxBeliefs: 48,
+    maxKnowledgeGaps: 48,
     maxSceneFacts: 36,
     maxContradictions: 10,
     maxBeatHistory: 10,
@@ -11752,7 +11758,7 @@ const ECHO_VEIL = (() => {
   };
 
   const KNOWN_CONFIG_KEYS = new Set([
-    "SCHEMA","PRESET","MASTER","CAUSALITY","THREADS","RELATIONSHIPS","KNOWLEDGE","CONTINUITY",
+    "SCHEMA","PRESET","MASTER","CAUSALITY","THREADS","RELATIONSHIPS","KNOWLEDGE","KNOWLEDGE_FIREWALL","KNOWLEDGE_REPAIR","CONTINUITY",
     "OFFSCREEN_AGENCY","PACING","ANTI_LOOP","ATTEMPT_RESOLUTION","REWIND_SAFETY","EPISODIC_MEMORY",
     "MEMORY_CONSOLIDATION","STORY_CARD_PROFILES","AUTO_SPACING","CONTEXT_SHARE","MAX_GUIDANCE_CHARS",
     "MEMORY_RECALL","RECALL_DIVERSITY","THREAD_PRESSURE","OFFSCREEN_ACTIVITY","CONTINUITY_STRENGTH",
@@ -11878,6 +11884,8 @@ const ECHO_VEIL = (() => {
       ["THREADS", "Tracks unresolved promises, debts, threats, secrets, mysteries, goals, wounds, and evidence."],
       ["RELATIONSHIPS", "Tracks directional trust, hostility, affection, respect, obligation, fear, and loyalty between agents."],
       ["KNOWLEDGE", "Tracks who knows/believes what and keeps secrets/disclosures perspective-bounded."],
+      ["KNOWLEDGE_FIREWALL", "Turns explicit ignorance into hard per-character boundaries. World truth and Story Card facts are never assumed to be character knowledge."],
+      ["KNOWLEDGE_REPAIR", "Conservatively removes clear output sentences where an NPC uses a fact explicitly recorded as unknown, unless that same beat shows a credible way they learned it."],
       ["CONTINUITY", "Tracks physical/world facts such as life state, injuries, presence, possessions, and environmental changes."],
       ["OFFSCREEN_AGENCY", "Lets absent NPCs/factions accumulate pressure to act from established motives."],
       ["PACING", "Classifies recent dramatic beats and discourages repetitive scene functions or endless escalation."],
@@ -11970,6 +11978,8 @@ const ECHO_VEIL = (() => {
       "THREADS [ON|OFF] — Tracks unresolved promises, threats, mysteries, goals, debts, wounds, evidence and other unfinished business.",
       "RELATIONSHIPS [ON|OFF] — ECHO's lightweight directional social continuity. CROSSED WIRES remains the specialist relationship engine; this layer helps world continuity and cross-system handoff.",
       "KNOWLEDGE [ON|OFF] — Tracks who knows or believes what. Strongly recommended for mysteries, secrets, conspiracies and multi-NPC stories.",
+      "KNOWLEDGE_FIREWALL [ON|OFF] — Hard perspective guard. Statements such as ‘Mercer doesn’t know that Leo is the killer’, ‘Mercer has no idea about the vault’, ‘Mercer is unaware of the plan’, or ‘unknown to Mercer…’ become persistent knowledge gaps. The director is explicitly told that Story Card/world truth is NOT automatic NPC knowledge. Private creator Notes on a Character card may also use ‘Does not know: ...’, ‘Knowledge Boundary: ...’, ‘Restricted Knowledge: ...’ or ‘Must not know: ...’; the script reads these without copying them into Entry. Keep ON unless you deliberately want omniscient characters.",
+      "KNOWLEDGE_REPAIR [ON|OFF] — Last-line safety net for clear epistemic leaks. If an NPC plainly states/acts on an explicitly blocked fact without a believable acquisition beat, ECHO can remove that offending sentence before it reaches visible story text. It is deliberately conservative and does not rewrite ambiguous prose. Keep ON for mysteries and secret-heavy stories.",
       "CONTINUITY [ON|OFF] — Tracks physical/world facts such as injuries, life state, presence, possessions and environmental change. Strongly recommended.",
       "OFFSCREEN_AGENCY [ON|OFF] — Lets absent NPCs/factions build pressure to act from already-established motives. OFF makes the world more player-centred/static.",
       "PACING [ON|OFF] — Tracks recent scene functions and discourages repetitive escalation or the same dramatic beat repeating endlessly.",
@@ -12021,7 +12031,7 @@ const ECHO_VEIL = (() => {
       "DEBUG [ON|OFF] — Diagnostic logging for tests/troubleshooting. Keep OFF during normal play.",
       "",
       "━━━━━━━━━━ RECOMMENDED TUNING ━━━━━━━━━━",
-      "Grounded mystery: BALANCED or LONGFORM; keep KNOWLEDGE, CONTINUITY, UNCERTAINTY_GUARD and TEMPORAL_SCOPE_GUARD ON.",
+      "Grounded mystery: BALANCED or LONGFORM; keep KNOWLEDGE, KNOWLEDGE_FIREWALL, KNOWLEDGE_REPAIR, CONTINUITY, UNCERTAINTY_GUARD and TEMPORAL_SCOPE_GUARD ON.",
       "Character drama / romance: BALANCED; RELATIONSHIP_FRESHNESS AUTO; let CROSSED WIRES handle detailed relationship pressure.",
       "Cinematic superhero/fantasy: CINEMATIC; optionally raise CONSEQUENCE_PRESSURE modestly if choices feel too disposable.",
       "Huge long-running campaign: LONGFORM; keep MEMORY_CONSOLIDATION ON and avoid maxing every store limit unless needed.",
@@ -12047,6 +12057,8 @@ const ECHO_VEIL = (() => {
       "THREADS = ON",
       "RELATIONSHIPS = ON",
       "KNOWLEDGE = ON",
+      "KNOWLEDGE_FIREWALL = ON",
+      "KNOWLEDGE_REPAIR = ON",
       "CONTINUITY = ON",
       "OFFSCREEN_AGENCY = ON",
       "PACING = ON",
@@ -12134,6 +12146,8 @@ const ECHO_VEIL = (() => {
     }
 
     const detectionAdditions = [
+      ["KNOWLEDGE_FIREWALL", "KNOWLEDGE_FIREWALL = ON", "CONTINUITY"],
+      ["KNOWLEDGE_REPAIR", "KNOWLEDGE_REPAIR = ON", "CONTINUITY"],
       ["PRONOUN_RESOLUTION", "PRONOUN_RESOLUTION = ON", "STORY_CARD_PROFILES"],
       ["TEMPORAL_SCOPE_GUARD", "TEMPORAL_SCOPE_GUARD = ON", "DETECTION_STRICTNESS"],
       ["UNCERTAINTY_GUARD", "UNCERTAINTY_GUARD = ON", "DETECTION_STRICTNESS"],
@@ -12329,6 +12343,8 @@ const ECHO_VEIL = (() => {
     setBoolConfig(raw,"THREADS","enableThreads",warnings);
     setBoolConfig(raw,"RELATIONSHIPS","enableRelationships",warnings);
     setBoolConfig(raw,"KNOWLEDGE","enableKnowledge",warnings);
+    setBoolConfig(raw,"KNOWLEDGE_FIREWALL","enableKnowledgeFirewall",warnings);
+    setBoolConfig(raw,"KNOWLEDGE_REPAIR","enableKnowledgeRepair",warnings);
     setBoolConfig(raw,"CONTINUITY","enableContinuity",warnings);
     setBoolConfig(raw,"OFFSCREEN_AGENCY","enableOffscreenAgency",warnings);
     setBoolConfig(raw,"PACING","enablePacing",warnings);
@@ -12422,6 +12438,7 @@ const ECHO_VEIL = (() => {
       s.recentFingerprints = [];
       s.relations = {};
       s.beliefs = [];
+      s.knowledgeGaps = [];
       s.contradictions = [];
       s.episodes = [];
       s.causalLinks = [];
@@ -12462,6 +12479,7 @@ const ECHO_VEIL = (() => {
     s.recentFingerprints = Array.isArray(s.recentFingerprints) ? s.recentFingerprints : [];
     s.relations = s.relations && typeof s.relations === "object" ? s.relations : {};
     s.beliefs = Array.isArray(s.beliefs) ? s.beliefs : [];
+    s.knowledgeGaps = Array.isArray(s.knowledgeGaps) ? s.knowledgeGaps : [];
     s.contradictions = Array.isArray(s.contradictions) ? s.contradictions : [];
     s.episodes = Array.isArray(s.episodes) ? s.episodes : [];
     s.causalLinks = Array.isArray(s.causalLinks) ? s.causalLinks : [];
@@ -13709,6 +13727,208 @@ const ECHO_VEIL = (() => {
     return bits.length ? bits.join(", ") : "mixed/weak history";
   }
 
+  function normalizeKnowledgeGapSummary(text) {
+    let x = safeEvidence(text, 190);
+    x = String(x || "")
+      .replace(/^\s*(?:that|about|of|regarding|whether|how|why|where|when)\s+/i, "")
+      .replace(/^\s*[:,;\-–—]+\s*/, "")
+      .trim();
+    return safeEvidence(x, 175);
+  }
+
+  function knowledgeGapOwnerBefore(clause, index, origin) {
+    const t=String(clause||""), before=t.slice(Math.max(0,index-150),index);
+    const mentions=extractEntityMentions(before);
+    if (mentions.length) return canonicalEntityName(mentions[mentions.length-1].name);
+    if (origin === "player" && /\b(?:i|me|my)\b/i.test(before)) return "PLAYER";
+    if (CFG.enablePronounResolution && /\b(?:he|she|they|him|her|them)\b/i.test(before)) {
+      const d=getState().discourse||{};
+      if (d.lastSubject) return canonicalEntityName(d.lastSubject);
+    }
+    return "";
+  }
+
+  function addKnowledgeGap(owner, summary, source, confidence) {
+    if (!CFG.enableKnowledge || !CFG.enableKnowledgeFirewall) return null;
+    const s=getState(), who=owner === "PLAYER" ? "PLAYER" : canonicalEntityName(owner||"");
+    const clean=normalizeKnowledgeGapSummary(summary);
+    if (!who || !clean || clean.length < 4) return null;
+    const old=s.knowledgeGaps.find(g => !g.cleared && String(g.owner).toLowerCase()===String(who).toLowerCase() && tokenOverlap(g.summary,clean)>=0.44 && !semanticConflict(g.summary,clean));
+    if (old) {
+      old.lastTurn=nowTurn();
+      old.confidence=Math.max(old.confidence||0,confidence||0.9);
+      old.support=(old.support||1)+1;
+      if (source) old.source=source;
+      return old;
+    }
+    // Explicit player/context assertions outrank stale inferred beliefs. This is
+    // what makes "Mercer does not know X" an actual boundary rather than a hint.
+    if (source === "player" || source === "context") {
+      s.beliefs=s.beliefs.filter(b => !(String(b.owner).toLowerCase()===String(who).toLowerCase() && tokenOverlap(b.summary,clean)>=0.44));
+    }
+    const gap={id:"K"+(s.seq++),owner:who,summary:clean,source:source||"",confidence:clamp(confidence||0.92,0,1),support:1,createdTurn:nowTurn(),lastTurn:nowTurn(),cleared:false,clearedTurn:null,clearedBy:""};
+    s.knowledgeGaps.push(gap);
+    if (s.knowledgeGaps.length>CFG.maxKnowledgeGaps) s.knowledgeGaps=s.knowledgeGaps.slice(-CFG.maxKnowledgeGaps);
+    return gap;
+  }
+
+  function clearKnowledgeGapsFor(owner, summary, source) {
+    if (!CFG.enableKnowledge || !CFG.enableKnowledgeFirewall) return 0;
+    const s=getState(), who=owner === "PLAYER" ? "PLAYER" : canonicalEntityName(owner||""), clean=safeEvidence(summary,190);
+    if (!who || !clean) return 0;
+    let n=0;
+    for (const g of s.knowledgeGaps) {
+      if (g.cleared || String(g.owner).toLowerCase()!==String(who).toLowerCase()) continue;
+      if (tokenOverlap(g.summary,clean)<0.34) continue;
+      g.cleared=true; g.clearedTurn=nowTurn(); g.clearedBy=source||"learned"; g.lastTurn=nowTurn(); n++;
+    }
+    return n;
+  }
+
+  function scanKnowledgeGaps(text, origin) {
+    if (!CFG.enableKnowledge || !CFG.enableKnowledgeFirewall) return;
+    const src=String(text||"");
+    for (const clause of splitClauses(src)) {
+      // "Mercer doesn't know / has no idea / is unaware / was never told ..."
+      const patterns=[
+        /\b(?:doesn['’]?t|does not|didn['’]?t|did not|hasn['’]?t|has not|hadn['’]?t|had not|never|shouldn['’]?t|should not|mustn['’]?t|must not|can['’]?t|cannot)\s+(?:know|knew|learn|learned|realize|realise|realized|realised|discover|discovered|find out|found out|hear|heard)\b/i,
+        /\b(?:has|have|had)\s+no\s+idea\b/i,
+        /\b(?:is|are|was|were|remains?|remained)\s+(?:completely\s+|totally\s+|still\s+)?(?:unaware|oblivious)\b/i,
+        /\b(?:wasn['’]?t|was not|weren['’]?t|were not|hasn['’]?t been|has not been|hadn['’]?t been|had not been|never (?:was|were))\s+(?:told|informed|briefed|warned)\b/i
+      ];
+      for (const re of patterns) {
+        const m=re.exec(clause); if(!m) continue;
+        const owner=knowledgeGapOwnerBefore(clause,m.index,origin);
+        if(!owner) continue;
+        const rest=clause.slice(m.index+m[0].length).replace(/^\s*(?:that|about|of|on|regarding|whether)?\s*/i,"");
+        const content=rest || clause;
+        addKnowledgeGap(owner,content,origin,origin==="player"?0.99:origin==="context"?0.98:0.93);
+        break;
+      }
+      // "Unknown/unbeknownst to Mercer, Leo has the key."
+      const front=/\b(?:unknown|unbeknownst)\s+to\s+([^,;:.]{1,90})[,;:]\s*(.+)$/i.exec(clause);
+      if(front){
+        const ownerMentions=extractEntityMentions(front[1]);
+        let owner=ownerMentions.length?ownerMentions[ownerMentions.length-1].name:"";
+        if(!owner && /^\s*(?:him|her|them)\s*$/i.test(front[1]) && CFG.enablePronounResolution) owner=(getState().discourse||{}).lastSubject||"";
+        if(owner) addKnowledgeGap(owner,front[2],origin,origin==="player"?0.99:0.96);
+      }
+    }
+  }
+
+  function scanKnowledgeCardNotes() {
+    if (!CFG.enableKnowledge || !CFG.enableKnowledgeFirewall || typeof storyCards === "undefined" || !Array.isArray(storyCards)) return;
+    for (const card of storyCards) {
+      if (!card) continue;
+      const type=String(card.type||"").toLowerCase();
+      const title=String(card.title||card.name||"").trim();
+      if (!title || /config/i.test(type) || /^CROSSED ECHOES — Config —/i.test(title)) continue;
+      if (type && !/character|npc|person/.test(type)) continue;
+      let notes="";
+      try { notes=typeof CE_publicStoryCardNotes==="function"?CE_publicStoryCardNotes(card):String(card.description||card.notes||""); } catch(_){ notes=String(card.description||card.notes||""); }
+      if(!notes) continue;
+      // Full natural-language boundaries are supported in creator Notes.
+      scanKnowledgeGaps(notes,"context");
+      // Shorthand fields let creators keep the private Notes tidy without
+      // repeating the character name on every line.
+      for(const line of String(notes).split(/\r?\n/)){
+        const m=/^\s*(?:does\s+not\s+know|doesn['’]?t\s+know|unaware\s+of|unknown\s+to\s+character|restricted\s+knowledge|knowledge\s+boundary|must\s+not\s+know)\s*[:=]\s*(.+?)\s*$/i.exec(line);
+        if(m) addKnowledgeGap(title,m[1],"story-card-notes",0.995);
+      }
+    }
+  }
+
+  function activeKnowledgeGaps(activeNames, queryText) {
+    if (!CFG.enableKnowledge || !CFG.enableKnowledgeFirewall) return [];
+    const active=new Set((activeNames||[]).map(x=>String(x).toLowerCase()));
+    const query=String(queryText||"");
+    return getState().knowledgeGaps
+      .filter(g=>g && !g.cleared && (g.confidence||0)>=0.70 && (!active.size || active.has(String(g.owner).toLowerCase())))
+      .map(g=>({g,score:(g.confidence||0)*3+tokenOverlap(g.summary,query)*4+(active.has(String(g.owner).toLowerCase())?2:0)+1/(1+Math.max(0,nowTurn()-(g.lastTurn||g.createdTurn||0))/8)}))
+      .sort((a,b)=>b.score-a.score).slice(0,6).map(x=>x.g);
+  }
+
+  function activeSecretBlocks(activeNames, queryText) {
+    if (!CFG.enableKnowledge || !CFG.enableKnowledgeFirewall) return [];
+    const active=(activeNames||[]).map(x=>canonicalEntityName(x)).filter(x=>x&&x!=="PLAYER"), query=String(queryText||""), out=[];
+    for(const sec of getState().secrets||[]){
+      const holders=(sec.holders||[]).map(x=>String(canonicalEntityName(x)).toLowerCase());
+      if(!holders.length) continue; // no explicit holder set => guidance stays conservative, not accusatory
+      const relevance=(sec.heat||0)+tokenOverlap(sec.summary,query)*4+(sec.actors||[]).some(a=>active.some(n=>String(n).toLowerCase()===String(a).toLowerCase()))*1.2;
+      if(relevance<1.5) continue;
+      for(const owner of active){
+        if(holders.includes(String(owner).toLowerCase())) continue;
+        out.push({owner,summary:sec.summary,secretId:sec.id,score:relevance+(sec.actors||[]).some(a=>String(a).toLowerCase()===String(owner).toLowerCase())*0.4});
+      }
+    }
+    return out.sort((a,b)=>b.score-a.score).slice(0,5);
+  }
+
+  function credibleKnowledgeAcquisition(clause, owner, gap) {
+    const t=String(clause||""), lowerOwner=String(owner||"").toLowerCase();
+    // Direct transfer: someone tells/informs/reveals something to the blocked NPC.
+    const transfer=/\b(tell|tells|told|inform|informs|informed|explain|explains|explained|reveal|reveals|revealed|confess|confesses|confessed|warn|warns|warned|brief|briefs|briefed|show|shows|showed)\b/i.exec(t);
+    if (transfer) {
+      const recips=disclosureRecipients(t,extractEntities(t),"ai");
+      if (recips.some(r=>String(canonicalEntityName(r)).toLowerCase()===lowerOwner)) return true;
+    }
+    // Sensory/documentary acquisition needs an actual medium/evidence cue, not
+    // "Mercer suddenly realizes the secret" out of nowhere.
+    if (textMentionsEntity(t,owner) && /\b(overhears?|overheard|reads?|read|witness(?:es|ed)?|sees?|saw|hears?|heard|finds? (?:a|the|this|that)?\s*(?:file|letter|note|message|record|recording|photo|photograph|document|evidence|proof|body|scene)|examines?|examined|opens?|opened)\b/i.test(t)) {
+      if (!gap || tokenOverlap(t,gap.summary)>=0.16) return true;
+    }
+    return false;
+  }
+
+  function knowledgeViolationInClause(clause, gap) {
+    if (!gap || gap.cleared) return false;
+    const t=String(clause||"");
+    if (tokenOverlap(t,gap.summary)<0.24) return false;
+    const owner=gap.owner;
+    if (credibleKnowledgeAcquisition(t,owner,gap)) return false;
+    // Re-stating the ignorance boundary is never a violation.
+    if (/\b(?:doesn['’]?t|does not|didn['’]?t|did not|has no idea|unaware|oblivious|unknown to|unbeknownst to)\b/i.test(t)) return false;
+    const forms=entityMentionForms(owner);
+    const ownerPattern=forms.length?new RegExp("\\b(?:"+forms.map(f=>f.replace(/[.*+?^${}()|[\\]\\\\]/g,"\\\\$&")).join("|")+")\\b","i"):null;
+    const awareness=/\b(knows?|knew|realizes?|realises?|realized|realised|understands?|understood|remembers?|remembered|recognizes?|recognised|is aware|was aware|figures? out|figured out|suspects?|suspected|mentions?|mentioned|references?|referenced)\b/i;
+    if (ownerPattern && ownerPattern.test(t) && awareness.test(t)) return true;
+    // Dialogue attributed to the blocked NPC that directly contains the unknown
+    // fact is a clear leak even if the sentence omits "I know".
+    const ranges=quotedRanges(t);
+    for(const r of ranges){
+      const ctx=quoteSpeakerContext(t,Math.min(r.end-1,r.start+1));
+      if(ctx && ctx.speaker && String(canonicalEntityName(ctx.speaker)).toLowerCase()===String(owner).toLowerCase()){
+        const q=t.slice(r.start+1,Math.max(r.start+1,r.end-1));
+        if(tokenOverlap(q,gap.summary)>=0.24) return true;
+      }
+    }
+    return false;
+  }
+
+  function enforceKnowledgeFirewallOnOutput(text) {
+    if (!CFG.enableKnowledge || !CFG.enableKnowledgeFirewall || !CFG.enableKnowledgeRepair) return String(text||"");
+    const src=String(text||"");
+    const gaps=getState().knowledgeGaps.filter(g=>g&&!g.cleared&&(g.confidence||0)>=0.78).slice();
+    const mentioned=extractEntities(src);
+    for(const b of activeSecretBlocks(mentioned,src)) gaps.push({owner:b.owner,summary:b.summary,confidence:0.9,cleared:false,source:"secret-holder-boundary"});
+    if(!gaps.length) return src;
+    const pieces=src.match(/[^.!?\n]+(?:[.!?]+|(?=\n)|$)|\n+/g) || [src];
+    let removed=0;
+    const kept=[];
+    for(const piece of pieces){
+      if(/^\s*\n+\s*$/.test(piece)){kept.push(piece);continue;}
+      const bad=gaps.some(g=>knowledgeViolationInClause(piece,g));
+      if(bad){removed++;continue;}
+      kept.push(piece);
+    }
+    let out=kept.join("").replace(/\n{3,}/g,"\n\n").trim();
+    // Never turn a full response into an empty visible turn. Prevention in the
+    // Context hook remains the primary defense; repair is intentionally a
+    // conservative last line of defense.
+    if(!out && removed) return src;
+    return out || src;
+  }
+
   function addBelief(owner, summary, confidence, source, options) {
     if (!CFG.enableKnowledge) return null;
     const s = getState();
@@ -13716,6 +13936,7 @@ const ECHO_VEIL = (() => {
     const clean = safeEvidence(summary, 175);
     const opts = options || {};
     if (!clean || who.toLowerCase() === "unknown") return null;
+    if (opts.allowGapClear) clearKnowledgeGapsFor(who,clean,source || opts.mode || "learned");
     const old = s.beliefs.find(b => String(b.owner).toLowerCase() === who.toLowerCase() && tokenOverlap(b.summary, clean) >= 0.52 && !semanticConflict(b.summary, clean));
     if (old) {
       old.confidence = clamp(Math.max(old.confidence || 0, confidence || 0.5), 0, 1);
@@ -13811,6 +14032,7 @@ const ECHO_VEIL = (() => {
 
   function scanKnowledge(text, origin) {
     if (!CFG.enableKnowledge) return;
+    scanKnowledgeGaps(text,origin);
     for (const clause of splitClauses(text)) {
       const names = extractEntities(clause);
       const c = sourceConfidence(origin,clause);
@@ -13829,7 +14051,8 @@ const ECHO_VEIL = (() => {
           addBelief(r,summary,c*(origin === "player" ? 0.94 : 0.90),deceptive ? "deceptive-claim" : "disclosure",{
             speaker: roles.subject || (origin === "player" ? "PLAYER" : ""),
             truthStatus: deceptive ? "unverified" : "reported",
-            mode: deceptive ? "claim" : "told"
+            mode: deceptive ? "claim" : "told",
+            allowGapClear: true
           });
           revealMatchingSecretsTo(r,summary);
         }
@@ -13848,7 +14071,8 @@ const ECHO_VEIL = (() => {
         if (!roles.subject && origin === "player" && /\b(?:you|i)\b/i.test(clause.slice(0,wm.index))) knowers.push("PLAYER");
         const content = disclosureContent(clause,wm.index + wm[0].length);
         for (const k of Array.from(new Set(knowers)).slice(0,2)) {
-          addBelief(k,content || clause,c*0.88,"witness/inference",{ truthStatus:"observed", mode:"observed" });
+          const clearGap = origin === "player" || credibleKnowledgeAcquisition(clause,k,null);
+          addBelief(k,content || clause,c*0.88,"witness/inference",{ truthStatus:"observed", mode:"observed", allowGapClear:clearGap });
           revealMatchingSecretsTo(k,content || clause);
         }
       }
@@ -14512,6 +14736,10 @@ const ECHO_VEIL = (() => {
     s.beliefs = s.beliefs
       .sort((a,b)=>((b.confidence||0)+(b.support||0)*0.08+(b.lastTurn||0)*0.002)-((a.confidence||0)+(a.support||0)*0.08+(a.lastTurn||0)*0.002))
       .slice(0, CFG.maxBeliefs);
+    s.knowledgeGaps = s.knowledgeGaps
+      .filter(g=>g && (!g.cleared || nowTurn()-(g.clearedTurn||g.lastTurn||0)<=12))
+      .sort((a,b)=>((b.cleared?0:2)+(b.confidence||0)+(b.support||0)*0.05+(b.lastTurn||0)*0.002)-((a.cleared?0:2)+(a.confidence||0)+(a.support||0)*0.05+(a.lastTurn||0)*0.002))
+      .slice(0, CFG.maxKnowledgeGaps);
     s.scene.facts = s.scene.facts
       .filter(f => f.status !== "superseded" || nowTurn() - (f.lastTurn || f.createdTurn || 0) <= 6)
       .slice(-CFG.maxSceneFacts);
@@ -14723,14 +14951,13 @@ const ECHO_VEIL = (() => {
       const actors=extractEntities(clause);
       const holders=[];
       if (origin==="player") holders.push("PLAYER");
-      else if (origin==="ai") {
-        // Publicly described secrets are not assumed to be known by every name
-        // in the sentence. Prefer explicit possessors/speakers.
-        for (const n of actors) {
-          const esc=n.replace(/[.*+?^${}()|[\]\\]/g,"\\$&");
-          if (new RegExp("\\b"+esc+"(?:'s|’s)?\\s+(?:secret|hidden|private)","i").test(clause) ||
-              new RegExp("\\b"+esc+".{0,28}\\b(?:whispers?|confesses?|reveals?|admits?)\\b","i").test(clause)) holders.push(n);
-        }
+      // Publicly described secrets are not assumed to be known by every name
+      // in the sentence. Explicit possessors/speakers are holders regardless of
+      // whether the sentence came from the player or AI narration.
+      for (const n of actors) {
+        const esc=n.replace(/[.*+?^${}()|[\]\\]/g,"\\$&");
+        if (new RegExp("\\b"+esc+"(?:'s|’s)?\\s+(?:secret|hidden|private)","i").test(clause) ||
+            new RegExp("\\b"+esc+".{0,28}\\b(?:whispers?|confesses?|reveals?|admits?)\\b","i").test(clause)) holders.push(n);
       }
       addSecret(clause,actors,holders);
     }
@@ -15224,6 +15451,8 @@ const ECHO_VEIL = (() => {
       relations:topRelationsForContext(names),
       facts:factsForContext(names,query),
       beliefs:relevantBeliefs(names,query),
+      knowledgeGaps:activeKnowledgeGaps(names,query),
+      secretBlocks:activeSecretBlocks(names,query),
       episodes:retrieveEpisodes(query,names),
       secret:relevantSecret(query,names)
     };
@@ -15234,11 +15463,22 @@ const ECHO_VEIL = (() => {
     const playerRule="Preserve player agency; never invent the player's unattempted choices, dialogue, thoughts or consent" + (controlledNames.length?"; also do not take control of player-controlled characters: "+controlledNames.join(", "):"");
     const ruleBits=[playerRule];
     if (CFG.enableContinuity) ruleBits.push("preserve established physical state");
-    if (CFG.enableKnowledge) ruleBits.push("respect knowledge boundaries");
+    if (CFG.enableKnowledge) ruleBits.push("treat narrator/Story Card truth as WORLD knowledge, never automatic CHARACTER knowledge");
     if (CFG.enableCausality) ruleBits.push("prefer causal consequences over coincidence");
     if (CFG.enableOffscreenAgency) ruleBits.push("NPCs may act independently only from established motives/circumstances");
     ruleBits.push("do not force a twist every turn");
     lines.push("RULES: "+ruleBits.join("; ")+".");
+    if (CFG.enableKnowledge && CFG.enableKnowledgeFirewall) {
+      let firewall="KNOWLEDGE FIREWALL: Model access to a fact does not mean an NPC knows it. A character may use a fact only if they personally observed it, were told it, or have established evidence/inference for it.";
+      const explicitBlocks=data.knowledgeGaps.slice(0,4).map(g=>({owner:g.owner,summary:g.summary,kind:"explicit"}));
+      const secretBlocks=(data.secretBlocks||[]).slice(0,4).map(g=>({owner:g.owner,summary:g.summary,kind:"secret"}));
+      const mergedBlocks=explicitBlocks.concat(secretBlocks).filter((b,i,a)=>a.findIndex(x=>String(x.owner).toLowerCase()===String(b.owner).toLowerCase()&&tokenOverlap(x.summary,b.summary)>=0.55)===i).slice(0,5);
+      if (mergedBlocks.length) {
+        const blocks=mergedBlocks.map(g=>g.owner+" MUST NOT know/use/reveal: "+safeEvidence(g.summary,105));
+        firewall += " HARD BLOCKS — "+blocks.join(" | ")+". These persist until an explicit on-page learning/disclosure event establishes access.";
+      }
+      lines.push(firewall);
+    }
     lines.push("STATE: genre="+s.genre+"; danger="+metricLabel(s.metrics.danger)+"; mystery="+metricLabel(s.metrics.mystery)+"; urgency="+metricLabel(s.metrics.urgency)+"; social="+metricLabel(s.metrics.social)+(s.scene.location?"; location="+safeEvidence(s.scene.location,55):"")+(s.scene.timeMarker?"; time="+safeEvidence(s.scene.timeMarker,55):"")+".");
 
     if (data.facts.length) {
@@ -15253,8 +15493,10 @@ const ECHO_VEIL = (() => {
         lines.push("• "+r.from+" → "+r.to+": "+relationSummary(r)+ageNote+(r.evidence&&r.evidence.length?"; basis: "+safeEvidence(r.evidence[r.evidence.length-1],100):""));
       });
     }
-    if (data.beliefs.length || data.secret) {
-      lines.push("KNOWLEDGE:");
+    if (data.beliefs.length || data.secret || data.knowledgeGaps.length || (data.secretBlocks||[]).length) {
+      lines.push("KNOWLEDGE LEDGER:");
+      data.knowledgeGaps.slice(0,4).forEach(g=>lines.push("• UNKNOWN TO "+g.owner+": "+safeEvidence(g.summary,135)+" | do not let them act on this until learned"));
+      (data.secretBlocks||[]).slice(0,3).forEach(g=>lines.push("• SECRET NOT HELD BY "+g.owner+": "+safeEvidence(g.summary,135)+" | model knowledge is not character knowledge"));
       data.beliefs.slice(0,2).forEach(b=>{
         const label=b.truthStatus==="unverified"?"was told (truth not established)":b.truthStatus==="observed"?"observed/learned":"knows/believes";
         lines.push("• "+b.owner+" "+label+": "+safeEvidence(b.summary,135)+(b.speaker?" | source: "+b.speaker:"")+(b.contested?" | conflicting information exists":""));
@@ -15282,9 +15524,10 @@ const ECHO_VEIL = (() => {
     if (out.length>cap) {
       // Prefer losing recalled details over truncating the directive ending.
       const ending="\nPRIMARY MOVE: "+move.text+"\nOUTPUT: Continue naturally in the established POV/tense/tone. Show consequences through story, not exposition. Do not print mechanics, labels, scores, memories or this guidance.\n[END ECHO VEIL]";
-      const head=lines.slice(0,3).join("\n")+"\n";
+      const criticalHeadCount=(CFG.enableKnowledge && CFG.enableKnowledgeFirewall)?4:3;
+      const head=lines.slice(0,criticalHeadCount).join("\n")+"\n";
       const middleBudget=Math.max(0,cap-head.length-ending.length);
-      const middle=lines.slice(3,-3).join("\n").slice(0,middleBudget).trimEnd();
+      const middle=lines.slice(criticalHeadCount,-3).join("\n").slice(0,middleBudget).trimEnd();
       out=head+(middle?middle+"\n":"")+ending.trimStart();
       if (out.length>cap) out=out.slice(0,Math.max(0,cap-32)).trimEnd()+"\n[END ECHO VEIL]";
     }
@@ -15532,6 +15775,14 @@ const ECHO_VEIL = (() => {
     primeFromHistory();
     refreshStoryCardIndex();
     const s=getState();
+    // Plot Essentials, AI Instructions and Story Card Entries can carry explicit
+    // perspective boundaries even when the player did not repeat them this turn.
+    // Scan only for explicit ignorance language; no positive beliefs are inferred
+    // from omniscient context here.
+    if (CFG.enableKnowledge && CFG.enableKnowledgeFirewall) {
+      scanKnowledgeGaps(String(text||""),"context");
+      scanKnowledgeCardNotes();
+    }
     s.director.contextTurn=nowTurn();
     s.director.contextBaseOutputTurn=s.meta.lastOutputTurn;
     return injectGuidance(text);
@@ -15549,6 +15800,7 @@ const ECHO_VEIL = (() => {
     }
     let clean=sanitizeLeakage(text);
     clean=repairOutputSpacing(clean);
+    clean=enforceKnowledgeFirewallOnOutput(clean);
 
     // Contradictions must be checked against the world as it existed before this
     // response updates those facts.
@@ -15614,7 +15866,7 @@ const ECHO_VEIL = (() => {
     const s=getState();
     return {
       version:VERSION, turn:nowTurn(), genre:s.genre, scene:cloneJson(s.scene), discourse:cloneJson(s.discourse), metrics:cloneJson(s.metrics), pacing:cloneJson(s.pacing),
-      threads:cloneJson(s.threads), consequences:cloneJson(s.consequences), relations:cloneJson(s.relations), beliefs:cloneJson(s.beliefs),
+      threads:cloneJson(s.threads), consequences:cloneJson(s.consequences), relations:cloneJson(s.relations), beliefs:cloneJson(s.beliefs), knowledgeGaps:cloneJson(s.knowledgeGaps),
       episodes:cloneJson(s.episodes), causalLinks:cloneJson(s.causalLinks), entities:cloneJson(s.entities), contradictions:cloneJson(s.contradictions), config:cloneJson(s.config), meta:cloneJson(s.meta)
     };
   }
@@ -15664,7 +15916,7 @@ const ECHO_VEIL = (() => {
         applyConfigFromCard();
         const s=getState(), idx=refreshStoryCardIndex();
         let stateChars=0; try { stateChars=JSON.stringify(s).length; } catch (_) {}
-        const counts={ entities:Object.keys(s.entities).length, relations:Object.keys(s.relations).length, beliefs:s.beliefs.length, contestedBeliefs:s.beliefs.filter(b=>b.contested).length, episodes:s.episodes.length, causalLinks:s.causalLinks.length, threads:s.threads.length, consequences:s.consequences.length, sceneFacts:s.scene.facts.length, sceneObjects:Object.keys(s.scene.objects||{}).length, sceneCast:Object.keys(s.scene.cast||{}).length, contradictions:s.contradictions.length };
+        const counts={ entities:Object.keys(s.entities).length, relations:Object.keys(s.relations).length, beliefs:s.beliefs.length, knowledgeGaps:s.knowledgeGaps.filter(g=>!g.cleared).length, contestedBeliefs:s.beliefs.filter(b=>b.contested).length, episodes:s.episodes.length, causalLinks:s.causalLinks.length, threads:s.threads.length, consequences:s.consequences.length, sceneFacts:s.scene.facts.length, sceneObjects:Object.keys(s.scene.objects||{}).length, sceneCast:Object.keys(s.scene.cast||{}).length, contradictions:s.contradictions.length };
         const capacity={ entities:CFG.maxEntities, relations:CFG.maxRelations, beliefs:CFG.maxBeliefs, episodes:CFG.maxEpisodes, causalLinks:CFG.maxCausalLinks, threads:CFG.maxThreads, consequences:CFG.maxConsequences, sceneFacts:CFG.maxSceneFacts, sceneObjects:Math.max(12,Math.min(48,CFG.maxSceneFacts)) };
         const saturation={}; Object.keys(capacity).forEach(k=>saturation[k]=capacity[k]?Math.round((counts[k]||0)/capacity[k]*100):0);
         return {
@@ -15753,7 +16005,7 @@ function CE_echoCardSection(name) {
   try {
     var ev=state.echoVeil;if(!ev)return "Continuity tracking ready; no ECHO VEIL state yet.";var key=Object.keys(ev.entities||{}).find(function(k){var e=ev.entities[k];return e&&CE_sameName(e.name||k,name);}),ent=key?ev.entities[key]:null,lines=[];
     if(ent){var presence=ent.states&&ent.states.presence&&ent.states.presence.value;if(presence)lines.push("Presence: "+presence+(Number.isFinite(Number(ent.lastSeen))?" (last seen turn "+ent.lastSeen+")":""));else if(Number.isFinite(Number(ent.lastSeen)))lines.push("Last seen: turn "+ent.lastSeen);if(Array.isArray(ent.affiliations)&&ent.affiliations.length)lines.push("Affiliations: "+ent.affiliations.slice(0,3).join(", "));if(Array.isArray(ent.motives)&&ent.motives.length){var motives=ent.motives.slice(-2).map(function(m){return CE_noteClip(m&&(m.summary||m.text)||m,120);}).filter(Boolean);if(motives.length)lines.push("Established motives: "+motives.join(" | "));}var states=Object.keys(ent.states||{}).filter(function(k){return k!=="presence";}).slice(0,4).map(function(k){var v=ent.states[k];return k+"="+CE_noteClip(v&&v.value,70);});if(states.length)lines.push("Continuity: "+states.join("; "));}
-    var actorMatch=function(a){return Array.isArray(a)&&a.some(function(x){return CE_sameName(x,name);});},threads=(ev.threads||[]).filter(function(t){return t&&!t.resolved&&actorMatch(t.actors);}).sort(function(a,b){return(b.lastTouched||0)-(a.lastTouched||0);}).slice(0,2);if(threads.length)lines.push("Live threads: "+threads.map(function(t){return CE_noteClip(t.summary,135);}).join(" | "));var cons=(ev.consequences||[]).filter(function(c){return c&&c.status!=="resolved"&&actorMatch(c.actors);}).sort(function(a,b){return(b.createdTurn||0)-(a.createdTurn||0);}).slice(0,2);if(cons.length)lines.push("Pending consequences: "+cons.map(function(c){return CE_noteClip(c.summary||c.sourceText||c.kind,135);}).join(" | "));
+    var gaps=(ev.knowledgeGaps||[]).filter(function(g){return g&&!g.cleared&&CE_sameName(g.owner,name);}).slice(0,3);if(gaps.length)lines.push("Knowledge boundaries (does NOT know): "+gaps.map(function(g){return CE_noteClip(g.summary,135);}).join(" | "));var actorMatch=function(a){return Array.isArray(a)&&a.some(function(x){return CE_sameName(x,name);});},threads=(ev.threads||[]).filter(function(t){return t&&!t.resolved&&actorMatch(t.actors);}).sort(function(a,b){return(b.lastTouched||0)-(a.lastTouched||0);}).slice(0,2);if(threads.length)lines.push("Live threads: "+threads.map(function(t){return CE_noteClip(t.summary,135);}).join(" | "));var cons=(ev.consequences||[]).filter(function(c){return c&&c.status!=="resolved"&&actorMatch(c.actors);}).sort(function(a,b){return(b.createdTurn||0)-(a.createdTurn||0);}).slice(0,2);if(cons.length)lines.push("Pending consequences: "+cons.map(function(c){return CE_noteClip(c.summary||c.sourceText||c.kind,135);}).join(" | "));
     return lines.length?lines.join("\n"):"Continuity tracking ready; no entity-specific live pressure is recorded yet.";
   } catch(_){return "Continuity tracking available.";}
 }
@@ -15769,7 +16021,7 @@ function CE_syncStoryCardPresentation(){try{var names=[],add=function(n){n=Strin
 // CROSSED ECHOES — THE UNSPOKEN VEIL
 // Coordination bridge for UNSPOKEN TURNS + CROSSED WIRES + ECHO VEIL
 // ============================================================================
-var UNIFIED_NARRATIVE_BUILD = "2026-08-24-crossed-echoes-codex-hardening";
+var UNIFIED_NARRATIVE_BUILD = "2026-08-24-crossed-echoes-knowledge-firewall";
 var UN_DEFAULTS = {
   enabled: true,
   sharedScenario: true,
