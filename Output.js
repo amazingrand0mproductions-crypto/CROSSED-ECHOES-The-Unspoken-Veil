@@ -657,7 +657,10 @@ var unsaidModifier = (text) => {
               }
             }
             syncMindToCard(name, cfg.allowCoreShift, cfg.jsonNotes);
+            if (typeof CE_syncCharacterCard === "function") CE_syncCharacterCard(name);
           }
+        } else if (typeof CE_syncCharacterCard === "function") {
+          CE_syncCharacterCard(name);
         }
         return true;
       } catch (e) {
@@ -711,13 +714,13 @@ var unsaidModifier = (text) => {
 
         let entry;
         if (type === "character") {
-          entry = `Name: ${name}\nBackground: ${name} is an established character in the story.\nKnown Story Evidence: ${evidence}`;
+          entry = `Name: ${name}\nBackground: ${name} is an established character in the story.`;
         } else if (type === "location") {
-          entry = `Name: ${name}\nDescription: ${name} is an established location in the story.\nKnown Story Evidence: ${evidence}`;
+          entry = `Name: ${name}\nDescription: ${name} is an established location in the story.`;
         } else if (type === "item") {
-          entry = `Name: ${name}\nType: Item\nDescription: ${name} is an established item or object in the story.\nKnown Story Evidence: ${evidence}`;
+          entry = `Name: ${name}\nType: Item\nDescription: ${name} is an established item or object in the story.`;
         } else {
-          entry = `Name: ${name}\nType: Faction\nDescription: ${name} is an established group or organization in the story.\nKnown Story Evidence: ${evidence}`;
+          entry = `Name: ${name}\nType: Faction\nDescription: ${name} is an established group or organization in the story.`;
         }
         if (entry.length > MAX_CARD_ENTRY_LENGTH) entry = entry.slice(0, MAX_CARD_ENTRY_LENGTH - 1).trimEnd() + "…";
 
@@ -744,7 +747,10 @@ var unsaidModifier = (text) => {
               if (state.unsaid.castRegistry.length > MAX_CAST_SIZE) state.unsaid.castRegistry = state.unsaid.castRegistry.slice(-MAX_CAST_SIZE);
             }
             syncMindToCard(name, cfg.allowCoreShift, cfg.jsonNotes);
+            if (typeof CE_syncCharacterCard === "function") CE_syncCharacterCard(name);
           }
+        } else if (typeof CE_syncCharacterCard === "function") {
+          CE_syncCharacterCard(name);
         }
         return true;
       } catch (e) {
@@ -1282,6 +1288,7 @@ var modifier = (text) => {
     if (typeof CW_onOutput === "function") visible = CW_onOutput(visible);
     if (typeof ECHO_VEIL !== "undefined" && ECHO_VEIL.output) visible = ECHO_VEIL.output(visible);
     if (typeof UN_afterOutput === "function") UN_afterOutput(visible);
+    if (typeof CE_syncStoryCardPresentation === "function") CE_syncStoryCardPresentation();
     return { text: visible };
   } catch (e) {
     if (typeof utRecordRuntimeError === "function") utRecordRuntimeError("Output/unified", e);

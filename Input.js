@@ -210,7 +210,7 @@ var twistsModifier = (text) => {
         return stopControl();
       } else if (head === "twists" || head === "twisthelp") {
         Library.updateConfigCard(cfg, c);
-        pushMessage("📖 Config card refreshed — check \"UNSPOKEN TURNS — Config\" for settings and commands.");
+        pushMessage("📖 Config card refreshed — check \"CROSSED ECHOES — Config — UNSPOKEN TURNS\" for settings and commands.");
         return stopControl();
       } else {}
     }
@@ -290,7 +290,7 @@ var unsaidModifier = (text) => {
 
     if (/^\/unsaid(?:\s+(?:help|commands?|guide))?\s*$/i.test(commandText)) {
       ensureSharedConfigCard();
-      pushMessage("📖 Commands are active. They work from Story, Do, Say, and third-person input: /peek <name>, /peek <name> core, /card <name>, /alias <character> = <alias>, /unalias <character> = <alias>, /unsaid status, /unsaid health, /unsaid resetcodex. Colon form (:unsaid status) is also accepted. Full settings are on the \"UNSPOKEN TURNS — Config\" card.");
+      pushMessage("📖 Commands are active. They work from Story, Do, Say, and third-person input: /peek <name>, /peek <name> core, /card <name>, /alias <character> = <alias>, /unalias <character> = <alias>, /unsaid status, /unsaid health, /unsaid resetcodex. Colon form (:unsaid status) is also accepted. Full settings are on the \"CROSSED ECHOES — Config — UNSPOKEN TURNS\" card.");
       return stopControl();
     }
 

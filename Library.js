@@ -1,6 +1,15 @@
 // CROSSED ECHOES — The Unspoken Veil — Shared Library
 // Order: UNSPOKEN TURNS/TWISTS, Crossed Wires, ECHO VEIL, integration bridge.
 
+// Shared Story Card presentation for the combined build. All configuration
+// cards deliberately use one category so they sit together in AI Dungeon,
+// while their inert keys keep them out of normal story retrieval.
+var CE_CONFIG_CATEGORY = "CROSSED ECHOES CONFIG";
+var CE_CONFIG_TITLE_UNSAID = "CROSSED ECHOES — Config — UNSPOKEN TURNS";
+var CE_CONFIG_TITLE_CROSSED = "CROSSED ECHOES — Config — CROSSED WIRES";
+var CE_CONFIG_TITLE_ECHO = "CROSSED ECHOES — Config — ECHO VEIL";
+var CE_CONFIG_TITLE_INTEGRATION = "CROSSED ECHOES — Config — INTEGRATION";
+
 var CP_VERSION = "1.3";
 
 // Shared by both systems' name/entity detection (TWISTS AND TURNS'
@@ -1549,7 +1558,8 @@ var Library = (() => {
         for (let i = storyCards.length - 1; i >= 0 && used < 12; i--) {
           const card = storyCards[i];
           if (!card || !card.title || isOwnCard(card.title)) continue;
-          parts.push([card.title, card.entry, card.description].filter(Boolean).join(" ").slice(0, 900));
+          const publicNotes = (typeof CE_publicStoryCardNotes === "function") ? CE_publicStoryCardNotes(card) : String(card.description || "");
+          parts.push([card.title, card.entry, publicNotes].filter(Boolean).join(" ").slice(0, 900));
           used++;
         }
       }
@@ -1727,7 +1737,8 @@ var Library = (() => {
       if (type && !explicitCharacterType && characterFieldSignals < 2) return "";
 
       if (!directOnly) {
-        return [card.title, card.entry, card.description].filter(Boolean).join(" ");
+        const publicNotes = (typeof CE_publicStoryCardNotes === "function") ? CE_publicStoryCardNotes(card) : String(card.description || "");
+        return [card.title, card.entry, publicNotes].filter(Boolean).join(" ");
       }
 
       // For age-gating, use fields that describe the character directly.
@@ -1738,7 +1749,8 @@ var Library = (() => {
         .split(/\r?\n/)
         .filter(line => /^\s*(?:Age|Appearance|Description|Race|Type|Strength Level)\s*[:=]/i.test(line))
         .join(" ");
-      return [card.title, directLines, String(card.description || "").slice(0, 320)]
+      const publicNotes = (typeof CE_publicStoryCardNotes === "function") ? CE_publicStoryCardNotes(card) : String(card.description || "");
+      return [card.title, directLines, publicNotes.slice(0, 320)]
         .filter(Boolean)
         .join(" ");
     }
@@ -3866,7 +3878,7 @@ function stripPossessive(w) {
 // word-subset comparison and, via "/card Unspoken," actually get spliced
 // into the real shared settings card's cast list and Notes. One shared
 // list here means it can't drift apart a second time.
-var OWN_CARD_TITLE_PREFIXES = ["Twists and Turns", "Twist — ", "UNSAID", "UNSPOKEN TURNS"];
+var OWN_CARD_TITLE_PREFIXES = ["Twists and Turns", "Twist — ", "UNSAID", "UNSPOKEN TURNS", "CROSSED ECHOES — Config"];
 
 function isOwnCard(title) {
   return !!title && OWN_CARD_TITLE_PREFIXES.some(p => title.indexOf(p) === 0);
@@ -4199,7 +4211,7 @@ function findConfigCardTolerant(title, maxDistance) {
 // marked section. Every read/write is scoped to just one section via
 // extractConfigSection/spliceConfigSection, so neither system's settings
 // can ever be clobbered by the other's — even though they share one card.
-var CONFIG_CARD_TITLE = "UNSPOKEN TURNS — Config";
+var CONFIG_CARD_TITLE = CE_CONFIG_TITLE_UNSAID;
 var CONFIG_SECTION_TWIST = "== TWISTS AND TURNS ==";
 var CONFIG_SECTION_UNSAID = "== UNSAID ==";
 
@@ -4581,8 +4593,8 @@ function renderUnsaidNotes() {
 var CONFIG_DEFAULT_UNSAID_NOTES_SECTION = renderUnsaidNotes();
 
 function ensureSharedConfigCard() {
-  let card = findConfigCardTolerant(CONFIG_CARD_TITLE);
-  if (card && card.title !== CONFIG_CARD_TITLE) card.title = CONFIG_CARD_TITLE;
+  let card = findConfigCardTolerant(CONFIG_CARD_TITLE) || findConfigCardTolerant("UNSPOKEN TURNS — Config");
+  if (card && card.title !== CONFIG_CARD_TITLE) { card.title = CONFIG_CARD_TITLE; card.name = CONFIG_CARD_TITLE; }
 
   if (!card) {
     const oldTwistCard = findConfigCardTolerant("Twists and Turns Config");
@@ -4613,9 +4625,9 @@ function ensureSharedConfigCard() {
 
     const initialEntry = twistSection.replace(/\s+$/, "") + "\n\n" + unsaidEntrySection;
     const initialDescription = twistNotesSection.replace(/\s+$/, "") + "\n\n" + unsaidNotesSection;
-    const cardKeys = CONFIG_CARD_TITLE.toLowerCase();
+    const cardKeys = "__crossed_echoes_config_unsaid__";
     try {
-      const idx = addStoryCard(cardKeys, initialEntry, "Class");
+      const idx = addStoryCard(cardKeys, initialEntry, CE_CONFIG_CATEGORY);
       card = (typeof idx === "number" && storyCards[idx]) ? storyCards[idx] : null;
     } catch (e) {}
     if (!card) card = storyCards.find(sc => sc.keys === cardKeys) || null;
@@ -4626,7 +4638,7 @@ function ensureSharedConfigCard() {
     }
     if (card) {
       card.title = CONFIG_CARD_TITLE;
-      card.type = "Class";
+      card.type = CE_CONFIG_CATEGORY;
       if (!card.entry || !card.entry.trim()) card.entry = initialEntry;
       if (!card.description || !card.description.trim()) card.description = initialDescription;
       // fold in complete — the two old separate cards are now redundant
@@ -4639,6 +4651,12 @@ function ensureSharedConfigCard() {
   }
 
   if (card) {
+    card.title = CONFIG_CARD_TITLE;
+    card.name = CONFIG_CARD_TITLE;
+    card.type = CE_CONFIG_CATEGORY;
+    // Config cards are administrative; use an inert key so the card is not
+    // accidentally recalled into normal story context by its own title words.
+    card.keys = "";
     if (card.entry.indexOf(CONFIG_SECTION_TWIST) === -1) {
       card.entry = spliceConfigSection(card.entry, CONFIG_SECTION_TWIST, renderTwistSection(Object.assign({}, CP_DEFAULTS, (state.contingencyConfig || {}))));
     }
@@ -8706,7 +8724,7 @@ function CW_recentHistoryText(limit) {
   }).join("\n");
 }
 
-const CW_CONFIG_TITLE = "Crossed Wires Config";
+const CW_CONFIG_TITLE = CE_CONFIG_TITLE_CROSSED;
 const CW_CONFIG_MARKER = "CWCFG8";
 
 function CW_cardKeysText(card) {
@@ -8725,7 +8743,7 @@ function CW_configCard() {
     const type = String(c.type || "").trim().toLowerCase();
     const keys = CW_cardKeysText(c).toLowerCase();
     const notes = String(c.description || c.notes || "");
-    if (title === CW_CONFIG_TITLE.toLowerCase()) return (CW_RUNTIME_CONFIG_CARD = c);
+    if (title === CW_CONFIG_TITLE.toLowerCase() || title === "crossed wires config") return (CW_RUNTIME_CONFIG_CARD = c);
     if (type === "crossed wires config") return (CW_RUNTIME_CONFIG_CARD = c); // v2/v3 migration
     if (keys.includes("__crossed_wires_config__")) return (CW_RUNTIME_CONFIG_CARD = c); // v2/v3 migration
     if (notes.includes(CW_CONFIG_MARKER)) return (CW_RUNTIME_CONFIG_CARD = c);
@@ -8957,11 +8975,11 @@ function CW_writeConfigCard(card, cfg) {
   const notes = CW_configNotes();
   try {
     if (typeof updateStoryCard === "function") {
-      updateStoryCard(index, "", entry, "Custom", CW_CONFIG_TITLE, notes);
+      updateStoryCard(index, "", entry, CE_CONFIG_CATEGORY, CW_CONFIG_TITLE, notes);
     }
   } catch (e) {
     try {
-      if (typeof updateStoryCard === "function") updateStoryCard(index, "", entry, "Custom");
+      if (typeof updateStoryCard === "function") updateStoryCard(index, "", entry, CE_CONFIG_CATEGORY);
     } catch (fallbackError) {
       if (typeof log === "function") log("Crossed Wires: config card API update fallback: " + fallbackError);
     }
@@ -8971,7 +8989,7 @@ function CW_writeConfigCard(card, cfg) {
   const current = storyCards[index] || card;
   current.keys = "";
   current.entry = entry;
-  current.type = "Custom";
+  current.type = CE_CONFIG_CATEGORY;
   current.title = CW_CONFIG_TITLE;
   current.name = CW_CONFIG_TITLE;
   current.description = notes;
@@ -9010,11 +9028,11 @@ function CW_ensureConfigCard() {
   try {
     // Newer AI Dungeon builds accept name/title and notes after the documented
     // keys/entry/type arguments. Older builds simply use the first three.
-    const result = addStoryCard("__cw_config_bootstrap_8__", entry, "Custom", CW_CONFIG_TITLE, notes);
+    const result = addStoryCard("__cw_config_bootstrap_8__", entry, CE_CONFIG_CATEGORY, CW_CONFIG_TITLE, notes);
     if (Number.isFinite(Number(result))) createdIndex = Number(result);
   } catch (e) {
     try {
-      const result = addStoryCard("__cw_config_bootstrap_8__", entry, "Custom");
+      const result = addStoryCard("__cw_config_bootstrap_8__", entry, CE_CONFIG_CATEGORY);
       if (Number.isFinite(Number(result))) createdIndex = Number(result);
     } catch (fallbackError) {
       if (typeof log === "function") log("Crossed Wires: could not create config card: " + fallbackError);
@@ -9033,14 +9051,14 @@ function CW_ensureConfigCard() {
   const index = storyCards.indexOf(card);
   if (index >= 0) {
     try {
-      if (typeof updateStoryCard === "function") updateStoryCard(index, "", entry, "Custom", CW_CONFIG_TITLE, notes);
+      if (typeof updateStoryCard === "function") updateStoryCard(index, "", entry, CE_CONFIG_CATEGORY, CW_CONFIG_TITLE, notes);
     } catch (e) {
-      try { if (typeof updateStoryCard === "function") updateStoryCard(index, "", entry, "Custom"); } catch (_) {}
+      try { if (typeof updateStoryCard === "function") updateStoryCard(index, "", entry, CE_CONFIG_CATEGORY); } catch (_) {}
     }
   }
   card.keys = "";
   card.entry = entry;
-  card.type = "Custom";
+  card.type = CE_CONFIG_CATEGORY;
   card.title = CW_CONFIG_TITLE;
   card.name = CW_CONFIG_TITLE;
   card.description = notes;
@@ -9595,7 +9613,7 @@ function CW_seedFromCharacterCards(turn) {
     const canonical = candidates[0];
     const mentioned = candidates.some(function (candidate) { return CW_wordPresent(recent, candidate); });
     if (!mentioned) continue;
-    CW_registerNpc(canonical, turn, CW_detectAdultFromEntry(String(card.entry || "") + "\n" + String(card.description || card.notes || "")));
+    CW_registerNpc(canonical, turn, CW_detectAdultFromEntry(String(card.entry || "") + "\n" + (typeof CE_publicStoryCardNotes === "function" ? CE_publicStoryCardNotes(card) : String(card.description || card.notes || ""))));
     for (const alias of candidates.slice(1, 8)) CW_registerAlias(alias, canonical);
   }
 }
@@ -11255,7 +11273,7 @@ function CW_help() {
     "!spark major      — force a high-stakes twist when eligible",
     "!wirehelp         — show this help",
     "",
-    "Settings live in the 'Crossed Wires Config' Story Card. AUTO Scenario Mode adapts to the adventure; Notes explain every setting, supported profile and repair rule."
+    "Settings live in the 'CROSSED ECHOES — Config — CROSSED WIRES' Story Card under the shared 'CROSSED ECHOES CONFIG' category. AUTO Scenario Mode adapts to the adventure; Notes explain every setting, supported profile and repair rule."
   ].join("\n");
 }
 
@@ -11545,7 +11563,8 @@ const ECHO_VEIL = (() => {
 
   const CONFIG_CARD = {
     schema: 6,
-    type: "ECHO VEIL CONFIG",
+    title: CE_CONFIG_TITLE_ECHO,
+    type: CE_CONFIG_CATEGORY,
     // Deliberately inert trigger: the config Entry is for the script/user, not model context.
     keys: "__ECHO_VEIL_CONFIG__",
     marker: "ECHO VEIL CONFIG"
@@ -11735,7 +11754,7 @@ const ECHO_VEIL = (() => {
       ["MAX_RELATIONS", "16-144. Hard cap for directional relationship edges."],
       ["MAX_BELIEFS", "12-96. Hard cap for perspective-bounded belief records."],
       ["MAX_SCENE_FACTS", "12-72. Hard cap for continuity facts kept in the live scene/world store."],
-      ["CONFIG_HELP", "FULL, COMPACT, or OFF. Controls the comment-only option guide stored in this Entry. Full Notes are also supplied in the import JSON."],
+      ["CONFIG_HELP", "Legacy compatibility setting. In CROSSED ECHOES the live Entry always stays settings-only; the complete guide is kept here in Notes."],
       ["DEBUG", "ON writes ECHO VEIL diagnostic logs during script tests/runs; OFF is recommended for normal play."]
     ];
     if (compact) return rows.map(r => "# " + r[0] + " — " + r[1].split(".")[0] + ".");
@@ -11766,23 +11785,94 @@ const ECHO_VEIL = (() => {
 
   function configNotesText() {
     return [
-      "ECHO VEIL CONFIG — OPTION NOTES",
+      "🌘 ECHO VEIL — CONFIGURATION GUIDE",
+      "CROSSED ECHOES — The Unspoken Veil",
       "",
-      "The Notes field is for you, not the story model. Change values in the Entry field, then make any turn to apply them.",
-      "AUTO means inherit the selected PRESET. Invalid values are ignored/clamped rather than crashing the adventure.",
+      "PURPOSE",
+      "ECHO VEIL is the continuity, causality, knowledge, pacing and living-world layer. Edit settings in this card's Entry. These Notes are documentation only and are deliberately kept out of normal story evidence.",
       "",
-      "PRESETS",
-      "SUBTLE: strict detection, lower director pressure, fewer recalled memories.",
-      "BALANCED: recommended default.",
-      "CINEMATIC: more active callbacks/consequences and slightly more permissive detection.",
-      "LONGFORM: conservative detection, high continuity priority, broader/diverse memory recall.",
-      "DYNAMIC: most active director and off-screen pressure while keeping the same safety guards.",
+      "HOW TO EDIT",
+      "• Change only the value after = in Entry, then perform any normal turn.",
+      "• ON/OFF settings accept ON or OFF.",
+      "• AUTO means: use the value supplied by PRESET.",
+      "• A manually entered numeric value overrides PRESET for that one setting.",
+      "• Invalid values are ignored or safely clamped; they should not break the adventure.",
+      "• Recommended starting point: PRESET = BALANCED and leave the AUTO fields on AUTO.",
       "",
-      "ALL OPTIONS",
-      ...configOptionHelpLines(false).map(x => x.replace(/^#\s*/, "")),
+      "━━━━━━━━━━ PRESETS ━━━━━━━━━━",
+      "SUBTLE — Quiet background continuity. Strict detection, lighter consequences/director pressure and fewer memory callbacks.",
+      "BALANCED — Recommended default. Strong continuity without making the director dominate ordinary scenes.",
+      "CINEMATIC — More callbacks, consequences and active dramatic movement. Slightly more permissive detection.",
+      "LONGFORM — Conservative detection with stronger continuity and broader, more varied memory recall. Best for long campaigns.",
+      "DYNAMIC — Most active living-world/off-screen pressure while retaining the same evidence and safety guards.",
       "",
-      "IMPORTANT",
-      "Unified build: the Entry is kept settings-only to remain under AI Dungeon's 2000-character limit. Full explanations are supplied in the included config Notes/import file."
+      "━━━━━━━━━━ MASTER & CORE SYSTEMS ━━━━━━━━━━",
+      "SCHEMA [internal] — Config format number. Do not edit. Migrations maintain it automatically.",
+      "PRESET [SUBTLE|BALANCED|CINEMATIC|LONGFORM|DYNAMIC] — Baseline tuning used by every AUTO field.",
+      "MASTER [ON|OFF] — Master ECHO VEIL switch. OFF preserves state/config but stops ECHO narrative processing.",
+      "CAUSALITY [ON|OFF] — Tracks actions and delayed consequences. Turn OFF only if you do not want choices to create future causal pressure.",
+      "THREADS [ON|OFF] — Tracks unresolved promises, threats, mysteries, goals, debts, wounds, evidence and other unfinished business.",
+      "RELATIONSHIPS [ON|OFF] — ECHO's lightweight directional social continuity. CROSSED WIRES remains the specialist relationship engine; this layer helps world continuity and cross-system handoff.",
+      "KNOWLEDGE [ON|OFF] — Tracks who knows or believes what. Strongly recommended for mysteries, secrets, conspiracies and multi-NPC stories.",
+      "CONTINUITY [ON|OFF] — Tracks physical/world facts such as injuries, life state, presence, possessions and environmental change. Strongly recommended.",
+      "OFFSCREEN_AGENCY [ON|OFF] — Lets absent NPCs/factions build pressure to act from already-established motives. OFF makes the world more player-centred/static.",
+      "PACING [ON|OFF] — Tracks recent scene functions and discourages repetitive escalation or the same dramatic beat repeating endlessly.",
+      "ANTI_LOOP [ON|OFF] — Detects repetitive wording/state and nudges the director to change a real story variable rather than paraphrase the same beat.",
+      "",
+      "━━━━━━━━━━ SAFETY / INTERPRETATION ━━━━━━━━━━",
+      "ATTEMPT_RESOLUTION [ON|OFF] — Separates what the player attempted from what the AI actually confirmed. Strongly recommended for action, mystery and consequence-heavy play.",
+      "REWIND_SAFETY [ON|OFF] — Checkpoints hidden state against action count so Retry/Undo/branching can discard rejected continuity. Keep ON.",
+      "PRONOUN_RESOLUTION [ON|OFF] — Conservatively maps pronouns back to recently explicit entities. It never creates a new person from a pronoun alone.",
+      "TEMPORAL_SCOPE_GUARD [ON|OFF] — Stops dreams, flashbacks, visions, recordings and remembered events from silently overwriting current-world facts. Keep ON unless deliberately debugging.",
+      "UNCERTAINTY_GUARD [ON|OFF] — Prevents 'seems', 'appears', 'possibly', 'presumed' etc. from becoming hard facts before confirmation. Keep ON for evidence-safe stories.",
+      "PLAYER_IDENTITY_HINTS [ON|OFF] — Uses safe character placeholders/names to distinguish player-controlled identities from autonomous NPCs.",
+      "STORY_CARD_PROFILES [ON|OFF] — Reads public Story Card Entry/trigger information as high-confidence profile hints. CROSSED ECHOES' private script sections in Notes are excluded from story evidence.",
+      "",
+      "━━━━━━━━━━ MEMORY ━━━━━━━━━━",
+      "EPISODIC_MEMORY [ON|OFF] — Stores bounded long-term memories of important events for later relevance-based callbacks.",
+      "MEMORY_CONSOLIDATION [ON|OFF] — Merges highly redundant memories while preserving useful causal/evidence links. Recommended for long adventures.",
+      "MEMORY_RECALL [AUTO|0-6] — Maximum episodic memories considered for a director packet. Lower = lighter/focused; higher = more callbacks/context use.",
+      "RECALL_DIVERSITY [AUTO|0-100] — Higher values penalise near-duplicate memories more strongly, giving recall a wider spread of past events.",
+      "",
+      "━━━━━━━━━━ DETECTION ━━━━━━━━━━",
+      "DETECTION_STRICTNESS [AUTO|0-100] — Higher = uncatalogued proper nouns need stronger person-like evidence before becoming entities. Raise if places/items are being mistaken for people; lower only if real NPCs are being missed.",
+      "EVENT_CONFIDENCE [AUTO|30-90] — Minimum confidence before a continuity-changing event becomes a world fact after negation/scope/report guards. Raise for conservative canon; lower for more responsive tracking.",
+      "",
+      "━━━━━━━━━━ DIRECTOR PRESSURE / CONTEXT ━━━━━━━━━━",
+      "CONTEXT_SHARE [AUTO|6-24] — Approximate percentage of usable context ECHO may target after Memory. Lower for very crowded prompt stacks; higher for large-context long-form models.",
+      "MAX_GUIDANCE_CHARS [AUTO|1200-6000] — Hard cap on ECHO's private director packet. Lower saves context; higher allows richer continuity guidance.",
+      "THREAD_PRESSURE [AUTO|0-250] — Percent multiplier for how fast unresolved threads gain age/return pressure. 100 is neutral; >100 resurfaces old business sooner; <100 slows it down.",
+      "OFFSCREEN_ACTIVITY [AUTO|0-250] — Percent multiplier for absent-agent pressure. Higher makes factions/NPCs act off-screen more often; lower makes them wait longer.",
+      "CONTINUITY_STRENGTH [AUTO|0-100] — Priority given to retrieving continuity facts and repairing contradictions. Raise for strict canon-heavy play.",
+      "CONSEQUENCE_PRESSURE [AUTO|25-200] — Strength of matured causal consequences competing for director attention. Higher makes old choices come home sooner.",
+      "RELATIONSHIP_FRESHNESS [AUTO|0-100] — How strongly recent social evidence is favoured over older history during ECHO retrieval. Higher = more recent-state sensitive; lower = longer historical memory.",
+      "MOVE_COOLDOWN [AUTO|0-8] — Turns before the same non-repair director move is strongly discouraged from repeating. Raise if ECHO feels repetitive; lower for faster recurring pressure.",
+      "",
+      "━━━━━━━━━━ OUTPUT CLEANUP ━━━━━━━━━━",
+      "AUTO_SPACING [ON|OFF] — Repairs high-confidence missing spaces at sentence boundaries such as 'you.Bram' → 'you. Bram'. It is intentionally conservative.",
+      "",
+      "━━━━━━━━━━ STORE LIMITS ━━━━━━━━━━",
+      "MAX_EPISODES [16-128] — Maximum stored episodic memories. Higher preserves more history but uses more state/work.",
+      "MAX_THREADS [8-64] — Maximum live unresolved threads.",
+      "MAX_CONSEQUENCES [8-48] — Maximum delayed causal consequences.",
+      "MAX_RELATIONS [16-144] — Maximum ECHO directional relationship edges. CROSSED WIRES maintains its own specialist relationship history separately.",
+      "MAX_BELIEFS [12-96] — Maximum perspective-bounded knowledge/belief records.",
+      "MAX_SCENE_FACTS [12-72] — Maximum live continuity facts kept in the current scene/world store.",
+      "Tip: leave these defaults alone unless you have a very long adventure or are troubleshooting state size.",
+      "",
+      "━━━━━━━━━━ ADMIN / DEBUG ━━━━━━━━━━",
+      "CONFIG_HELP [FULL|COMPACT|OFF] — Kept for backward compatibility. In CROSSED ECHOES the Entry always remains settings-only and the complete guide stays in Notes, so this setting does not inflate Entry.",
+      "DEBUG [ON|OFF] — Diagnostic logging for tests/troubleshooting. Keep OFF during normal play.",
+      "",
+      "━━━━━━━━━━ RECOMMENDED TUNING ━━━━━━━━━━",
+      "Grounded mystery: BALANCED or LONGFORM; keep KNOWLEDGE, CONTINUITY, UNCERTAINTY_GUARD and TEMPORAL_SCOPE_GUARD ON.",
+      "Character drama / romance: BALANCED; RELATIONSHIP_FRESHNESS AUTO; let CROSSED WIRES handle detailed relationship pressure.",
+      "Cinematic superhero/fantasy: CINEMATIC; optionally raise CONSEQUENCE_PRESSURE modestly if choices feel too disposable.",
+      "Huge long-running campaign: LONGFORM; keep MEMORY_CONSOLIDATION ON and avoid maxing every store limit unless needed.",
+      "Fast chaotic story: DYNAMIC; if it becomes too busy, reduce OFFSCREEN_ACTIVITY or CONSEQUENCE_PRESSURE before disabling safety guards.",
+      "",
+      "CROSSED ECHOES CARD RULE",
+      "All four configuration cards use the Story Card category 'CROSSED ECHOES CONFIG'. Entry contains editable settings; Notes contain the full human-readable guide. Character cards use Entry for public canon and Notes for script diagnostics/private engine state."
     ].join("\n");
   }
 
@@ -11850,13 +11940,15 @@ const ECHO_VEIL = (() => {
 
   function findConfigCardIndex() {
     if (typeof storyCards === "undefined" || !Array.isArray(storyCards)) return -1;
-    const wantedType = CONFIG_CARD.type.toLowerCase();
     const wantedKey = CONFIG_CARD.keys.toLowerCase();
     for (let i = 0; i < storyCards.length; i++) {
       const c = storyCards[i] || {};
-      const type = String(c.type || "").trim().toLowerCase();
       const rawKeys = Array.isArray(c.keys) ? c.keys.join(",") : String(c.keys || "");
-      if (type === wantedType || rawKeys.toLowerCase().split(",").map(x => x.trim()).includes(wantedKey)) return i;
+      const keyMatch = rawKeys.toLowerCase().split(",").map(x => x.trim()).includes(wantedKey);
+      const title = String(c.title || c.name || "").trim();
+      const legacyTitle = title === "ECHO VEIL CONFIG" || title === "Configure ECHO VEIL";
+      const markerMatch = String(c.description || c.notes || "").indexOf("ECHO VEIL CONFIG — OPTION NOTES") >= 0;
+      if (keyMatch || title === CONFIG_CARD.title || legacyTitle || markerMatch) return i;
     }
     return -1;
   }
@@ -11924,11 +12016,25 @@ const ECHO_VEIL = (() => {
 
     const wantedEntry = withConfigHelp(entry);
     const rawKeys = Array.isArray(card.keys) ? card.keys.join(",") : String(card.keys || "");
-    const keyChanged = rawKeys.trim() !== CONFIG_CARD.keys;
+    const keyChanged = rawKeys.trim() !== "";
     const helpChanged = wantedEntry !== entry;
-    if ((changed || keyChanged || helpChanged) && typeof updateStoryCard === "function") {
-      try { updateStoryCard(index, CONFIG_CARD.keys, wantedEntry, CONFIG_CARD.type); RUNTIME_CARD_INDEX_CACHE = null; } catch (_) {}
+    const notes = configNotesText();
+    const titleChanged = String(card.title || card.name || "") !== CONFIG_CARD.title;
+    const typeChanged = String(card.type || "") !== CONFIG_CARD.type;
+    const notesChanged = String(card.description || card.notes || "") !== notes;
+    if ((changed || keyChanged || helpChanged || titleChanged || typeChanged || notesChanged) && typeof updateStoryCard === "function") {
+      try { updateStoryCard(index, "", wantedEntry, CONFIG_CARD.type, CONFIG_CARD.title, notes); RUNTIME_CARD_INDEX_CACHE = null; } catch (_) {
+        try { updateStoryCard(index, "", wantedEntry, CONFIG_CARD.type); RUNTIME_CARD_INDEX_CACHE = null; } catch (__) {}
+      }
     }
+    const current = storyCards[index] || card;
+    current.keys = "";
+    current.entry = wantedEntry;
+    current.type = CONFIG_CARD.type;
+    current.title = CONFIG_CARD.title;
+    current.name = CONFIG_CARD.title;
+    current.description = notes;
+    current.notes = notes;
     return index;
   }
 
@@ -11937,7 +12043,7 @@ const ECHO_VEIL = (() => {
     if (index >= 0) return upgradeConfigCard(index);
     if (typeof addStoryCard !== "function") return -1;
     try {
-      const added = addStoryCard(CONFIG_CARD.keys, configCardTemplate(), CONFIG_CARD.type);
+      const added = addStoryCard(CONFIG_CARD.keys, configCardTemplate(), CONFIG_CARD.type, CONFIG_CARD.title, configNotesText());
       RUNTIME_CARD_INDEX_CACHE = null;
       if (added === false) return upgradeConfigCard(findConfigCardIndex());
       return upgradeConfigCard(Number.isFinite(added) ? added : findConfigCardIndex());
@@ -15433,10 +15539,201 @@ const ECHO_VEIL = (() => {
 
 
 // ============================================================================
+// CROSSED ECHOES — STORY CARD PRESENTATION
+// Keeps model-facing Entry clean while storing script state in Notes.
+// Everything after the existing private marker is deliberately excluded from
+// TWISTS AND TURNS evidence scans, preventing private/script metadata leakage.
+// ============================================================================
+var CE_CARD_NOTES_START = (typeof MIND_NOTES_MARKER !== "undefined" ? MIND_NOTES_MARKER : "💭 Inner Life — private, not visible to other characters");
+
+function CE_publicStoryCardNotes(card) {
+  var raw = String(card && (card.description || card.notes) || "");
+  return raw.split(CE_CARD_NOTES_START)[0].replace(/\s+$/g, "");
+}
+
+function CE_noteClip(value, max) {
+  var s = String(value || "").replace(/\s+/g, " ").trim();
+  var n = Math.max(40, Number(max) || 180);
+  return s.length <= n ? s : s.slice(0, n - 1).replace(/\s+$/g, "") + "…";
+}
+
+function CE_sameName(a, b) {
+  try { if (typeof isSameCardEntity === "function") return isSameCardEntity(a, b); } catch (_) {}
+  return String(a || "").trim().toLowerCase() === String(b || "").trim().toLowerCase();
+}
+
+function CE_unsaidCardSection(name) {
+  try {
+    var minds = (state.unsaid && state.unsaid.minds) || {};
+    var key = Object.keys(minds).find(function(k){ return CE_sameName(k, name); });
+    var m = key ? minds[key] : null;
+    if (!m) return "Tracking ready. No durable private state has been recorded yet.";
+    var lines = [];
+    if (m.core) lines.push("Core truth: " + CE_noteClip(m.core, 240));
+    if (m.feeling) lines.push("Current feeling: " + CE_noteClip(m.feeling, 150));
+    if (m.want) lines.push("Current want: " + CE_noteClip(m.want, 180));
+    if (m.lastThoughtText) lines.push("Last private thought: " + CE_noteClip(m.lastThoughtText, 240));
+    if (Number(m.tensionLevel || 0) > 0) lines.push("Identity tension: " + Math.round(Number(m.tensionLevel || 0)) + " / " + (typeof TENSION_THRESHOLD !== "undefined" ? TENSION_THRESHOLD : "threshold"));
+    var order = Array.isArray(m.thoughtOrder) ? m.thoughtOrder.slice(-3) : [];
+    if (order.length && m.thoughtBank) {
+      var memory = order.map(function(k){ return k + ": " + CE_noteClip(m.thoughtBank[k], 120); }).filter(Boolean);
+      if (memory.length) lines.push("Private memory: " + memory.join(" | "));
+    }
+    return lines.length ? lines.join("\n") : "Tracking active; no new private state this turn.";
+  } catch (_) { return "Tracking available."; }
+}
+
+function CE_crossedCardSection(name) {
+  try {
+    if (!state.crossedWires) return "Relationship tracking ready; no relationship history yet.";
+    var turn = (typeof CW_turn === "function") ? CW_turn() : 0;
+    var combined = (state.crossedWires.archivedAnchors || []).concat(state.crossedWires.ledger || []);
+    var dirs = {}, recent = [];
+    for (var i = combined.length - 1; i >= 0 && recent.length < 24; i--) {
+      var e = combined[i]; if (!e) continue;
+      if (!CE_sameName(e.from, name) && !CE_sameName(e.to, name)) continue;
+      var k = String(e.from) + "=>" + String(e.to);
+      if (!dirs[k]) { dirs[k] = {from:e.from,to:e.to}; recent.push(dirs[k]); }
+    }
+    var lines = [];
+    for (var j = 0; j < recent.length && lines.length < 4; j++) {
+      var d = recent[j];
+      var link = (typeof CW_computeLink === "function") ? CW_computeLink(d.from, d.to, turn) : null;
+      if (!link || link.mature === false) continue;
+      var role = (typeof CW_getRole === "function") ? CW_getRole(link.from, link.to) : "unknown";
+      var label = (typeof CW_roleAwareLabel === "function") ? CW_roleAwareLabel(link) : "developing relationship";
+      var pressure = (typeof CW_pressureText === "function") ? CW_pressureText(link.scores || {}) : "tracked";
+      var prefix = link.from + " → " + link.to + (role && role !== "unknown" && typeof CW_roleDisplay === "function" ? " [" + CW_roleDisplay(role) + "]" : "");
+      var extra = link.unresolved ? "; unresolved: " + link.unresolved : "";
+      lines.push(CE_noteClip(prefix + ": " + label + "; " + pressure + "; trajectory " + (link.trajectory || "forming") + extra, 360));
+    }
+    return lines.length ? lines.join("\n") : "Relationship tracking ready; no mature directional bond is established yet.";
+  } catch (_) { return "Relationship tracking available."; }
+}
+
+function CE_echoCardSection(name) {
+  try {
+    var ev = state.echoVeil;
+    if (!ev) return "Continuity tracking ready; no ECHO VEIL state yet.";
+    var key = Object.keys(ev.entities || {}).find(function(k){ var e=ev.entities[k]; return e && CE_sameName(e.name || k, name); });
+    var ent = key ? ev.entities[key] : null;
+    var lines = [];
+    if (ent) {
+      var presence = ent.states && ent.states.presence && ent.states.presence.value;
+      if (presence) lines.push("Presence: " + presence + (Number.isFinite(Number(ent.lastSeen)) ? " (last seen turn " + ent.lastSeen + ")" : ""));
+      else if (Number.isFinite(Number(ent.lastSeen))) lines.push("Last seen: turn " + ent.lastSeen);
+      if (Array.isArray(ent.affiliations) && ent.affiliations.length) lines.push("Affiliations: " + ent.affiliations.slice(0,3).join(", "));
+      if (Array.isArray(ent.motives) && ent.motives.length) {
+        var motives = ent.motives.slice(-2).map(function(m){ return CE_noteClip(m && (m.summary || m.text) || m, 120); }).filter(Boolean);
+        if (motives.length) lines.push("Established motives: " + motives.join(" | "));
+      }
+      var states = Object.keys(ent.states || {}).filter(function(k){ return k !== "presence"; }).slice(0,4).map(function(k){ var v=ent.states[k]; return k + "=" + CE_noteClip(v && v.value, 70); });
+      if (states.length) lines.push("Continuity: " + states.join("; "));
+    }
+    var actorMatch = function(a){ return Array.isArray(a) && a.some(function(x){ return CE_sameName(x, name); }); };
+    var threads = (ev.threads || []).filter(function(t){ return t && !t.resolved && actorMatch(t.actors); }).sort(function(a,b){ return (b.lastTouched||0)-(a.lastTouched||0); }).slice(0,2);
+    if (threads.length) lines.push("Live threads: " + threads.map(function(t){ return CE_noteClip(t.summary, 135); }).join(" | "));
+    var cons = (ev.consequences || []).filter(function(c){ return c && c.status !== "resolved" && actorMatch(c.actors); }).sort(function(a,b){ return (b.createdTurn||0)-(a.createdTurn||0); }).slice(0,2);
+    if (cons.length) lines.push("Pending consequences: " + cons.map(function(c){ return CE_noteClip(c.summary || c.sourceText || c.kind, 135); }).join(" | "));
+    return lines.length ? lines.join("\n") : "Continuity tracking ready; no character-specific live continuity pressure is recorded yet.";
+  } catch (_) { return "Continuity tracking available."; }
+}
+
+function CE_bridgeCardSection(name) {
+  try {
+    var u = state.unifiedNarrative || {};
+    var lines = [];
+    if (u.focus && u.focus.entity && CE_sameName(u.focus.entity, name)) {
+      lines.push("Convergent focus: active (" + (Array.isArray(u.focus.sources) ? u.focus.sources.join(" + ") : "multi-system") + ").");
+    }
+    var recent = (u.aftermath || []).filter(function(a){ return a && (CE_sameName(a.entity, name) || CE_sameName(a.from, name) || CE_sameName(a.to, name)); }).slice(-2);
+    if (recent.length) lines.push("Recent cross-system aftermath: " + recent.map(function(a){ return CE_noteClip(a.summary || a.kind, 130); }).join(" | "));
+    return lines.length ? lines.join("\n") : "Coordinator: no special cross-system focus currently attached to this character.";
+  } catch (_) { return "Coordinator available."; }
+}
+
+function CE_codexCardSection(name, card) {
+  try {
+    var codex = state.unsaid && state.unsaid.codex;
+    if (!codex) return "Codex: card is available for evidence-backed refreshes.";
+    var meta = null;
+    if (typeof codexManagedCardKey === "function") {
+      var mk = codexManagedCardKey(name, card);
+      meta = codex.cardMeta && codex.cardMeta[mk];
+    }
+    var lines = [];
+    if (meta) {
+      lines.push("Managed by Codex: yes" + (meta.manualEditProtected ? " — manual Entry edit protected" : ""));
+      lines.push("Last generated/refresh turn: " + (meta.lastRefreshTurn != null ? meta.lastRefreshTurn : meta.lastGeneratedTurn));
+      if (Number(meta.updateCount || 0) > 0) lines.push("Automatic refreshes: " + meta.updateCount);
+    } else lines.push("Managed by Codex: no (manual card or not yet adopted)." );
+    var evidence = (typeof codexEvidenceSentences === "function") ? codexEvidenceSentences(name, "").slice(-2) : [];
+    if (evidence && evidence.length) lines.push("Recent evidence: " + evidence.map(function(x){ return CE_noteClip(x, 180); }).join(" | "));
+    return lines.join("\n");
+  } catch (_) { return "Codex status unavailable this turn."; }
+}
+
+function CE_renderManagedCharacterNotes(name, card) {
+  return [
+    "🌒 CROSSED ECHOES — SCRIPT STATE",
+    "Auto-managed by the script. These Notes are player-facing diagnostics and are not used as story evidence.",
+    "",
+    "🧠 UNSPOKEN TURNS / UNSAID",
+    CE_unsaidCardSection(name),
+    "",
+    "❤️ CROSSED WIRES",
+    CE_crossedCardSection(name),
+    "",
+    "🌘 ECHO VEIL",
+    CE_echoCardSection(name),
+    "",
+    "🔗 CROSSED ECHOES",
+    CE_bridgeCardSection(name),
+    "",
+    "📚 CODEX",
+    CE_codexCardSection(name, card)
+  ].join("\n");
+}
+
+function CE_syncCharacterCard(name) {
+  try {
+    if (!name || typeof storyCards === "undefined" || !Array.isArray(storyCards)) return false;
+    var card = (typeof findStoryCardForEntity === "function") ? findStoryCardForEntity(name) : storyCards.find(function(c){ return c && CE_sameName(c.title, name); });
+    if (!card || (typeof isOwnCard === "function" && isOwnCard(card.title))) return false;
+    var kind = (typeof codexKindFromExistingCard === "function") ? codexKindFromExistingCard(card, name) : String(card.type || "").toLowerCase();
+    if (kind !== "character" && !/character|npc|person/i.test(String(card.type || ""))) return false;
+    var base = CE_publicStoryCardNotes(card);
+    var managed = CE_renderManagedCharacterNotes(name, card);
+    var next = (base ? base + "\n\n" : "") + CE_CARD_NOTES_START + "\n" + managed;
+    if (String(card.description || card.notes || "") !== next) {
+      card.description = next;
+      card.notes = next;
+    }
+    if (!card.type || /^class$/i.test(String(card.type))) card.type = "Character";
+    return true;
+  } catch (_) { return false; }
+}
+
+function CE_syncStoryCardPresentation() {
+  try {
+    var names = [], add = function(n){ n=String(n||"").trim(); if(n && !names.some(function(x){return CE_sameName(x,n);})) names.push(n); };
+    var u = state.unsaid || {};
+    (u.lastActiveCast || []).slice(0,8).forEach(add);
+    var cw = state.crossedWires || {}, now = (typeof CW_turn === "function" ? CW_turn() : 0);
+    Object.keys(cw.npcs || {}).forEach(function(k){ var n=cw.npcs[k]; if(n && Number(n.lastMentionTurn || n.lastSeen || -999) >= now - 1) add(n.name || k); });
+    var ev = state.echoVeil || {};
+    Object.keys((ev.scene && ev.scene.cast) || {}).forEach(function(k){ var c=ev.scene.cast[k]; if(c && Number(c.turn || -999) >= now - 1) add(c.name || k); });
+    if (state.unifiedNarrative && state.unifiedNarrative.focus) add(state.unifiedNarrative.focus.entity);
+    names.slice(0,10).forEach(CE_syncCharacterCard);
+  } catch (_) {}
+}
+
+
+// ============================================================================
 // CROSSED ECHOES — THE UNSPOKEN VEIL
 // Coordination bridge for UNSPOKEN TURNS + CROSSED WIRES + ECHO VEIL
 // ============================================================================
-var UNIFIED_NARRATIVE_BUILD = "2026-08-23-crossed-echoes-r4";
+var UNIFIED_NARRATIVE_BUILD = "2026-08-24-crossed-echoes-card-polish";
 var UN_DEFAULTS = {
   enabled: true,
   sharedScenario: true,
@@ -15498,6 +15795,7 @@ function UN_configCard() {
   try {
     if (typeof storyCards === "undefined" || !Array.isArray(storyCards)) return null;
     return storyCards.find(function(c){ return c && (
+      c.title === CE_CONFIG_TITLE_INTEGRATION ||
       c.title === "CROSSED ECHOES — The Unspoken Veil — Integration" ||
       c.title === "THREADBOUND — Integration" ||
       c.title === "UNIFIED NARRATIVE — Integration"
@@ -15554,7 +15852,7 @@ function UN_configNotes() {
     "6) After a confirmed major beat, recoveryGuard favors reaction/consequence before another automatic major beat.", "",
     "SAFETY OF STATE",
     "Private fears/wants never count as factual proof. Relationship scores never prove a plot secret. ECHO consequences are pacing/salience signals, not permission to invent events. Shared focus is a continuity cue, not a reveal trigger."
-  ].join("\\n");
+  ].join("\n");
 }
 
 function UN_bool(v, fallback) {
@@ -15599,15 +15897,17 @@ function UN_ensureConfigCard() {
     var cfg = UN_readConfig();
     var card = UN_configCard();
     if (!card && typeof Library !== "undefined" && Library.safeSetCard) {
-      Library.safeSetCard("CROSSED ECHOES — The Unspoken Veil — Integration", "class", UN_renderConfig(cfg), UN_configNotes(), "__crossed_echoes_integration__");
+      Library.safeSetCard(CE_CONFIG_TITLE_INTEGRATION, CE_CONFIG_CATEGORY, UN_renderConfig(cfg), UN_configNotes(), "__crossed_echoes_integration__");
       card = UN_configCard();
     }
     if (card) {
-      if (card.title !== "CROSSED ECHOES — The Unspoken Veil — Integration") {
-        card.title = "CROSSED ECHOES — The Unspoken Veil — Integration";
-        card.name = "CROSSED ECHOES — The Unspoken Veil — Integration";
+      if (card.title !== CE_CONFIG_TITLE_INTEGRATION) {
+        card.title = CE_CONFIG_TITLE_INTEGRATION;
+        card.name = CE_CONFIG_TITLE_INTEGRATION;
       }
-      if (["__unified_narrative_integration__","__threadbound_integration__"].indexOf(String(card.keys || "")) >= 0) card.keys = "__crossed_echoes_integration__";
+      card.type = CE_CONFIG_CATEGORY;
+      // Administrative config cards should not be recalled as lore.
+      card.keys = "";
       if (!card.entry || card.entry.length > 1900 || !/^CROSSED ECHOES INTEGRATION/m.test(card.entry)) card.entry = UN_renderConfig(cfg);
       if (!card.description || card.description.indexOf("CROSSED ECHOES — THE UNSPOKEN VEIL — INTEGRATION OPTIONS") < 0) card.description = UN_configNotes();
     }
