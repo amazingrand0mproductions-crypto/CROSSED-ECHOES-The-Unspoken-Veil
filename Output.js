@@ -190,6 +190,24 @@ var unsaidModifier = (text) => {
         });
     const expectedTypes = state.unsaid.codex.pendingTypes || {};
     const maxFieldLength = 420;
+    function codexSafeCardTriggers(name, fields, evidence, existingKeys) {
+      const values = [String(name || "").trim()];
+      const aliasText = fields && fields["Aliases"] ? String(fields["Aliases"]) : "";
+      aliasText.split(/[,;|/]/).map(v => v.trim()).filter(Boolean).forEach(alias => {
+        if (alias.length < 2 || alias.length > 60) return;
+        // Generated aliases become retrieval triggers only when corroborated by
+        // story evidence or an already-existing trigger. This avoids a model
+        // guess silently changing future card retrieval.
+        const corroborated = (evidence && nameAppears(alias, evidence)) ||
+          (existingKeys && String(existingKeys).toLowerCase().split(/[,;|]/).some(k => k.trim() === alias.toLowerCase()));
+        if (!corroborated) return;
+        if (typeof normalizeCodexCandidate === "function" && !normalizeCodexCandidate(alias, evidence || alias)) return;
+        values.push(alias);
+      });
+      const out=[];
+      values.forEach(v => { const k=String(v||"").trim().toLowerCase(); if(k && !out.includes(k)) out.push(k); });
+      return out.slice(0,8).join(", ");
+    }
     // Never strip arbitrary CARD-looking prose unless this turn actually
     // requested Codex output. This keeps user-authored bracketed text safe.
     const hadCodexRequest = rawExpectedNames.length > 0;
@@ -235,6 +253,7 @@ var unsaidModifier = (text) => {
     }
 
     function buildBoundedCardEntry(order, fields) {
+      const entryLimit = typeof codexCardEntryLimit === "function" ? codexCardEntryLimit(cfg) : 950;
       const fieldOrder = order.filter(f => fields[f]);
       if (fieldOrder.length === 0) return "";
 
@@ -250,7 +269,7 @@ var unsaidModifier = (text) => {
       }).join("\n");
 
       const full = renderWithCap(null);
-      if (full.length <= MAX_CARD_ENTRY_LENGTH) return full;
+      if (full.length <= entryLimit) return full;
 
       // Binary-search the largest per-field value cap that keeps every field
       // represented instead of bluntly chopping the final Relationships /
@@ -261,7 +280,7 @@ var unsaidModifier = (text) => {
       while (low <= high) {
         const mid = Math.floor((low + high) / 2);
         const candidate = renderWithCap(mid);
-        if (candidate.length <= MAX_CARD_ENTRY_LENGTH) {
+        if (candidate.length <= entryLimit) {
           best = candidate;
           low = mid + 1;
         } else {
@@ -271,9 +290,9 @@ var unsaidModifier = (text) => {
 
       // This should be unreachable with the current templates, but keep a
       // final hard guard for platform safety if fields are added later.
-      return best.length <= MAX_CARD_ENTRY_LENGTH
+      return best.length <= entryLimit
         ? best
-        : best.slice(0, MAX_CARD_ENTRY_LENGTH - 1).trimEnd() + "…";
+        : best.slice(0, entryLimit - 1).trimEnd() + "…";
     }
 
     function tryBuildCard(blockContent, name, upfrontType) {
@@ -290,6 +309,52 @@ var unsaidModifier = (text) => {
           ])
         ];
         const fieldAliases = {
+          "alias": "Aliases",
+          "also known as": "Aliases",
+          "aka": "Aliases",
+          "nickname": "Aliases",
+          "nicknames": "Aliases",
+          "callsign": "Aliases",
+          "call sign": "Aliases",
+          "occupation": "Role",
+          "job": "Role",
+          "profession": "Role",
+          "age / life stage": "Age",
+          "life stage": "Age",
+          "pronoun": "Pronouns",
+          "goal": "Goals",
+          "motivation": "Goals",
+          "objective": "Goals",
+          "team": "Affiliations",
+          "organization": "Affiliations",
+          "organisation": "Affiliations",
+          "current location": "Location",
+          "current status": "Status",
+          "region / area": "Region",
+          "ambience": "Atmosphere",
+          "mood": "Atmosphere",
+          "map / layout": "Layout",
+          "notable places": "Key Locations",
+          "people": "People & Factions",
+          "residents": "People & Factions",
+          "groups": "People & Factions",
+          "features and resources": "Features & Resources",
+          "resources and features": "Features & Resources",
+          "dangers": "Hazards",
+          "risks": "Hazards",
+          "present state": "Current State",
+          "routes": "Connections",
+          "owner / wielder": "Owner",
+          "wielder": "Owner",
+          "condition / state": "Condition",
+          "mission": "Purpose",
+          "leader": "Leadership",
+          "leaders": "Leadership",
+          "membership": "Members",
+          "area of control": "Territory",
+          "enemies": "Rivals",
+          "public reputation": "Reputation",
+          "activity": "Current Activity",
           "strength": "Strength Level",
           "power": "Strength Level",
           "power level": "Strength Level",
@@ -453,10 +518,10 @@ var unsaidModifier = (text) => {
         // founder mentioned by gender in the description ties evenly
         // against a bare "Type:" field and incorrectly favors "character"
         // by coincidence of ordering, not evidence.
-        const characterFieldCount = ["Race", "Strength Level", "Personality", "Background", "Appearance", "Abilities", "Weaknesses", "Relationships"].filter(f => fields[f]).length;
-        const locationFieldCount = ["Location", "Key Locations", "Historical Events"].filter(f => fields[f]).length;
-        const itemFieldCount = ["Properties", "Origin"].filter(f => fields[f]).length;
-        const factionShapeScore = (fields["Type"] && !fields["Race"] && !fields["Personality"] && !fields["Background"]) ? 1 : 0;
+        const characterFieldCount = ["Role", "Race", "Age", "Pronouns", "Strength Level", "Personality", "Background", "Appearance", "Abilities", "Weaknesses", "Goals", "Relationships", "Affiliations", "Status"].filter(f => fields[f]).length;
+        const locationFieldCount = ["Region", "Atmosphere", "Layout", "Key Locations", "People & Factions", "Features & Resources", "Hazards", "Historical Events", "Current State", "Connections"].filter(f => fields[f]).length;
+        const itemFieldCount = ["Appearance", "Properties", "Abilities", "Limitations", "Origin", "Owner", "Condition", "History"].filter(f => fields[f]).length;
+        const factionShapeScore = ["Purpose", "Leadership", "Members", "Territory", "Resources", "Allies", "Rivals", "Reputation", "Current Activity", "History"].filter(f => fields[f]).length;
         const personSignal = /\b(girl|boy|woman|man|person|lady|gentlemen|gentleman|teenager|teens?|child|kids?|elderly|toddler|infant|maiden|youth|android|robot|synthetic|alien|spirit|ghost|sapient|sentient|human|elf|dwarf|orc|fae|vampire|werewolf)\b|\byears?[\s-]old\b/i;
         // A person mentioned via "led by a scarred man" or "founded by a
         // young woman" is describing someone associated with the entity,
@@ -559,14 +624,14 @@ var unsaidModifier = (text) => {
         }
 
         const usefulFields = requiredOrder.filter(f => f !== "Name" && !placeholderValue(fields[f]));
-        const minimumUseful = type === "character" ? 3 : 2;
+        const minimumUseful = type === "character" ? 4 : 3;
         const anchorFields = type === "character"
-          ? ["Background", "Personality", "Relationships", "Appearance"]
+          ? ["Background", "Personality", "Relationships", "Appearance", "Role", "Status"]
           : type === "location"
-            ? ["Description", "Location", "Significance"]
+            ? ["Description", "Current State", "Region", "Significance"]
             : type === "item"
-              ? ["Type", "Description", "Properties", "Significance"]
-              : ["Type", "Description", "Significance"];
+              ? ["Type", "Description", "Properties", "Condition", "Significance"]
+              : ["Type", "Description", "Purpose", "Current Activity", "Significance"];
         const hasAnchor = anchorFields.some(f => !placeholderValue(fields[f]));
 
         // New cards no longer require every template field. That old all-or-
@@ -581,7 +646,6 @@ var unsaidModifier = (text) => {
           card = createOrFindCard(name.toLowerCase(), " ", type);
           if (!card) return false;
           card.title = name;
-          card.keys = name.toLowerCase();
         }
 
         // Automatic refresh protects player edits. A card generated by older
@@ -610,6 +674,11 @@ var unsaidModifier = (text) => {
 
         if (isNewCard || !card.entry || !card.entry.trim() || isRefresh || pendingForcedCodex) {
           card.entry = builtEntry;
+        }
+        const triggerEvidence = [externalEvidence, evidenceForType].filter(Boolean).join(" ");
+        const safeTriggers = codexSafeCardTriggers(name, fields, triggerEvidence, card.keys || "");
+        if (isNewCard || !card.keys || !String(card.keys).trim() || /^\s*[^,;|]+\s*$/.test(String(card.keys))) {
+          card.keys = safeTriggers || name.toLowerCase();
         }
 
         cardWasNew[name] = isNewCard;
@@ -713,17 +782,18 @@ var unsaidModifier = (text) => {
         if (!pendingForcedCodex && !(state.unsaid.codex.likelyCharacters && state.unsaid.codex.likelyCharacters[name])) return false;
 
         let entry;
+        const compactEvidence = evidence.length > 360 ? evidence.slice(0, 357).trimEnd() + "…" : evidence;
         if (type === "character") {
-          entry = `Name: ${name}\nBackground: ${name} is an established character in the story.`;
+          entry = `Name: ${name}\nBackground: ${compactEvidence}\nStatus: Established character currently supported by story evidence.`;
         } else if (type === "location") {
-          entry = `Name: ${name}\nDescription: ${name} is an established location in the story.`;
+          entry = `Name: ${name}\nDescription: ${compactEvidence}\nCurrent State: Established location supported by story evidence.`;
         } else if (type === "item") {
-          entry = `Name: ${name}\nType: Item\nDescription: ${name} is an established item or object in the story.`;
+          entry = `Name: ${name}\nType: Item\nDescription: ${compactEvidence}\nCondition: Established item supported by story evidence.`;
         } else {
-          entry = `Name: ${name}\nType: Faction\nDescription: ${name} is an established group or organization in the story.`;
+          entry = `Name: ${name}\nType: Faction\nDescription: ${compactEvidence}\nPurpose: Established group supported by story evidence.`;
         }
-        if (entry.length > MAX_CARD_ENTRY_LENGTH) entry = entry.slice(0, MAX_CARD_ENTRY_LENGTH - 1).trimEnd() + "…";
-
+        const fallbackLimit = typeof codexCardEntryLimit === "function" ? codexCardEntryLimit(cfg) : 950;
+        if (entry.length > fallbackLimit) entry = entry.slice(0, fallbackLimit - 1).trimEnd() + "…";
         const card = createOrFindCard(name.toLowerCase(), entry, platformType(type));
         if (!card) return false;
         card.title = name;
@@ -1287,6 +1357,7 @@ var modifier = (text) => {
     var visible = afterUnsaid && typeof afterUnsaid.text !== "undefined" ? afterUnsaid.text : afterTwists.text;
     if (typeof CW_onOutput === "function") visible = CW_onOutput(visible);
     if (typeof ECHO_VEIL !== "undefined" && ECHO_VEIL.output) visible = ECHO_VEIL.output(visible);
+    if (typeof CE_stripVisibleScriptArtifacts === "function") visible = CE_stripVisibleScriptArtifacts(visible);
     if (typeof UN_afterOutput === "function") UN_afterOutput(visible);
     if (typeof CE_syncStoryCardPresentation === "function") CE_syncStoryCardPresentation();
     return { text: visible };

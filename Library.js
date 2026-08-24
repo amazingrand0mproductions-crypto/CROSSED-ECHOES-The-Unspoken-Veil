@@ -8,6 +8,7 @@ var CE_CONFIG_CATEGORY = "CROSSED ECHOES CONFIG";
 var CE_CONFIG_TITLE_UNSAID = "CROSSED ECHOES — Config — UNSPOKEN TURNS";
 var CE_CONFIG_TITLE_CROSSED = "CROSSED ECHOES — Config — CROSSED WIRES";
 var CE_CONFIG_TITLE_ECHO = "CROSSED ECHOES — Config — ECHO VEIL";
+var CE_CONFIG_TITLE_CODEX = "CROSSED ECHOES — Config — CODEX";
 var CE_CONFIG_TITLE_INTEGRATION = "CROSSED ECHOES — Config — INTEGRATION";
 
 var CP_VERSION = "1.3";
@@ -2819,6 +2820,10 @@ var UNSAID_DEFAULTS = {
   codexRefreshInterval: 20,
   codexRefreshMinEvidence: 3,
   codexProtectManualEdits: true,
+  // Maximum model-facing Entry length for Codex-managed Story Cards. The
+  // user-facing Codex config supports 300–2000; 950 is deliberately conservative
+  // for clients that still display a ~1000-character editor counter.
+  codexCardChars: 950,
   // Hybrid fixed + adaptive mind model. The fixed fields preserve reliable
   // core/feeling/relationship behavior while the bounded private thought bank
   // learns goals, plans, fears, beliefs, secrets and recurring concerns.
@@ -2834,10 +2839,20 @@ var UNSAID_DEFAULTS = {
 };
 
 var CONTEXT_SAFETY_MARGIN = 20;
-// AI Dungeon's Story Card entry editor is capped at roughly 1000
-// characters. Leave a small safety margin so scripted cards do not depend on
-// UI-side truncation.
-var MAX_CARD_ENTRY_LENGTH = 980;
+// Codex Story Card Entry budget. A player may choose any value from 300–2000.
+// The default remains conservative because some AI Dungeon clients still show
+// a ~1000-character editor counter, while scripted writes may support more.
+var CODEX_MIN_CARD_ENTRY_LENGTH = 300;
+var CODEX_MAX_CARD_ENTRY_LENGTH = 2000;
+var CODEX_DEFAULT_CARD_ENTRY_LENGTH = 950;
+function codexCardEntryLimit(cfg) {
+  var n = cfg && Number(cfg.codexCardChars);
+  if (!isFinite(n)) {
+    try { n = Number(state && state.unsaid && state.unsaid.codexSettings && state.unsaid.codexSettings.cardChars); } catch (_) {}
+  }
+  if (!isFinite(n)) n = CODEX_DEFAULT_CARD_ENTRY_LENGTH;
+  return Math.max(CODEX_MIN_CARD_ENTRY_LENGTH, Math.min(CODEX_MAX_CARD_ENTRY_LENGTH, Math.round(n)));
+}
 // Generous enough that no normal game ever notices it, low enough to
 // bound the per-turn cost of scanning the cast list for who's currently
 // "active" — see readUnsaidConfig for the full reasoning.
@@ -3418,6 +3433,32 @@ function codexHasLowercaseCommonUsage(name, source) {
   return false;
 }
 
+// Capitalized prose is a major source of false Story Cards. Keep this
+// separate from the broad generic-noun filter so unusual names remain valid
+// whenever the story explicitly establishes them as an entity.
+var CODEX_NARRATIVE_NOISE_WORDS = new Set([
+  "alright","okay","ok","yes","no","well","wait","look","listen","hey","hello","hi","thanks","thank","please","sorry",
+  "suddenly","meanwhile","eventually","finally","immediately","instead","otherwise","still","already","again","then","now","later","soon",
+  "inside","outside","ahead","behind","above","below","nearby","elsewhere","upstairs","downstairs","left","right","north","south","east","west",
+  "rain","raining","snow","snowing","wind","windy","storm","thunder","lightning","weather","cold","warm","heat","darkness","silence",
+  "morning","afternoon","evening","night","midnight","dawn","dusk","today","tomorrow","yesterday",
+  "door","window","floor","ceiling","wall","walls","air","light","shadow","shadows","sound","noise","voice","voices",
+  "someone","somebody","everyone","everybody","nothing","anything","everything"
+].map(function(w){ return String(w).toLowerCase(); }));
+function codexLooksLikeNarrativeNoiseCandidate(name, source) {
+  var clean = String(name || "").trim();
+  if (!clean || /\s/.test(clean)) return false;
+  if (hasStrongExplicitCodexNamingCue(clean, source) || hasStrongCodexBusinessOrNamedContext(clean, source)) return false;
+  var key = codexStopKey(clean);
+  if (!key) return true;
+  if (CODEX_NARRATIVE_NOISE_WORDS.has(key)) return true;
+  if ((CODEX_STOPWORDS.has(key) || CODEX_GENERIC_COMMON_NOUNS.has(key)) && source) {
+    var n = escapeForRegex(clean);
+    if (new RegExp('(?:^|[.!?]["\\\'’”)]*\\s+|\\n+\\s*)' + n + '\\b', 'i').test(String(source))) return true;
+  }
+  return false;
+}
+
 function normalizeCodexCandidate(raw, source) {
   let name = stripPossessive(String(raw || "")
     .replace(/^[\s"'“”‘’([{<]+|[\s"'“”‘’)\]}>.,:;!?—–-]+$/g, "")
@@ -3456,6 +3497,9 @@ function normalizeCodexCandidate(raw, source) {
   // chance to reinterpret them as people. This is the main protection
   // against cards for Food, Dinner, Coffee, Table, etc.
   if (!strongExplicit && isGenericCodexCommonNounCandidate(name, source)) {
+    return null;
+  }
+  if (!strongExplicit && codexLooksLikeNarrativeNoiseCandidate(name, source)) {
     return null;
   }
 
@@ -3569,10 +3613,10 @@ function isSafeTrackedCodexName(name) {
   return !!normalizeCodexCandidate(name, evidenceText);
 }
 
-var CHARACTER_CARD_FIELDS = ["Name", "Race", "Strength Level", "Background", "Personality", "Appearance", "Abilities", "Weaknesses", "Relationships"];
-var LOCATION_CARD_FIELDS = ["Name", "Location", "Description", "Key Locations", "Historical Events", "Significance"];
-var ITEM_CARD_FIELDS = ["Name", "Type", "Description", "Properties", "Origin", "Significance"];
-var FACTION_CARD_FIELDS = ["Name", "Type", "Description", "Significance"];
+var CHARACTER_CARD_FIELDS = ["Name", "Aliases", "Role", "Race", "Age", "Pronouns", "Strength Level", "Background", "Personality", "Appearance", "Abilities", "Weaknesses", "Goals", "Relationships", "Affiliations", "Location", "Status", "Significance"];
+var LOCATION_CARD_FIELDS = ["Name", "Aliases", "Type", "Region", "Description", "Atmosphere", "Layout", "Key Locations", "People & Factions", "Features & Resources", "Hazards", "Historical Events", "Current State", "Connections", "Significance"];
+var ITEM_CARD_FIELDS = ["Name", "Aliases", "Type", "Appearance", "Description", "Properties", "Abilities", "Limitations", "Origin", "Owner", "Location", "Condition", "History", "Significance"];
+var FACTION_CARD_FIELDS = ["Name", "Aliases", "Type", "Description", "Purpose", "Leadership", "Members", "Territory", "Resources", "Allies", "Rivals", "Reputation", "Current Activity", "History", "Significance"];
 
 var CARD_TEMPLATES = {
   character: CHARACTER_CARD_FIELDS,
@@ -4214,6 +4258,7 @@ function findConfigCardTolerant(title, maxDistance) {
 var CONFIG_CARD_TITLE = CE_CONFIG_TITLE_UNSAID;
 var CONFIG_SECTION_TWIST = "== TWISTS AND TURNS ==";
 var CONFIG_SECTION_UNSAID = "== UNSAID ==";
+var CONFIG_SECTION_CODEX = "== CODEX ==";
 
 function extractConfigSection(fullText, marker) {
   const clean = fullText || "";
@@ -4345,7 +4390,6 @@ function renderTwistSection(cfg) {
 function renderUnsaidSection(cfg) {
   return CONFIG_SECTION_UNSAID + "\n" +
     `enabled=${cfg.enabled}\n` +
-    `codex=${cfg.codexEnabled}\n` +
     `thoughtChance=${cfg.chance}\n` +
     `thoughtCD=${cfg.cooldown}\n` +
     `reduceOnActions=${cfg.reduceDuringActions}\n` +
@@ -4359,6 +4403,13 @@ function renderUnsaidSection(cfg) {
     `behaviorContinuity=${cfg.behavioralContinuity}\n` +
     `continuityMinds=${cfg.behavioralContinuityCharacters}\n` +
     `coreShift=${cfg.allowCoreShift}\n` +
+    `player=${cfg.playerName || ""}\n`;
+}
+
+function renderCodexSection(cfg) {
+  return CONFIG_SECTION_CODEX + "\n" +
+    `enabled=${cfg.codexEnabled}\n` +
+    `cardChars=${codexCardEntryLimit(cfg)}\n` +
     `mentions=${cfg.mentionThreshold}\n` +
     `codexCD=${cfg.codexCooldown}\n` +
     `codexRetries=${cfg.codexMaxAttempts}\n` +
@@ -4369,8 +4420,37 @@ function renderUnsaidSection(cfg) {
     `refreshCD=${cfg.codexRefreshInterval}\n` +
     `refreshEvidence=${cfg.codexRefreshMinEvidence}\n` +
     `protectManual=${cfg.codexProtectManualEdits}\n` +
-    `resetCodex=false\n` +
-    `player=${cfg.playerName || ""}\n`;
+    `resetCodex=false\n`;
+}
+
+function applyCodexConfigText(cfg, section) {
+  if (!cfg || !section) return cfg;
+  let v;
+  v = configBool(section, "enabled", /Enable Codex:\s*(true|false)/i);
+  if (v === null) v = configBool(section, "codex", /Enable Codex:\s*(true|false)/i);
+  if (v !== null) cfg.codexEnabled = v;
+  v = parseInt(configValue(section, "cardChars", /Story Card Entry character limit:\s*(\d+)/i), 10);
+  if (!isNaN(v)) cfg.codexCardChars = Math.min(CODEX_MAX_CARD_ENTRY_LENGTH, Math.max(CODEX_MIN_CARD_ENTRY_LENGTH, v));
+  v = parseInt(configValue(section, "mentions", /Mentions needed before Codex creates a card:\s*(\d+)/i), 10);
+  if (!isNaN(v)) cfg.mentionThreshold = Math.min(50, Math.max(1, v));
+  v = parseInt(configValue(section, "codexCD", /Minimum turns between Codex cards:\s*(\d+)/i), 10);
+  if (!isNaN(v)) cfg.codexCooldown = Math.min(500, Math.max(0, v));
+  v = parseInt(configValue(section, "codexRetries", /Codex retries before giving up on a name:\s*(\d+)/i), 10);
+  if (!isNaN(v)) cfg.codexMaxAttempts = Math.min(50, Math.max(1, v));
+  v = parseInt(configValue(section, "charObserve", /Minimum story turns to observe a newly introduced character before carding:\s*(\d+)/i), 10);
+  if (!isNaN(v)) cfg.codexCharacterMinTurns = Math.min(100, Math.max(0, v));
+  v = parseInt(configValue(section, "charAppear", /Minimum on-screen appearances before normal character carding:\s*(\d+)/i), 10);
+  if (!isNaN(v)) cfg.codexCharacterMinAppearances = Math.max(1, Math.min(20, v));
+  v = parseInt(configValue(section, "charDeadline", /Maximum turns before a newly introduced character card is forced:\s*(\d+)/i), 10);
+  if (!isNaN(v)) cfg.codexCharacterDeadline = Math.min(200, Math.max(1, v));
+  cfg.codexCharacterDeadline = Math.max(cfg.codexCharacterMinTurns, cfg.codexCharacterDeadline);
+  v = configBool(section, "autoRefresh", /Automatically refresh Codex-made cards:\s*(true|false)/i); if (v !== null) cfg.codexAutoRefresh = v;
+  v = parseInt(configValue(section, "refreshCD", /Minimum turns between automatic refreshes of the same card:\s*(\d+)/i), 10);
+  if (!isNaN(v)) cfg.codexRefreshInterval = Math.min(500, Math.max(1, v));
+  v = parseInt(configValue(section, "refreshEvidence", /New evidence mentions needed before automatic refresh:\s*(\d+)/i), 10);
+  if (!isNaN(v)) cfg.codexRefreshMinEvidence = Math.min(CODEX_CARD_UPDATE_EVIDENCE_LIMIT, Math.max(1, v));
+  v = configBool(section, "protectManual", /Protect hand-edited Story Card entries from automatic refresh:\s*(true|false)/i); if (v !== null) cfg.codexProtectManualEdits = v;
+  return cfg;
 }
 
 function renderTwistNotes(cfg, c) {
@@ -4475,122 +4555,185 @@ function renderTwistNotes(cfg, c) {
 function renderUnsaidNotes() {
   return [
     CONFIG_SECTION_UNSAID,
-    "UNSPOKEN TURNS — UNSAID CONFIG GUIDE",
+    "🧠 CROSSED ECHOES — UNSPOKEN TURNS / UNSAID",
+    "Private psychology, behavioural continuity and character interiority.",
     "",
-    "Edit the SETTINGS ENTRY on this Story Card, not these Notes. Keep the key names exactly as written and only change the value after '='. Boolean settings accept true or false. Numeric values are validated/clamped to safe ranges. These Notes are documentation and are not sent to the AI.",
+    "✏️ HOW TO EDIT",
+    "Edit values in the Entry above. Keep each key exactly as written and change only the value after '='. true/false toggles are case-insensitive. Invalid numbers are safely clamped. These Notes are documentation and are not story lore.",
     "",
-    "━━━━━━━━━━ MASTER / CODEX ━━━━━━━━━━",
+    "📚 CODEX HAS ITS OWN CONFIG CARD",
+    `Automatic Story Card detection/creation is configured separately on “${CE_CONFIG_TITLE_CODEX}”. This keeps psychology controls clean and gives Codex room for detailed card-generation settings.`,
+    "",
+    "━━━━━━━━━━ 🧠 PRIVATE THOUGHTS ━━━━━━━━━━",
     "enabled  [true/false]  Default: true",
-    "Master switch for UNSAID. false disables private-thought/psychology behavior and automatic Codex work without deleting saved minds or cards.",
+    "Master switch for UNSAID psychology. false pauses automatic private-thought and behavioural-continuity work without deleting saved minds.",
     "",
-    "codex  [true/false]  Default: true",
-    "Enables automatic Story Card detection/creation and evidence tracking for characters, locations, items and factions. Manual /card still belongs to UNSAID's workflow.",
-    "",
-    "player  [name or blank]  Default: blank",
-    "Player-character name. UNSAID skips this identity when auto-Codexing/choosing NPC minds. If blank, the script tries to infer a player name from suitable Character Creator placeholders.",
-    "",
-    "━━━━━━━━━━ PRIVATE THOUGHTS ━━━━━━━━━━",
     "thoughtChance  [0.0–1.0]  Default: 0.3",
-    "Base chance that an eligible active NPC gets a private-thought request on a turn. 0 disables random thoughts; 1 requests one whenever eligibility/cooldowns allow. If the selected model repeatedly ignores hidden-thought metadata, UNSAID now backs off automatically instead of hammering every turn or asking you to lower this setting.",
+    "Base chance that an eligible active NPC receives a private-thought request. 0 disables random thoughts; 1 requests one whenever cooldown/eligibility allow. Delivery backoff still prevents repeated model-format failures from spamming turns.",
     "",
     "thoughtCD  [0–500]  Default: 3",
-    "Turns before the same character can be selected for another private thought. 0 allows consecutive turns.",
+    "Minimum turns before the same NPC can be selected for another private thought. Lower = more frequent interiority; higher = more breathing room.",
     "",
     "reduceOnActions  [true/false]  Default: true",
-    "When true, the thought chance is reduced on the player's Do/Say actions so private processing does not overwhelm active player moments.",
+    "Reduces random private-thought pressure on the player's own Do/Say actions so visible action stays dominant.",
     "",
     "activeWindow  [1–20]  Default: 3",
-    "How many recent story turns are considered when deciding which characters are currently active/present enough to think.",
+    "How many recent turns count when deciding which NPCs are active enough to receive psychology guidance.",
     "",
     "showThoughts  [true/false]  Default: false",
-    "false keeps generated private thoughts hidden from normal story prose while still storing their psychological effect. true leaves the thought reveal visible in the story.",
+    "false keeps literal thoughts out of visible story prose while saving their psychological effect. true intentionally allows the generated thought to remain visible.",
     "",
     "subtleHints  [true/false]  Default: true",
-    "Lets established feelings, tensions and motives subtly influence visible NPC behavior without exposing the literal hidden thought.",
+    "Lets established feelings/goals subtly colour behaviour without exposing literal private thoughts or granting telepathy.",
     "",
     "jsonNotes  [true/false]  Default: false",
-    "Controls how UNSAID-owned psychological data is stored in Character Story Card Notes. false uses readable prose; true uses structured JSON for easier machine parsing/debugging.",
+    "Storage preference for UNSAID-owned private state. false favours readable Notes; true favours structured JSON where supported. CROSSED ECHOES' combined card dashboard remains readable either way.",
     "",
-    "━━━━━━━━━━ ADAPTIVE CHARACTER MIND ━━━━━━━━━━",
+    "━━━━━━━━━━ 🧩 ADAPTIVE MIND ━━━━━━━━━━",
     "adaptiveMind  [true/false]  Default: true",
-    "Enables the bounded private memory bank that learns recurring goals, plans, fears, secrets, beliefs, commitments and relationship-specific concerns.",
+    "Enables bounded long-term private memory for recurring goals, plans, fears, beliefs, secrets, commitments and concerns.",
     "",
     "mindSlots  [4–24]  Default: 12",
-    "Maximum adaptive private-memory slots kept per character. More slots preserve more simultaneous concerns but increase state/card processing.",
+    "Maximum adaptive private-memory slots per NPC. More slots preserve more concurrent concerns but consume more state/processing.",
     "",
     "reflectEvery  [2–20]  Default: 4",
-    "Every N private moments, the prompt asks for a deeper reflection that can connect older motives/memories instead of only reacting to the immediate scene.",
+    "Every N successful private moments, UNSAID allows deeper consolidation so repeated details can become durable concerns instead of endless duplicates.",
     "",
     "behaviorContinuity  [true/false]  Default: true",
-    "Lets established goals/plans/relationships shape NPC behavior even on turns where no private thought is revealed.",
+    "Allows established goals/plans/relationships to quietly shape active NPC behaviour even on turns with no new private-thought reveal.",
     "",
     "continuityMinds  [1–4]  Default: 2",
-    "Maximum number of active NPC minds injected into a single behavioral-continuity instruction. Lower is lighter/focused; higher supports busier ensemble scenes.",
+    "Maximum active NPC minds included in one behavioural-continuity pass. Increase for ensemble scenes; keep low for large/slow adventures.",
     "",
     "coreShift  [true/false]  Default: true",
-    "Allows major, well-supported events to update a character's deep core truth/belief. false keeps the core truth stable while surface feelings/memories can still evolve.",
+    "Allows repeated, well-supported psychological pressure to rewrite a character's durable core truth. This is gated and never triggered by one stray line.",
     "",
-    "━━━━━━━━━━ CODEX CREATION GATES ━━━━━━━━━━",
+    "player  [name or blank]  Default: blank",
+    "Player-character name. UNSAID and Codex skip this identity for NPC automation. Blank lets the script infer a suitable Character Creator name placeholder when possible.",
+    "",
+    "━━━━━━━━━━ 🎮 COMMANDS ━━━━━━━━━━",
+    "/peek <name> — force a private-thought check.",
+    "/peek <name> core — force a core-truth check.",
+    "/card <name> — force a Codex Story Card request.",
+    "/alias <character> = <alias> — add a manual nickname/callsign.",
+    "/unalias <character> = <alias> — remove it.",
+    "/unsaid status — private state diagnostic.",
+    "/unsaid health — runtime/performance diagnostic.",
+    "/unsaid resetcodex — reset Codex tracking queues without deleting cards.",
+    "",
+    "✨ QUICK TUNING",
+    "• Novel-like/subtle: thoughtChance=0.2–0.35, thoughtCD=3–5, showThoughts=false, subtleHints=true.",
+    "• Character-heavy drama: thoughtChance=0.45–0.6, thoughtCD=2, mindSlots=14–18.",
+    "• Large cast/performance: continuityMinds=1–2, mindSlots=8–12."
+  ].join("\n");
+}
+
+function renderCodexNotes() {
+  return [
+    CONFIG_SECTION_CODEX,
+    "📚 CROSSED ECHOES — CODEX / STORY CARD ENGINE",
+    "Automatic entity detection, classification, Story Card creation and evidence-backed refresh.",
+    "",
+    "✏️ HOW TO EDIT",
+    "Edit values in the Entry above. Keep key names exactly as written and change only the value after '='. Invalid values are ignored or clamped into the safe range. Config Notes are player-facing documentation, not story evidence.",
+    "",
+    "━━━━━━━━━━ ⚡ MASTER / SIZE ━━━━━━━━━━",
+    "enabled  [true/false]  Default: true",
+    "Master switch for automatic Codex detection, card creation and refresh. Manual /card remains available as an explicit request even when automatic scheduling is paused.",
+    "",
+    "cardChars  [300–2000]  Default: 950",
+    "Maximum model-facing Entry length for Codex-managed Character, Location, Item and Faction cards. 300–650 = compact; 700–1000 = balanced; 1100–1600 = detailed; 1600–2000 = maximum detail. The default 950 is conservative because some AI Dungeon clients still display a ~1000-character editor counter. If your client/backend truncates long Entries, lower this value.",
+    "",
+    "━━━━━━━━━━ 🔎 DETECTION / CREATION ━━━━━━━━━━",
     "mentions  [1–50]  Default: 3",
-    "General mention threshold before an uncertain entity becomes eligible for automatic Codex creation. Strong explicit character/location/item/faction evidence can use specialized confidence logic.",
+    "General evidence threshold before an automatically discovered non-character candidate is considered for a card. Higher values reduce false positives; lower values build world cards sooner.",
     "",
     "codexCD  [0–500]  Default: 5",
-    "Minimum turns between automatic new Codex card requests. 0 removes the global creation cooldown, which is not recommended in very busy stories.",
+    "Minimum turns between normal automatic Codex creation tasks. 0 allows back-to-back eligible tasks; higher values reduce card-generation pressure.",
     "",
     "codexRetries  [1–50]  Default: 8",
-    "Maximum automatic generation attempts for a candidate before it is temporarily abandoned/treated as repeatedly failed.",
+    "Maximum structured-generation attempts for a candidate before ordinary automatic retries stop. High-confidence recurring characters use additional guarded recovery behaviour rather than being silently lost.",
     "",
     "charObserve  [0–100]  Default: 3",
-    "Minimum story age in turns for a newly introduced character before normal automatic character carding. 0 allows immediate evidence-based carding.",
+    "Minimum full story turns to observe a newly introduced likely character before normal automatic carding. This lets the card learn who they actually are instead of canonising a first impression.",
     "",
     "charAppear  [1–20]  Default: 2",
-    "Minimum distinct on-screen appearances normally required for a new character card. Helps prevent one-line names from being canonized too quickly.",
+    "Minimum on-screen appearances for normal character carding. Helps distinguish recurring NPCs from one-line names, signs, brands or incidental references.",
     "",
-    "charDeadline  [1–200; never below charObserve]  Default: 5",
-    "Maximum observation age before a strongly tracked new character can be forced through the character-card pipeline even if normal appearance pacing is slow.",
+    "charDeadline  [1–200]  Default: 5",
+    "Maximum age of a confidently introduced character before Codex prioritises completing their card. It is automatically kept at least as high as charObserve.",
     "",
-    "━━━━━━━━━━ CODEX REFRESH ━━━━━━━━━━",
+    "━━━━━━━━━━ 🔄 REFRESH / MANUAL SAFETY ━━━━━━━━━━",
     "autoRefresh  [true/false]  Default: true",
-    "Allows Story Cards originally created by Codex to be refreshed when enough later evidence changes/adds useful facts.",
+    "Allows Codex-managed cards to deepen/update when later story evidence materially changes or clarifies them.",
     "",
     "refreshCD  [1–500]  Default: 20",
-    "Minimum turns between automatic refreshes of the same Codex-owned Story Card.",
+    "Minimum turns between automatic refreshes of the same card. Increase for stable lore; decrease for rapidly changing characters/world states.",
     "",
     "refreshEvidence  [1–10]  Default: 3",
-    "Number of new evidence mentions required before an automatic refresh becomes eligible. Higher values make updates more conservative.",
+    "Number of new evidence snippets required before an automatic refresh becomes eligible. Higher = more conservative, lower = more responsive.",
     "",
     "protectManual  [true/false]  Default: true",
-    "Protects hand-edited Story Card entries from automatic Codex refresh. Strongly recommended if you manually curate cards.",
+    "Protects hand-edited Story Card Entries from automatic refresh overwrites. Strongly recommended if you curate lore manually. An explicit /card request is treated as intentional and may update a protected card.",
     "",
     "resetCodex  [true/false one-shot]  Default: false",
-    "Set to true to clear Codex tracking queues/counters on the next read. Existing Story Cards are NOT deleted. The script automatically rewrites this back to false after consuming it.",
+    "Set true to clear Codex detection queues, counters, type votes and pending work on the next config read. Existing Story Cards and durable character minds are NOT deleted. The script rewrites this back to false.",
     "",
-    "━━━━━━━━━━ UNSAID COMMANDS ━━━━━━━━━━",
-    "Commands are recognized in Story, Do, Say, and third-person input wrappers. Use the normal / form below; :command is also accepted for compatibility with AI Dungeon's scripting command style.",
-    "Administrative commands never count as narrative turns. /peek and /card use dedicated model-control calls without aging UNSAID cooldowns or twist pacing. A slash-command quoted or mentioned inside ordinary prose is left alone instead of firing accidentally.",
-    "/peek <name> — force a private-thought look at a character. Manual peeks ignore automatic reveal backoff.",
-    "/peek <name> core — force a core-truth check for that character.",
-    "/card <name> — force a Codex Story Card request.",
-    "/alias <character> = <alias> — add a manual alias, nickname or callsign.",
-    "/unalias <character> = <alias> — remove a manual alias.",
-    "/unsaid status — write a private status/character-state diagnostic card.",
-    "/unsaid health — write runtime timings, deferred work and caught-error diagnostics.",
-    "/unsaid resetcodex — reset Codex tracking without deleting Story Cards.",
-    "/unsaid help — show the command reminder.",
+    "━━━━━━━━━━ 🗂️ WHAT CODEX BUILDS ━━━━━━━━━━",
+    "👤 CHARACTER — aliases, role, race/nature, age, pronouns, capability, background, personality, appearance, abilities, weaknesses, goals, relationships, affiliations, location, status and significance when supported.",
+    "📍 LOCATION — aliases, type, region, description, atmosphere, layout, key areas, people/factions, resources/features, hazards, history, current state, connections and significance.",
+    "🎒 ITEM — aliases, type, appearance, description, properties, abilities, limitations, origin, owner, location, condition, history and significance.",
+    "🏛️ FACTION — aliases, type, description, purpose, leadership, members, territory, resources, allies, rivals, reputation, current activity, history and significance.",
     "",
-    "TUNING IDEAS",
-    "• More inner life: thoughtChance=0.45–0.6, thoughtCD=2, mindSlots=14–18.",
-    "• Subtle/novel-like: showThoughts=false, subtleHints=true, thoughtChance=0.2–0.35.",
-    "• Fast Codex: mentions=2, codexCD=2–3, charObserve=1–2.",
-    "• Conservative Codex: mentions=4–6, codexCD=6–10, charObserve=4–6, protectManual=true.",
+    "Only story-supported fields are saved. Missing facts are omitted instead of being filled with 'unknown', and existing good fields are preserved during refreshes.",
     "",
-    "OPTIONAL CAST IMPORT",
-    "You normally do not need to maintain a cast list: the script discovers/adopts characters automatically. If you want to seed NPC names manually, put one NPC name per line AFTER the === marker below. On the next turn the names are moved into bounded internal state and removed from these Notes.",
-    CAST_LIST_MARKER
+    "━━━━━━━━━━ 🧠 DETECTION SAFETY ━━━━━━━━━━",
+    "Codex uses explicit naming cues, Story Card aliases, repeated mentions, dialogue/action grammar, type-specific context, common-noun filters, sentence-starter filters, brand/product grammar and a large stop-word/noise lexicon. Explicit naming can still rescue unusual real names such as Summer, Rose or Six.",
+    "",
+    "Generated Triggers use the exact entity name plus safe aliases actually supplied by the profile; generic words are not invented as triggers.",
+    "",
+    "Story Card Entry contains public canon only. CROSSED ECHOES script diagnostics/private psychology belong in Notes and are excluded from story-evidence scans.",
+    "",
+    "━━━━━━━━━━ 🎮 CODEX COMMANDS ━━━━━━━━━━",
+    "/card <name> — force creation/refresh for one exact entity.",
+    "/unsaid resetcodex — reset detection state without deleting cards.",
+    "",
+    "✨ SUGGESTED PRESETS",
+    "• Balanced: cardChars=950, mentions=3, charObserve=3, charAppear=2, refreshCD=20.",
+    "• Detailed lore: cardChars=1400–1800, mentions=3–4, refreshEvidence=3–4.",
+    "• Fast worldbuilding: cardChars=800–1100, mentions=2, codexCD=2–3, charObserve=1–2.",
+    "• Conservative/huge library: cardChars=700–950, mentions=4–6, codexCD=6–10, charObserve=4–6, protectManual=true."
   ].join("\n");
 }
 
 var CONFIG_DEFAULT_UNSAID_NOTES_SECTION = renderUnsaidNotes();
+var CONFIG_DEFAULT_CODEX_NOTES_SECTION = renderCodexNotes();
+
+function ensureCodexConfigCard(sourceCard) {
+  let card = findConfigCardTolerant(CE_CONFIG_TITLE_CODEX) || findConfigCardTolerant("UNSAID Codex Config") || findConfigCardTolerant("Codex Config");
+  if (!card) {
+    const seed = { ...UNSAID_DEFAULTS };
+    const source = sourceCard || findConfigCardTolerant(CONFIG_CARD_TITLE) || findConfigCardTolerant("UNSAID Config");
+    if (source && source.entry) {
+      const legacy = extractConfigSection(source.entry, CONFIG_SECTION_UNSAID) || source.entry;
+      applyCodexConfigText(seed, legacy);
+      const legacyEnabled = configBool(legacy, "codex", /Enable Codex:\s*(true|false)/i);
+      if (legacyEnabled !== null) seed.codexEnabled = legacyEnabled;
+    }
+    const keys = "__crossed_echoes_config_codex__";
+    try {
+      const idx = addStoryCard(keys, renderCodexSection(seed), CE_CONFIG_CATEGORY, CE_CONFIG_TITLE_CODEX, CONFIG_DEFAULT_CODEX_NOTES_SECTION);
+      card = (typeof idx === "number" && storyCards[idx]) ? storyCards[idx] : null;
+    } catch (_) {}
+    if (!card) card = storyCards.find(sc => sc && (sc.title === CE_CONFIG_TITLE_CODEX || sc.keys === keys)) || null;
+  }
+  if (card) {
+    card.title = CE_CONFIG_TITLE_CODEX; card.name = CE_CONFIG_TITLE_CODEX; card.type = CE_CONFIG_CATEGORY; card.keys = "";
+    if (!card.entry || !card.entry.trim()) card.entry = renderCodexSection(UNSAID_DEFAULTS);
+    if (String(card.description || card.notes || "") !== CONFIG_DEFAULT_CODEX_NOTES_SECTION) { card.description = CONFIG_DEFAULT_CODEX_NOTES_SECTION; card.notes = CONFIG_DEFAULT_CODEX_NOTES_SECTION; }
+  }
+  return card;
+}
 
 function ensureSharedConfigCard() {
   let card = findConfigCardTolerant(CONFIG_CARD_TITLE) || findConfigCardTolerant("UNSPOKEN TURNS — Config");
@@ -4712,6 +4855,7 @@ function resetCodexTrackingState() {
 
 function readUnsaidConfig() {
   const card = ensureSharedConfigCard();
+  const codexCard = ensureCodexConfigCard(card);
   if (!card) return { ...UNSAID_DEFAULTS, cast: [] };
 
   initUnsaid();
@@ -4737,7 +4881,6 @@ function readUnsaidConfig() {
   let v;
 
   v = configBool(entrySection, "enabled", /Enable UNSAID:\s*(true|false)/i); if (v !== null) cfg.enabled = v;
-  v = configBool(entrySection, "codex", /Enable Codex:\s*(true|false)/i); if (v !== null) cfg.codexEnabled = v;
   v = configBool(entrySection, "showThoughts", /Show private thoughts in the story text:\s*(true|false)/i); if (v !== null) cfg.showThoughtsInStory = v;
   v = configBool(entrySection, "subtleHints", /subtly color actions:\s*(true|false)/i); if (v !== null) cfg.subtleHints = v;
   v = configBool(entrySection, "jsonNotes", /Store card notes as JSON:\s*(true|false)/i); if (v !== null) cfg.jsonNotes = v;
@@ -4745,8 +4888,6 @@ function readUnsaidConfig() {
   v = configBool(entrySection, "behaviorContinuity", /Let active NPC goals\/plans shape behavior between thought reveals:\s*(true|false)/i); if (v !== null) cfg.behavioralContinuity = v;
   v = configBool(entrySection, "coreShift", /rewrite a core truth:\s*(true|false)/i); if (v !== null) cfg.allowCoreShift = v;
   v = configBool(entrySection, "reduceOnActions", /Ease off during your own Do\/Say actions:\s*(true|false)/i); if (v !== null) cfg.reduceDuringActions = v;
-  v = configBool(entrySection, "autoRefresh", /Automatically refresh Codex-made cards:\s*(true|false)/i); if (v !== null) cfg.codexAutoRefresh = v;
-  v = configBool(entrySection, "protectManual", /Protect hand-edited Story Card entries from automatic refresh:\s*(true|false)/i); if (v !== null) cfg.codexProtectManualEdits = v;
 
   v = parseFloat(configValue(entrySection, "thoughtChance", /thought per turn[^:]*:\s*([\d.]+)/i));
   if (!isNaN(v)) cfg.chance = Math.min(1, Math.max(0, v));
@@ -4760,26 +4901,11 @@ function readUnsaidConfig() {
   if (!isNaN(v)) cfg.adaptiveReflectionInterval = Math.min(20, Math.max(2, v));
   v = parseInt(configValue(entrySection, "continuityMinds", /Maximum active NPC minds used for behavioral continuity:\s*(\d+)/i), 10);
   if (!isNaN(v)) cfg.behavioralContinuityCharacters = Math.min(4, Math.max(1, v));
-  v = parseInt(configValue(entrySection, "mentions", /Mentions needed before Codex creates a card:\s*(\d+)/i), 10);
-  if (!isNaN(v)) cfg.mentionThreshold = Math.min(50, Math.max(1, v));
-  v = parseInt(configValue(entrySection, "codexCD", /Minimum turns between Codex cards:\s*(\d+)/i), 10);
-  if (!isNaN(v)) cfg.codexCooldown = Math.min(500, Math.max(0, v));
-  v = parseInt(configValue(entrySection, "codexRetries", /Codex retries before giving up on a name:\s*(\d+)/i), 10);
-  if (!isNaN(v)) cfg.codexMaxAttempts = Math.min(50, Math.max(1, v));
-  v = parseInt(configValue(entrySection, "charObserve", /Minimum story turns to observe a newly introduced character before carding:\s*(\d+)/i), 10);
-  if (!isNaN(v)) cfg.codexCharacterMinTurns = Math.min(100, Math.max(0, v));
-  v = parseInt(configValue(entrySection, "charAppear", /Minimum on-screen appearances before normal character carding:\s*(\d+)/i), 10);
-  if (!isNaN(v)) cfg.codexCharacterMinAppearances = Math.max(1, Math.min(20, v));
-  v = parseInt(configValue(entrySection, "charDeadline", /Maximum turns before a newly introduced character card is forced:\s*(\d+)/i), 10);
-  if (!isNaN(v)) cfg.codexCharacterDeadline = Math.min(200, Math.max(1, v));
-  cfg.codexCharacterDeadline = Math.max(cfg.codexCharacterMinTurns, cfg.codexCharacterDeadline);
-  v = parseInt(configValue(entrySection, "refreshCD", /Minimum turns between automatic refreshes of the same card:\s*(\d+)/i), 10);
-  if (!isNaN(v)) cfg.codexRefreshInterval = Math.min(500, Math.max(1, v));
-  v = parseInt(configValue(entrySection, "refreshEvidence", /New evidence mentions needed before automatic refresh:\s*(\d+)/i), 10);
-  if (!isNaN(v)) cfg.codexRefreshMinEvidence = Math.min(CODEX_CARD_UPDATE_EVIDENCE_LIMIT, Math.max(1, v));
-
-  const resetValue = configBool(entrySection, "resetCodex", /Reset Codex tracking now:\s*(true|false)/i);
+  const codexEntrySection = codexCard ? String(codexCard.entry || "") : "";
+  applyCodexConfigText(cfg, codexEntrySection);
+  const resetValue = configBool(codexEntrySection, "resetCodex", /Reset Codex tracking now:\s*(true|false)/i);
   if (resetValue === true) resetCodexTrackingState();
+  state.unsaid.codexSettings = { cardChars: codexCardEntryLimit(cfg) };
 
   v = configValue(entrySection, "player", /Player character \(skip when Codexing\):[ \t]*(.*)/i);
   if (v !== null) cfg.playerName = v.slice(0, 80);
@@ -4904,6 +5030,13 @@ function readUnsaidConfig() {
   const currentUnsaidDescription = extractConfigSection(card.description, CONFIG_SECTION_UNSAID);
   if (String(currentUnsaidDescription || "").replace(/\s+$/, "") !== CONFIG_DEFAULT_UNSAID_NOTES_SECTION.replace(/\s+$/, "")) {
     card.description = spliceConfigSection(card.description, CONFIG_SECTION_UNSAID, CONFIG_DEFAULT_UNSAID_NOTES_SECTION);
+    card.notes = card.description;
+  }
+  if (codexCard) {
+    const renderedCodexEntry = renderCodexSection(cfg);
+    if (String(codexCard.entry || "").replace(/\s+$/, "") !== renderedCodexEntry.replace(/\s+$/, "")) codexCard.entry = renderedCodexEntry;
+    codexCard.type = CE_CONFIG_CATEGORY; codexCard.title = CE_CONFIG_TITLE_CODEX; codexCard.name = CE_CONFIG_TITLE_CODEX; codexCard.keys = "";
+    if (String(codexCard.description || codexCard.notes || "") !== CONFIG_DEFAULT_CODEX_NOTES_SECTION) { codexCard.description = CONFIG_DEFAULT_CODEX_NOTES_SECTION; codexCard.notes = CONFIG_DEFAULT_CODEX_NOTES_SECTION; }
   }
 
   return cfg;
@@ -5240,6 +5373,9 @@ function strongCodexNonCharacterEvidence(name, text) {
     if (new RegExp(`\\b(?:enters?|entered|visits?|visited|walks?\\s+into|walked\\s+into|steps?\\s+into|stepped\\s+into|arrives?\\s+at|arrived\\s+at|goes?\\s+to|went\\s+to|heads?\\s+to|headed\\s+to|leaves?|left)\\s+(?:the\\s+)?${n}\\b`, "i").test(source)) scores.location += 5;
     if (new RegExp(`\\b(?:in|inside|outside|into|through|near|around|toward|towards|from|within|across|beneath|above|at)\\s+(?:the\\s+)?${n}\\b`, "i").test(source)) scores.location += 1;
     if (new RegExp(`\\b${n}\\b\\s+(?:lies?|sits?|stands?|is\\s+located|is\\s+situated|can\\s+be\\s+found)\\s+(?:in|near|on|beside|within|outside|north|south|east|west)\\b`, "i").test(source)) scores.location += 3;
+    // Route/directions grammar catches road names without generic suffixes.
+    if (new RegExp(`\\b(?:head|drive|walk|go|travel|continue|proceed)(?:ed|ing|s)?(?:\\s+(?:north|south|east|west|straight|back))?\\s+(?:on|along|down|up|toward|towards)\\s+(?:the\\s+)?${n}\\b`, "i").test(source)) scores.location += 5;
+    if (new RegExp(`\\b(?:turn|veer|bear)(?:ed|ing|s)?\\s+(?:left|right)?\\s*(?:onto|on|into)\\s+(?:the\\s+)?${n}\\b`, "i").test(source)) scores.location += 5;
 
     const itemExplicit = [
       new RegExp(`\\b${itemKinds}\\s+(?:called|named|known\\s+as|dubbed)\\s+["“”'‘’]?${n}\\b`, "i"),
@@ -5316,7 +5452,7 @@ function hasDirectCodexCharacterPresenceCue(name, text) {
     new RegExp(`\\b(?:I\\s*(?:am|'m|’m)|my\\s+name\\s+is|name\\s*(?:is|'s|’s)|call\\s+me|this\\s+is|meet|known\\s+as|go\\s+by)\\s+["“”'‘’]?${n}\\b`, "i"),
     new RegExp(`\\b(?:you|he|she|they|we)\\s+(?:see|spot|notice|meet|find|face|approach|watch|hear)\\s+(?:the\\s+|a\\s+|an\\s+)?${n}\\b`, "i"),
     new RegExp(`\\b${n}(?:'s|’s)\\s+(?:eyes?|voice|hands?|face|expression|smile|gaze|shoulders?|breath|hair|fingers?|arms?|feet|heart|cheeks?|lips?|posture|jaw|stance|grip|step|footsteps?)\\b`, "i"),
-    new RegExp(`\\b${n}\\b[^\\n.!?]{0,64}\\b(?:steps?|stepped|walks?|walked|approaches?|approached|enters?|entered|arrives?|arrived|comes?|came|sits?|sat|stands?|stood|leans?|leaned|reaches?|reached|turns?|turned|looks?|looked|glances?|glanced|stares?|stared|smiles?|smiled|frowns?|frowned|nods?|nodded|shrugs?|shrugged|runs?|ran|follows?|followed|kneels?|knelt|rises?|rose|flinches?|flinched|grabs?|grabbed|takes?|took|places?|placed|pushes?|pushed|pulls?|pulled|moves?|moved|laughs?|laughed|sighs?|sighed|winces?|winced|swallows?|swallowed|gestures?|gestured|speaks?|spoke)\\b`, "i"),
+    new RegExp(`\\b${n}\\b[^\\n.!?]{0,64}\\b(?:steps?|stepped|walks?|walked|approaches?|approached|enters?|entered|arrives?|arrived|comes?|came|sits?|sat|stands?|stood|leans?|leaned|slides?|slid|slips?|slipped|settles?|settled|ducks?|ducked|climbs?|climbed|reaches?|reached|turns?|turned|looks?|looked|glances?|glanced|stares?|stared|watches?|watched|studies?|studied|smiles?|smiled|frowns?|frowned|nods?|nodded|shrugs?|shrugged|runs?|ran|follows?|followed|kneels?|knelt|rises?|rose|flinches?|flinched|grabs?|grabbed|takes?|took|places?|placed|puts?|put|tucks?|tucked|removes?|removed|pulls?\s+off|pulled\s+off|pushes?|pushed|pulls?|pulled|moves?|moved|shifts?|shifted|folds?|folded|crosses?|crossed|rubs?|rubbed|laughs?|laughed|sighs?|sighed|exhales?|exhaled|breathes?|breathed|winces?|winced|swallows?|swallowed|gestures?|gestured|speaks?|spoke)\\b`, "i"),
     new RegExp(`\\b(?:a|an|the)\\s+(?:young\\s+|old\\s+|elderly\\s+)?(?:girl|boy|woman|man|person|lady|gentleman|teenager|teen|child|youth|guard|soldier|knight|mage|wizard|witch|priest|priestess|captain|doctor|merchant|stranger|traveler|traveller|officer|detective|pilot|engineer|nurse|bartender|server|waiter|waitress|barista|cashier|clerk|receptionist|chef|cook|mechanic|driver|courier|medic|therapist|counselor|counsellor|neighbor|neighbour|roommate|coworker|colleague|manager|boss|assistant|owner|parent|mother|father|sister|brother|wife|husband|partner|friend|teacher|professor|student|lawyer|attorney|judge|athlete|coach|musician|singer|actor|artist|scientist|researcher|agent|android|robot|synthetic|AI|alien|creature|spirit|ghost|vampire|werewolf|superhero|hero|villain|elf|dwarf|orc|fae|demon|angel|dragon|deity|god|goddess|dog|cat|horse|animal|companion)\\s+(?:named|called)\\s+${n}\\b`, "i"),
     new RegExp(`\\b${n}\\b\\s+(?:says?|asks?|replies?|answers?|whispers?|murmurs?|shouts?|calls?|adds?|admits?|explains?|insists?|snaps?|growls?|mutters?|laughs?|sighs?)\\s*[,.:!?-]?\\s*["“]`, "i"),
     new RegExp(`["”][^\\n]{0,40}\\b${n}\\b\\s+(?:says?|asks?|replies?|answers?|whispers?|murmurs?|shouts?|adds?|admits?|explains?|insists?|snaps?|growls?|mutters?)\\b`, "i")
@@ -5551,7 +5687,8 @@ function repairManagedCodexNonCharacterCard(name, source, strongType) {
     } else {
       entry = `Name: ${name}\nType: Faction\nDescription: ${name} is established as a non-character brand, group, or organization in the story.\nKnown Story Evidence: ${evidence}`;
     }
-    if (entry.length > MAX_CARD_ENTRY_LENGTH) entry = entry.slice(0, MAX_CARD_ENTRY_LENGTH - 1).trimEnd() + "…";
+    var repairLimit = codexCardEntryLimit();
+    if (entry.length > repairLimit) entry = entry.slice(0, repairLimit - 1).trimEnd() + "…";
 
     card.type = platformType(strong.type);
     card.entry = entry;
@@ -5838,7 +5975,8 @@ function classifyCodexEntryAfterSemanticChecks(name, text) {
   const n = escapeForRegex(name);
   const nearLocation = new RegExp(`(in|inside|outside|through|into)\\s+(?:the\\s+)?${n}\\b`, "i");
   const describedAsLocation = new RegExp(`\\b(?:location|place|site|venue|garden|grove|park|plaza|square|city|town|village|hamlet|kingdom|realm|district|region|port|harbor|harbour|forest|woods|mountain|valley|island|station|outpost|colony|settlement|tavern|inn|hotel|motel|castle|fortress|temple|academy|school|college|university|campus|facility|base|office|apartment|house|home|warehouse|factory|farm|ranch|arena|stadium|courtroom|courthouse|prison|jail|theater|theatre|museum|library|mall|market|beach|cave|mine|ruins?|cemetery|graveyard|neighbou?rhood|suburb)\\s+(?:of|called|named)\\s+${n}\\b|\\b${n}\\b\\s+(?:is|was)\\s+(?:an?\\s+|the\\s+)?(?:location|place|site|venue|garden|grove|park|plaza|square|city|town|village|hamlet|kingdom|realm|district|region|port|harbor|harbour|forest|station|outpost|colony|settlement|tavern|inn|hotel|motel|castle|fortress|temple|academy|school|college|university|campus|facility|base|office|apartment|house|home|warehouse|factory|farm|ranch|arena|stadium|courtroom|courthouse|prison|jail|theater|theatre|museum|library|mall|market|beach|cave|mine|ruins?|cemetery|graveyard|neighbou?rhood|suburb)\\b`, "i");
-  if (nearLocation.test(source) || describedAsLocation.test(source)) return "location";
+  const routeLocation = new RegExp(`\\b(?:head|drive|walk|go|travel|continue|proceed)(?:ed|ing|s)?(?:\\s+(?:north|south|east|west|straight|back))?\\s+(?:on|along|down|up|toward|towards)\\s+(?:the\\s+)?${n}\\b|\\b(?:turn|veer|bear)(?:ed|ing|s)?\\s+(?:left|right)?\\s*(?:onto|on|into)\\s+(?:the\\s+)?${n}\\b`, "i");
+  if (nearLocation.test(source) || describedAsLocation.test(source) || routeLocation.test(source)) return "location";
 
   const nearItem = new RegExp(`(wields?|holds?|wearing|wears|wore|donned|dressed\\s+in|put\\s+on|slipped\\s+into|using|uses|draws?|grips?|picks?\\s+up|holsters?|drove|drives|driving|parked|rode|riding|climbs?\\s+into|climbed\\s+into|gets?\\s+into|got\\s+into|hops?\\s+into|hopped\\s+into|flew|flying|piloted|piloting|boarded|boarding|launched|launching|docked|docking)\\s+(the\\s+|a\\s+|an\\s+|his\\s+|her\\s+|their\\s+)?${n}\\b`, "i");
   const describedAsItem = new RegExp(`\\b(?:sword|blade|gun|rifle|pistol|staff|wand|amulet|ring|artifact|device|weapon|tool|key|book|tome|relic|ship|starship|vehicle|car|truck|motorcycle|bicycle|train|boat|robot|android|mech|phone|computer|laptop|camera|instrument|guitar|document|letter|contract|map|medicine|medication|serum)\\s+(?:called|named)\\s+${n}\\b|\\b${n}\\b\\s+(?:is|was)\\s+(?:an?\\s+|the\\s+)?(?:sword|blade|gun|rifle|pistol|staff|wand|amulet|ring|artifact|device|weapon|tool|key|book|tome|relic|ship|starship|vehicle|car|truck|motorcycle|bicycle|train|boat|robot|android|mech|phone|computer|laptop|camera|instrument|guitar|document|letter|contract|map|medicine|medication|serum)\\b`, "i");
@@ -6078,6 +6216,12 @@ function codexKindFromExistingCard(card, name) {
   if (raw === "location") return "location";
   if (raw === "item") return "item";
   if (raw === "faction") return "faction";
+  // A card explicitly typed Character by the player/platform remains a
+  // Character here. Entity descriptions routinely mention named venues,
+  // employers and possessions; those nearby nouns must not retype the card.
+  // Proven old Codex misclassifications are repaired by the dedicated
+  // evidence-backed repair path, which also respects manual edits.
+  if (rawCharacter) return "character";
 
   const entry = String(card.entry || "");
   const semanticNonCharacter = strongCodexNonCharacterEvidence(name || card.title, entry);
@@ -6611,12 +6755,12 @@ function buildCodexInstruction(names, text, forced, priorFailures, hardDeadline,
     // only a small evidence-backed core mandatory. Output may omit genuinely
     // unsupported optional fields; the parser preserves existing refresh data.
     const minimumFields = type === "character"
-      ? ["Background", "Personality", "Relationships"]
+      ? ["Background", "Personality", "Appearance", "Relationships"]
       : type === "location"
-        ? ["Description", "Significance"]
+        ? ["Description", "Current State", "Significance"]
         : type === "item"
-          ? ["Type", "Description"]
-          : ["Type", "Description"];
+          ? ["Type", "Description", "Properties"]
+          : ["Type", "Description", "Purpose"];
     const body = [`Name: ${name}`]
       .concat(fields.filter(f => f !== "Name").map(f => `${f}:`))
       .join("\n");
@@ -6663,7 +6807,7 @@ function buildCodexInstruction(names, text, forced, priorFailures, hardDeadline,
         `Current card snapshot: ${existingEntry || "(empty)"}.`;
     }
 
-    return `Profile ${i + 1} — "${name}":${refreshNote}${knownNote}${correctionNote}${observationNote}${evidenceNote}\nIdentity lock: this block is ONLY for "${name}". Do not substitute a nearby person, food, object, place, brand, or similarly named entity. The Name field must stay "${name}". Fill at least ${minimumFields.length} useful non-Name fields (${minimumFields.join(", ")}); optional fields may be omitted when the story does not support them.\n[CARD]\n${body}\n[/CARD]`;
+    return `Profile ${i + 1} — "${name}":${refreshNote}${knownNote}${correctionNote}${observationNote}${evidenceNote}\nIdentity lock: this block is ONLY for "${name}". Do not substitute a nearby person, food, object, place, brand, or similarly named entity. The Name field must stay "${name}". Fill every supported field that can be grounded in the story, and include at least ${minimumFields.length} useful non-Name fields (${minimumFields.join(", ")}). Omit only fields the story genuinely does not support; never pad with guesses.\n[CARD]\n${body}\n[/CARD]`;
   }).join("\n\n");
 
   let priorityLine;
@@ -10811,8 +10955,8 @@ function CW_contextBlock(turn, hardBudget, baseContext) {
   const twistLines = twist ? [twist] : [];
 
   const protocol = [
-    "TAGS: append only at the END of visible prose; they are stripped before the player sees them.",
-    "NPC [[CW_PERSON|Name|adult/minor/unknown]]: named NPCs only. Use adult only when 18+ is established.",
+    "HIDDEN METADATA: append exact [[CW_...]] tags only at the END of visible prose; they are stripped before the player sees them. Never print labels such as [NPC], [EVENT], [ROLE], analysis, notes, or commentary.",
+    "PERSON TAG: [[CW_PERSON|Name|adult/minor/unknown]] for named NPCs only. Use adult only when 18+ is established. If you cannot form the exact tag, output no metadata rather than a prose substitute.",
     cfg.roleAwareness ? "ROLE [[CW_ROLE|FROM|TO|ROLE]] only when the relationship role is explicit or strongly established. ROLE=" + CW_ROLE_CODES.join(",") + ". Family roles must never be romanticized." : "",
     "EVENT [[CW_EVT|FROM|TO|TYPE|SEVERITY|brief factual memory]]. FROM = NPC whose bond changes, not necessarily the actor; TO = person they react toward; FROM is never YOU. Example: YOU betray Mara → Mara|YOU|betrayal. Severity 1 small, 2 meaningful, 3 major/lasting.",
     CW_sensitivityInstruction(cfg),
@@ -10842,7 +10986,7 @@ function CW_contextBlock(turn, hardBudget, baseContext) {
       "[CROSSED WIRES PRIVATE] Profile " + profile.primary + (profile.secondary ? "+" + profile.secondary : "") + ". Preserve NPC relationship continuity/mixed feelings; never decide protagonist thoughts, feelings, actions or consent; do not force drama or instant repair.",
       relationshipLines.length > 1 ? relationshipLines[1] : relationshipLines[0],
       twistLines.length ? CW_clipText(twistLines[0], 220) : "",
-      "Hidden tags at END only. NPC [[CW_PERSON|Name|adult/minor/unknown]]. " + (cfg.roleAwareness ? "ROLE [[CW_ROLE|FROM|TO|ROLE]]. " : "") + "EVENT [[CW_EVT|FROM|TO|TYPE|1/2/3|brief memory]]. FROM is the NPC whose bond changes; TO is who they react toward; never FROM=YOU.",
+      "Exact hidden [[CW_...]] tags at END only; never output [NPC]/[EVENT]/[ROLE] prose labels. PERSON [[CW_PERSON|Name|adult/minor/unknown]]. " + (cfg.roleAwareness ? "ROLE [[CW_ROLE|FROM|TO|ROLE]]. " : "") + "EVENT [[CW_EVT|FROM|TO|TYPE|1/2/3|brief memory]]. FROM is the NPC whose bond changes; TO is who they react toward; never FROM=YOU.",
       (cfg.enableRomance ? "Romance codes require explicitly romantic evidence; mission/team/family commitment is not romantic commitment. " : "") + "TYPE=" + lowCodes + ". New evidence only; ordinary talk/recalled events need no tag. Repair tags require demonstrated rebuilding.",
       "[/CROSSED WIRES]"
     ].filter(Boolean).join("\n");
@@ -10875,7 +11019,7 @@ function CW_contextBlock(turn, hardBudget, baseContext) {
       CW_clipText(CW_profileDirective(profile, cfg), 260)
     ];
     const compactProtocol = [
-      "TAGS only at END. NPC [[CW_PERSON|Name|adult/minor/unknown]]; adult requires established 18+.",
+      "Exact [[CW_...]] tags only at END; never print [NPC], [EVENT], [ROLE], notes or analysis. PERSON [[CW_PERSON|Name|adult/minor/unknown]]; adult requires established 18+.",
       "EVENT [[CW_EVT|FROM|TO|TYPE|1/2/3|brief factual memory]]. FROM is the NPC whose bond changes (never YOU); TO is who they react toward.",
       "TYPE=" + eventCodes.replace(/, /g, ","),
       "Max " + cfg.maxEventsPerTurn + ". New story-supported evidence only; no repeated old events, invented updates or unsupported inner feelings. No | or ] in memory.",
@@ -10908,17 +11052,26 @@ function CW_contextBlock(turn, hardBudget, baseContext) {
   return result;
 }
 
-function CW_stripTags(text) {
-  let out = String(text || "");
-  out = out.replace(/\[\[CW_PERSON\|[^\]]*\]\]/gi, "");
-  out = out.replace(/\[\[CW_EVT\|[^\]]*\]\]/gi, "");
-  out = out.replace(/\[\[CW_ROLE\|[^\]]*\]\]/gi, "");
-  out = out.replace(/\[\[CW_TWIST\|[^\]]*\]\]/gi, "");
-  out = out.split("\n").filter(function (line) { return !/\[\[CW_(?:PERSON|EVT|ROLE|TWIST)\|/i.test(line); }).join("\n");
-  out = out.replace(/\n{3,}/g, "\n\n").trim();
+function CE_stripVisibleScriptArtifacts(text) {
+  var out = String(text || "");
+  out = out.replace(/\[\[CW_(?:PERSON|EVT|ROLE|TWIST)\|[^\]]*\]\]/gi, "");
+  // Malformed model paraphrases of private protocol must not reach story text.
+  var badLead = /^\s*\[(?:NPC|EVENT|ROLE|RELATIONSHIP|CW(?:_|\b)|UNSAID|ECHO\s*VEIL|CROSSED\s*WIRES|CROSSED\s*ECHOES|TWISTS(?:\s+AND\s+TURNS)?|CODEX|SCRIPT(?:\s+STATE)?|PRIVATE(?:\s+STATE)?)\b[^\n]*$/i;
+  var lines = out.split(/\n/), kept = [], dropping = false;
+  for (var i = 0; i < lines.length; i++) {
+    var line = lines[i];
+    if (!dropping && badLead.test(line)) { dropping = true; continue; }
+    if (dropping) {
+      if (!String(line).trim()) dropping = false;
+      continue;
+    }
+    if (/^\s*(?:NPC|PERSON|EVENT|ROLE)\s*\[\[?CW_/i.test(line) || /\[\[CW_(?:PERSON|EVT|ROLE|TWIST)\|/i.test(line)) continue;
+    kept.push(line);
+  }
+  out = kept.join("\n").replace(/\n{3,}/g, "\n\n").trim();
   return out || "\u200B";
 }
-
+function CW_stripTags(text) { return CE_stripVisibleScriptArtifacts(text); }
 function CW_eventEvidenceSupported(raw, from, to) {
   const prose = CW_stripTags(raw);
   const evidence = prose + "\n" + CW_recentHistoryText(CW_config().sceneHistoryActions);
@@ -11627,13 +11780,16 @@ const ECHO_VEIL = (() => {
     "To","Today","Together","Too","Toward","Towards","Under","Until","Up","Upon","Us",
     "Very","Was","We","Well","Were","What","When","Where","Which","While","Who","Why",
     "Will","With","Within","Without","Would","Yes","Yet","You","Your","Yours","Yourself",
+    "Alright","Okay","Ok","Wait","Listen","Hey","Hello","Thanks","Please","Sorry",
+    "Rain","Raining","Snow","Snowing","Wind","Storm","Thunder","Lightning","Weather","Cold","Warm",
+    "Morning","Afternoon","Evening","Night","Midnight","Dawn","Dusk","North","South","East","West","Inside","Outside",
     "Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday",
     "January","February","March","April","May","June","July","August","September",
     "October","November","December"
   ]);
 
   const NAME_TITLES_RE = /^(?:(?:Mr|Mrs|Ms|Miss|Dr|Doctor|Professor|Prof|Detective|Officer|Agent|Captain|Commander|Chief|Sergeant|Sgt|Lieutenant|Lt|General|Colonel|Major|Lady|Lord|Sir|Dame|King|Queen|Prince|Princess|Emperor|Empress|Father|Mother|Brother|Sister)\.?\s+)/i;
-  const PERSON_CONTEXT_RE = /\b(said|says|asked|asks|replied|replies|whispered|whispers|shouted|shouts|looked|looks|walked|walks|turned|turns|smiled|smiles|frowned|frowns|told|tells|stood|stands|sat|sits|entered|enters|left|leaves|nodded|nods|laughed|laughs|cried|cries|thinks?|wants?|needs?|fears?|hates?|loves?|attacks?|helps?|follows?|watches?|Mr\.|Mrs\.|Ms\.|Dr\.|Captain|Detective|Officer|Agent|Professor|Doctor|Lady|Lord|Sir)\b/i;
+  const PERSON_CONTEXT_RE = /\b(said|says|asked|asks|replied|replies|whispered|whispers|shouted|shouts|looked|looks|walked|walks|turned|turns|smiled|smiles|frowned|frowns|told|tells|stood|stands|sat|sits|entered|enters|left|leaves|nodded|nods|laughed|laughs|cried|cries|slides?|slid|slips?|slipped|settles?|settled|pulls?|pulled|removes?|removed|tucks?|tucked|gestures?|gestured|studies?|studied|exhales?|exhaled|thinks?|wants?|needs?|fears?|hates?|loves?|attacks?|helps?|follows?|watches?|Mr\.|Mrs\.|Ms\.|Dr\.|Captain|Detective|Officer|Agent|Professor|Doctor|Lady|Lord|Sir)\b/i;
   const PLACE_SUFFIX_RE = /\b(city|town|village|kingdom|empire|station|street|road|avenue|lane|river|mountain|mountains|forest|woods|desert|ocean|sea|island|district|county|school|hospital|hotel|bar|pub|cafe|café|restaurant|airport|harbor|harbour|port|base|facility|laboratory|lab|tower|building|park|market|plaza|square|bridge|castle|palace|temple|church|avenue|district|quarter|valley|lake|bay|fort|fortress|warehouse|factory|office|room|hall|house|home)\b$/i;
   const ORG_SUFFIX_RE = /\b(inc|corp|corporation|company|committee|council|agency|department|guild|clan|team|order|league|association|society|syndicate|cartel|gang|army|navy|force|bureau|foundation|institute|university|school|church|cult|faction|organization|organisation)\b$/i;
   const ABBREV_WORDS = new Set(["mr","mrs","ms","dr","prof","sr","jr","st","vs","etc","e.g","i.e","no","fig","dept","inc","ltd","co","capt","cmdr","sgt","lt","gen","col"]);
@@ -11872,7 +12028,7 @@ const ECHO_VEIL = (() => {
       "Fast chaotic story: DYNAMIC; if it becomes too busy, reduce OFFSCREEN_ACTIVITY or CONSEQUENCE_PRESSURE before disabling safety guards.",
       "",
       "CROSSED ECHOES CARD RULE",
-      "All four configuration cards use the Story Card category 'CROSSED ECHOES CONFIG'. Entry contains editable settings; Notes contain the full human-readable guide. Character cards use Entry for public canon and Notes for script diagnostics/private engine state."
+      "All five configuration cards use the Story Card category 'CROSSED ECHOES CONFIG'. Entry contains editable settings; Notes contain the full human-readable guide. Character, Location, Item and Faction cards use Entry for public canon; CROSSED ECHOES-managed diagnostics live in Notes and are excluded from story evidence."
     ].join("\n");
   }
 
@@ -15540,15 +15696,23 @@ const ECHO_VEIL = (() => {
 
 // ============================================================================
 // CROSSED ECHOES — STORY CARD PRESENTATION
-// Keeps model-facing Entry clean while storing script state in Notes.
-// Everything after the existing private marker is deliberately excluded from
-// TWISTS AND TURNS evidence scans, preventing private/script metadata leakage.
+// Entry = public/canonical model-facing information.
+// Triggers = retrieval aliases only.
+// Notes = creator notes + script-managed diagnostics. The managed section is
+// deliberately excluded from evidence scans so private thoughts never become
+// canon merely because they are visible to the player in the editor.
 // ============================================================================
-var CE_CARD_NOTES_START = (typeof MIND_NOTES_MARKER !== "undefined" ? MIND_NOTES_MARKER : "💭 Inner Life — private, not visible to other characters");
+var CE_CARD_NOTES_START = "━━━━━━━━━━ 🌒 CROSSED ECHOES — SCRIPT STATE ━━━━━━━━━━";
+var CE_CARD_NOTES_LEGACY_START = (typeof MIND_NOTES_MARKER !== "undefined" ? MIND_NOTES_MARKER : "💭 Inner Life — private, not visible to other characters");
 
 function CE_publicStoryCardNotes(card) {
   var raw = String(card && (card.description || card.notes) || "");
-  return raw.split(CE_CARD_NOTES_START)[0].replace(/\s+$/g, "");
+  var cut = raw.length;
+  [CE_CARD_NOTES_START, CE_CARD_NOTES_LEGACY_START].forEach(function(marker){
+    var idx = marker ? raw.indexOf(marker) : -1;
+    if (idx >= 0 && idx < cut) cut = idx;
+  });
+  return raw.slice(0, cut).replace(/\s+$/g, "");
 }
 
 function CE_noteClip(value, max) {
@@ -15556,184 +15720,56 @@ function CE_noteClip(value, max) {
   var n = Math.max(40, Number(max) || 180);
   return s.length <= n ? s : s.slice(0, n - 1).replace(/\s+$/g, "") + "…";
 }
-
 function CE_sameName(a, b) {
   try { if (typeof isSameCardEntity === "function") return isSameCardEntity(a, b); } catch (_) {}
   return String(a || "").trim().toLowerCase() === String(b || "").trim().toLowerCase();
 }
-
 function CE_unsaidCardSection(name) {
   try {
-    var minds = (state.unsaid && state.unsaid.minds) || {};
-    var key = Object.keys(minds).find(function(k){ return CE_sameName(k, name); });
-    var m = key ? minds[key] : null;
-    if (!m) return "Tracking ready. No durable private state has been recorded yet.";
-    var lines = [];
-    if (m.core) lines.push("Core truth: " + CE_noteClip(m.core, 240));
-    if (m.feeling) lines.push("Current feeling: " + CE_noteClip(m.feeling, 150));
-    if (m.want) lines.push("Current want: " + CE_noteClip(m.want, 180));
-    if (m.lastThoughtText) lines.push("Last private thought: " + CE_noteClip(m.lastThoughtText, 240));
-    if (Number(m.tensionLevel || 0) > 0) lines.push("Identity tension: " + Math.round(Number(m.tensionLevel || 0)) + " / " + (typeof TENSION_THRESHOLD !== "undefined" ? TENSION_THRESHOLD : "threshold"));
-    var order = Array.isArray(m.thoughtOrder) ? m.thoughtOrder.slice(-3) : [];
-    if (order.length && m.thoughtBank) {
-      var memory = order.map(function(k){ return k + ": " + CE_noteClip(m.thoughtBank[k], 120); }).filter(Boolean);
-      if (memory.length) lines.push("Private memory: " + memory.join(" | "));
-    }
-    return lines.length ? lines.join("\n") : "Tracking active; no new private state this turn.";
-  } catch (_) { return "Tracking available."; }
+    var minds=(state.unsaid&&state.unsaid.minds)||{}, key=Object.keys(minds).find(function(k){return CE_sameName(k,name);}), m=key?minds[key]:null;
+    if(!m) return "Tracking ready. No durable private state has been recorded yet.";
+    var lines=[];
+    if(m.core) lines.push("Core truth: "+CE_noteClip(m.core,240));
+    if(m.feeling) lines.push("Current feeling: "+CE_noteClip(m.feeling,150));
+    if(m.want) lines.push("Current want: "+CE_noteClip(m.want,180));
+    if(m.lastThoughtText) lines.push("Last private thought: "+CE_noteClip(m.lastThoughtText,240));
+    if(Number(m.tensionLevel||0)>0) lines.push("Identity tension: "+Math.round(Number(m.tensionLevel||0))+" / "+(typeof TENSION_THRESHOLD!=="undefined"?TENSION_THRESHOLD:"threshold"));
+    var order=Array.isArray(m.thoughtOrder)?m.thoughtOrder.slice(-3):[];
+    if(order.length&&m.thoughtBank){var memory=order.map(function(k){return k+": "+CE_noteClip(m.thoughtBank[k],120);}).filter(Boolean);if(memory.length)lines.push("Private memory: "+memory.join(" | "));}
+    return lines.length?lines.join("\n"):"Tracking active; no new private state this turn.";
+  } catch(_){return "Tracking available.";}
 }
-
 function CE_crossedCardSection(name) {
   try {
-    if (!state.crossedWires) return "Relationship tracking ready; no relationship history yet.";
-    var turn = (typeof CW_turn === "function") ? CW_turn() : 0;
-    var combined = (state.crossedWires.archivedAnchors || []).concat(state.crossedWires.ledger || []);
-    var dirs = {}, recent = [];
-    for (var i = combined.length - 1; i >= 0 && recent.length < 24; i--) {
-      var e = combined[i]; if (!e) continue;
-      if (!CE_sameName(e.from, name) && !CE_sameName(e.to, name)) continue;
-      var k = String(e.from) + "=>" + String(e.to);
-      if (!dirs[k]) { dirs[k] = {from:e.from,to:e.to}; recent.push(dirs[k]); }
-    }
-    var lines = [];
-    for (var j = 0; j < recent.length && lines.length < 4; j++) {
-      var d = recent[j];
-      var link = (typeof CW_computeLink === "function") ? CW_computeLink(d.from, d.to, turn) : null;
-      if (!link || link.mature === false) continue;
-      var role = (typeof CW_getRole === "function") ? CW_getRole(link.from, link.to) : "unknown";
-      var label = (typeof CW_roleAwareLabel === "function") ? CW_roleAwareLabel(link) : "developing relationship";
-      var pressure = (typeof CW_pressureText === "function") ? CW_pressureText(link.scores || {}) : "tracked";
-      var prefix = link.from + " → " + link.to + (role && role !== "unknown" && typeof CW_roleDisplay === "function" ? " [" + CW_roleDisplay(role) + "]" : "");
-      var extra = link.unresolved ? "; unresolved: " + link.unresolved : "";
-      lines.push(CE_noteClip(prefix + ": " + label + "; " + pressure + "; trajectory " + (link.trajectory || "forming") + extra, 360));
-    }
-    return lines.length ? lines.join("\n") : "Relationship tracking ready; no mature directional bond is established yet.";
-  } catch (_) { return "Relationship tracking available."; }
+    if(!state.crossedWires)return "Relationship tracking ready; no relationship history yet.";
+    var turn=typeof CW_turn==="function"?CW_turn():0, combined=(state.crossedWires.archivedAnchors||[]).concat(state.crossedWires.ledger||[]), dirs={}, recent=[];
+    for(var i=combined.length-1;i>=0&&recent.length<24;i--){var e=combined[i];if(!e)continue;if(!CE_sameName(e.from,name)&&!CE_sameName(e.to,name))continue;var k=String(e.from)+"=>"+String(e.to);if(!dirs[k]){dirs[k]={from:e.from,to:e.to};recent.push(dirs[k]);}}
+    var lines=[];
+    for(var j=0;j<recent.length&&lines.length<4;j++){var d=recent[j],link=typeof CW_computeLink==="function"?CW_computeLink(d.from,d.to,turn):null;if(!link||link.mature===false)continue;var role=typeof CW_getRole==="function"?CW_getRole(link.from,link.to):"unknown",label=typeof CW_roleAwareLabel==="function"?CW_roleAwareLabel(link):"developing relationship",pressure=typeof CW_pressureText==="function"?CW_pressureText(link.scores||{}):"tracked",prefix=link.from+" → "+link.to+(role&&role!=="unknown"&&typeof CW_roleDisplay==="function"?" ["+CW_roleDisplay(role)+"]":""),extra=link.unresolved?"; unresolved: "+link.unresolved:"";lines.push(CE_noteClip(prefix+": "+label+"; "+pressure+"; trajectory "+(link.trajectory||"forming")+extra,360));}
+    return lines.length?lines.join("\n"):"Relationship tracking ready; no mature directional bond is established yet.";
+  } catch(_){return "Relationship tracking available.";}
 }
-
 function CE_echoCardSection(name) {
   try {
-    var ev = state.echoVeil;
-    if (!ev) return "Continuity tracking ready; no ECHO VEIL state yet.";
-    var key = Object.keys(ev.entities || {}).find(function(k){ var e=ev.entities[k]; return e && CE_sameName(e.name || k, name); });
-    var ent = key ? ev.entities[key] : null;
-    var lines = [];
-    if (ent) {
-      var presence = ent.states && ent.states.presence && ent.states.presence.value;
-      if (presence) lines.push("Presence: " + presence + (Number.isFinite(Number(ent.lastSeen)) ? " (last seen turn " + ent.lastSeen + ")" : ""));
-      else if (Number.isFinite(Number(ent.lastSeen))) lines.push("Last seen: turn " + ent.lastSeen);
-      if (Array.isArray(ent.affiliations) && ent.affiliations.length) lines.push("Affiliations: " + ent.affiliations.slice(0,3).join(", "));
-      if (Array.isArray(ent.motives) && ent.motives.length) {
-        var motives = ent.motives.slice(-2).map(function(m){ return CE_noteClip(m && (m.summary || m.text) || m, 120); }).filter(Boolean);
-        if (motives.length) lines.push("Established motives: " + motives.join(" | "));
-      }
-      var states = Object.keys(ent.states || {}).filter(function(k){ return k !== "presence"; }).slice(0,4).map(function(k){ var v=ent.states[k]; return k + "=" + CE_noteClip(v && v.value, 70); });
-      if (states.length) lines.push("Continuity: " + states.join("; "));
-    }
-    var actorMatch = function(a){ return Array.isArray(a) && a.some(function(x){ return CE_sameName(x, name); }); };
-    var threads = (ev.threads || []).filter(function(t){ return t && !t.resolved && actorMatch(t.actors); }).sort(function(a,b){ return (b.lastTouched||0)-(a.lastTouched||0); }).slice(0,2);
-    if (threads.length) lines.push("Live threads: " + threads.map(function(t){ return CE_noteClip(t.summary, 135); }).join(" | "));
-    var cons = (ev.consequences || []).filter(function(c){ return c && c.status !== "resolved" && actorMatch(c.actors); }).sort(function(a,b){ return (b.createdTurn||0)-(a.createdTurn||0); }).slice(0,2);
-    if (cons.length) lines.push("Pending consequences: " + cons.map(function(c){ return CE_noteClip(c.summary || c.sourceText || c.kind, 135); }).join(" | "));
-    return lines.length ? lines.join("\n") : "Continuity tracking ready; no character-specific live continuity pressure is recorded yet.";
-  } catch (_) { return "Continuity tracking available."; }
+    var ev=state.echoVeil;if(!ev)return "Continuity tracking ready; no ECHO VEIL state yet.";var key=Object.keys(ev.entities||{}).find(function(k){var e=ev.entities[k];return e&&CE_sameName(e.name||k,name);}),ent=key?ev.entities[key]:null,lines=[];
+    if(ent){var presence=ent.states&&ent.states.presence&&ent.states.presence.value;if(presence)lines.push("Presence: "+presence+(Number.isFinite(Number(ent.lastSeen))?" (last seen turn "+ent.lastSeen+")":""));else if(Number.isFinite(Number(ent.lastSeen)))lines.push("Last seen: turn "+ent.lastSeen);if(Array.isArray(ent.affiliations)&&ent.affiliations.length)lines.push("Affiliations: "+ent.affiliations.slice(0,3).join(", "));if(Array.isArray(ent.motives)&&ent.motives.length){var motives=ent.motives.slice(-2).map(function(m){return CE_noteClip(m&&(m.summary||m.text)||m,120);}).filter(Boolean);if(motives.length)lines.push("Established motives: "+motives.join(" | "));}var states=Object.keys(ent.states||{}).filter(function(k){return k!=="presence";}).slice(0,4).map(function(k){var v=ent.states[k];return k+"="+CE_noteClip(v&&v.value,70);});if(states.length)lines.push("Continuity: "+states.join("; "));}
+    var actorMatch=function(a){return Array.isArray(a)&&a.some(function(x){return CE_sameName(x,name);});},threads=(ev.threads||[]).filter(function(t){return t&&!t.resolved&&actorMatch(t.actors);}).sort(function(a,b){return(b.lastTouched||0)-(a.lastTouched||0);}).slice(0,2);if(threads.length)lines.push("Live threads: "+threads.map(function(t){return CE_noteClip(t.summary,135);}).join(" | "));var cons=(ev.consequences||[]).filter(function(c){return c&&c.status!=="resolved"&&actorMatch(c.actors);}).sort(function(a,b){return(b.createdTurn||0)-(a.createdTurn||0);}).slice(0,2);if(cons.length)lines.push("Pending consequences: "+cons.map(function(c){return CE_noteClip(c.summary||c.sourceText||c.kind,135);}).join(" | "));
+    return lines.length?lines.join("\n"):"Continuity tracking ready; no entity-specific live pressure is recorded yet.";
+  } catch(_){return "Continuity tracking available.";}
 }
-
-function CE_bridgeCardSection(name) {
-  try {
-    var u = state.unifiedNarrative || {};
-    var lines = [];
-    if (u.focus && u.focus.entity && CE_sameName(u.focus.entity, name)) {
-      lines.push("Convergent focus: active (" + (Array.isArray(u.focus.sources) ? u.focus.sources.join(" + ") : "multi-system") + ").");
-    }
-    var recent = (u.aftermath || []).filter(function(a){ return a && (CE_sameName(a.entity, name) || CE_sameName(a.from, name) || CE_sameName(a.to, name)); }).slice(-2);
-    if (recent.length) lines.push("Recent cross-system aftermath: " + recent.map(function(a){ return CE_noteClip(a.summary || a.kind, 130); }).join(" | "));
-    return lines.length ? lines.join("\n") : "Coordinator: no special cross-system focus currently attached to this character.";
-  } catch (_) { return "Coordinator available."; }
-}
-
-function CE_codexCardSection(name, card) {
-  try {
-    var codex = state.unsaid && state.unsaid.codex;
-    if (!codex) return "Codex: card is available for evidence-backed refreshes.";
-    var meta = null;
-    if (typeof codexManagedCardKey === "function") {
-      var mk = codexManagedCardKey(name, card);
-      meta = codex.cardMeta && codex.cardMeta[mk];
-    }
-    var lines = [];
-    if (meta) {
-      lines.push("Managed by Codex: yes" + (meta.manualEditProtected ? " — manual Entry edit protected" : ""));
-      lines.push("Last generated/refresh turn: " + (meta.lastRefreshTurn != null ? meta.lastRefreshTurn : meta.lastGeneratedTurn));
-      if (Number(meta.updateCount || 0) > 0) lines.push("Automatic refreshes: " + meta.updateCount);
-    } else lines.push("Managed by Codex: no (manual card or not yet adopted)." );
-    var evidence = (typeof codexEvidenceSentences === "function") ? codexEvidenceSentences(name, "").slice(-2) : [];
-    if (evidence && evidence.length) lines.push("Recent evidence: " + evidence.map(function(x){ return CE_noteClip(x, 180); }).join(" | "));
-    return lines.join("\n");
-  } catch (_) { return "Codex status unavailable this turn."; }
-}
-
-function CE_renderManagedCharacterNotes(name, card) {
-  return [
-    "🌒 CROSSED ECHOES — SCRIPT STATE",
-    "Auto-managed by the script. These Notes are player-facing diagnostics and are not used as story evidence.",
-    "",
-    "🧠 UNSPOKEN TURNS / UNSAID",
-    CE_unsaidCardSection(name),
-    "",
-    "❤️ CROSSED WIRES",
-    CE_crossedCardSection(name),
-    "",
-    "🌘 ECHO VEIL",
-    CE_echoCardSection(name),
-    "",
-    "🔗 CROSSED ECHOES",
-    CE_bridgeCardSection(name),
-    "",
-    "📚 CODEX",
-    CE_codexCardSection(name, card)
-  ].join("\n");
-}
-
-function CE_syncCharacterCard(name) {
-  try {
-    if (!name || typeof storyCards === "undefined" || !Array.isArray(storyCards)) return false;
-    var card = (typeof findStoryCardForEntity === "function") ? findStoryCardForEntity(name) : storyCards.find(function(c){ return c && CE_sameName(c.title, name); });
-    if (!card || (typeof isOwnCard === "function" && isOwnCard(card.title))) return false;
-    var kind = (typeof codexKindFromExistingCard === "function") ? codexKindFromExistingCard(card, name) : String(card.type || "").toLowerCase();
-    if (kind !== "character" && !/character|npc|person/i.test(String(card.type || ""))) return false;
-    var base = CE_publicStoryCardNotes(card);
-    var managed = CE_renderManagedCharacterNotes(name, card);
-    var next = (base ? base + "\n\n" : "") + CE_CARD_NOTES_START + "\n" + managed;
-    if (String(card.description || card.notes || "") !== next) {
-      card.description = next;
-      card.notes = next;
-    }
-    if (!card.type || /^class$/i.test(String(card.type))) card.type = "Character";
-    return true;
-  } catch (_) { return false; }
-}
-
-function CE_syncStoryCardPresentation() {
-  try {
-    var names = [], add = function(n){ n=String(n||"").trim(); if(n && !names.some(function(x){return CE_sameName(x,n);})) names.push(n); };
-    var u = state.unsaid || {};
-    (u.lastActiveCast || []).slice(0,8).forEach(add);
-    var cw = state.crossedWires || {}, now = (typeof CW_turn === "function" ? CW_turn() : 0);
-    Object.keys(cw.npcs || {}).forEach(function(k){ var n=cw.npcs[k]; if(n && Number(n.lastMentionTurn || n.lastSeen || -999) >= now - 1) add(n.name || k); });
-    var ev = state.echoVeil || {};
-    Object.keys((ev.scene && ev.scene.cast) || {}).forEach(function(k){ var c=ev.scene.cast[k]; if(c && Number(c.turn || -999) >= now - 1) add(c.name || k); });
-    if (state.unifiedNarrative && state.unifiedNarrative.focus) add(state.unifiedNarrative.focus.entity);
-    names.slice(0,10).forEach(CE_syncCharacterCard);
-  } catch (_) {}
-}
-
+function CE_twistsCardSection(name){try{var c=state.contingency||{},threads=(c.threads||[]).filter(function(t){return t&&t.entity&&CE_sameName(t.entity,name)&&t.status!=="resolved";}).slice(-3);if(!threads.length)return "No active evidence-backed twist thread is attached to this entity.";return threads.map(function(t){var seeds=Array.isArray(t.seeds)?t.seeds.length:Number(t.seedCount||0);return CE_noteClip((t.category||t.type||"thread")+": "+(t.status||"brewing")+(seeds?"; seeds "+seeds:"")+(t.description?"; "+t.description:""),260);}).join("\n");}catch(_){return "Twist tracking available.";}}
+function CE_bridgeCardSection(name){try{var u=state.unifiedNarrative||{},lines=[];if(u.focus&&u.focus.entity&&CE_sameName(u.focus.entity,name))lines.push("Convergent focus: active ("+(Array.isArray(u.focus.sources)?u.focus.sources.join(" + "):"multi-system")+").");var recent=(u.aftermath||[]).filter(function(a){return a&&(CE_sameName(a.entity,name)||CE_sameName(a.from,name)||CE_sameName(a.to,name));}).slice(-2);if(recent.length)lines.push("Recent cross-system aftermath: "+recent.map(function(a){return CE_noteClip(a.summary||a.kind,130);}).join(" | "));return lines.length?lines.join("\n"):"Coordinator: no special cross-system focus currently attached to this entity.";}catch(_){return "Coordinator available.";}}
+function CE_codexCardSection(name,card){try{var codex=state.unsaid&&state.unsaid.codex;if(!codex)return "Codex: card is available for evidence-backed refreshes.";var meta=null;if(typeof codexManagedCardKey==="function"){var mk=codexManagedCardKey(name,card);meta=codex.cardMeta&&codex.cardMeta[mk];}var lines=[];if(meta){lines.push("Managed by Codex: yes"+(meta.manualEditProtected?" — manual Entry edit protected":""));lines.push("Last generated/refresh turn: "+(meta.lastRefreshTurn!=null?meta.lastRefreshTurn:meta.lastGeneratedTurn));if(Number(meta.updateCount||0)>0)lines.push("Automatic refreshes: "+meta.updateCount);}else lines.push("Managed by Codex: no (manual card or not yet adopted).");var evidence=typeof codexEvidenceSentences==="function"?codexEvidenceSentences(name,"").slice(-2):[];if(evidence&&evidence.length)lines.push("Recent evidence: "+evidence.map(function(x){return CE_noteClip(x,180);}).join(" | "));return lines.join("\n");}catch(_){return "Codex status unavailable this turn.";}}
+function CE_renderManagedEntityNotes(name,card,kind){var common=["Auto-managed diagnostics. This section is NOT treated as public story evidence.","Public canon belongs in Entry; retrieval names belong in Triggers."];if(kind==="character")return common.concat(["","🧠 UNSPOKEN TURNS / UNSAID",CE_unsaidCardSection(name),"","❤️ CROSSED WIRES",CE_crossedCardSection(name),"","🌘 ECHO VEIL",CE_echoCardSection(name),"","🌀 TWISTS AND TURNS",CE_twistsCardSection(name),"","🔗 CROSSED ECHOES",CE_bridgeCardSection(name),"","📚 CODEX",CE_codexCardSection(name,card)]).join("\n");return common.concat(["","🌘 ECHO VEIL",CE_echoCardSection(name),"","🌀 TWISTS AND TURNS",CE_twistsCardSection(name),"","🔗 CROSSED ECHOES",CE_bridgeCardSection(name),"","📚 CODEX",CE_codexCardSection(name,card)]).join("\n");}
+function CE_syncEntityCard(name){try{if(!name||typeof storyCards==="undefined"||!Array.isArray(storyCards))return false;var card=storyCards.find(function(c){return c && !(typeof isOwnCard==="function"&&isOwnCard(c.title)) && CE_sameName(c.title,name);}) || (typeof findStoryCardForEntity==="function"?findStoryCardForEntity(name):null);if(!card||(typeof isOwnCard==="function"&&isOwnCard(card.title)))return false;var kind=typeof codexKindFromExistingCard==="function"?codexKindFromExistingCard(card,name):String(card.type||"").toLowerCase();if(!["character","location","item","faction"].includes(kind)){var raw=String(card.type||"").toLowerCase();if(/character|npc|person/.test(raw))kind="character";else if(/location|place/.test(raw))kind="location";else if(/item|object/.test(raw))kind="item";else if(/faction|group|organization|organisation/.test(raw))kind="faction";else return false;}var base=CE_publicStoryCardNotes(card),managed=CE_renderManagedEntityNotes(name,card,kind),next=(base?base+"\n\n":"")+CE_CARD_NOTES_START+"\n"+managed;if(String(card.description||card.notes||"")!==next){card.description=next;card.notes=next;}return true;}catch(_){return false;}}
+function CE_syncCharacterCard(name){return CE_syncEntityCard(name);}
+function CE_syncStoryCardPresentation(){try{var names=[],add=function(n){n=String(n||"").trim();if(n&&!names.some(function(x){return CE_sameName(x,n);}))names.push(n);};var u=state.unsaid||{};(u.lastActiveCast||[]).slice(0,8).forEach(add);var cw=state.crossedWires||{},now=typeof CW_turn==="function"?CW_turn():0;Object.keys(cw.npcs||{}).forEach(function(k){var n=cw.npcs[k];if(n&&Number(n.lastMentionTurn||n.lastSeen||-999)>=now-1)add(n.name||k);});var ev=state.echoVeil||{};Object.keys((ev.scene&&ev.scene.cast)||{}).forEach(function(k){var c=ev.scene.cast[k];if(c&&Number(c.turn||-999)>=now-1)add(c.name||k);});if(state.unifiedNarrative&&state.unifiedNarrative.focus)add(state.unifiedNarrative.focus.entity);var codex=u.codex||{};Object.keys(codex.cardMeta||{}).slice(-12).forEach(function(k){var m=codex.cardMeta[k];if(m&&m.name)add(m.name);});names.slice(0,14).forEach(CE_syncEntityCard);}catch(_){}}
 
 // ============================================================================
 // CROSSED ECHOES — THE UNSPOKEN VEIL
 // Coordination bridge for UNSPOKEN TURNS + CROSSED WIRES + ECHO VEIL
 // ============================================================================
-var UNIFIED_NARRATIVE_BUILD = "2026-08-24-crossed-echoes-card-polish";
+var UNIFIED_NARRATIVE_BUILD = "2026-08-24-crossed-echoes-codex-hardening";
 var UN_DEFAULTS = {
   enabled: true,
   sharedScenario: true,

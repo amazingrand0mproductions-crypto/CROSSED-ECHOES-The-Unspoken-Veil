@@ -296,12 +296,19 @@ var unsaidModifier = (text) => {
 
     if (/^\/unsaid\s+resetcodex\s*$/i.test(commandText)) {
       resetCodexTrackingState();
-      const configCard = ensureSharedConfigCard();
-      if (configCard) {
-        // Re-rendering keeps the momentary config reset flag false and
-        // preserves every other edited setting.
+      const sharedCard = ensureSharedConfigCard();
+      const codexCard = ensureCodexConfigCard(sharedCard);
+      if (codexCard) {
+        // Re-render the dedicated Codex card so the momentary reset flag is
+        // false while every other Story Card setting is preserved.
         const currentCfg = readUnsaidConfig();
-        configCard.entry = spliceConfigSection(configCard.entry, CONFIG_SECTION_UNSAID, renderUnsaidSection(currentCfg));
+        codexCard.entry = renderCodexSection(currentCfg);
+        codexCard.type = CE_CONFIG_CATEGORY;
+        codexCard.title = CE_CONFIG_TITLE_CODEX;
+        codexCard.name = CE_CONFIG_TITLE_CODEX;
+        codexCard.keys = "";
+        codexCard.description = CONFIG_DEFAULT_CODEX_NOTES_SECTION;
+        codexCard.notes = CONFIG_DEFAULT_CODEX_NOTES_SECTION;
       }
       pushMessage("♻️ Codex tracking reset. Existing Story Cards were left untouched.");
       return stopControl();
