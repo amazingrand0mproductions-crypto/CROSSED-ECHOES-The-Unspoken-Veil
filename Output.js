@@ -206,7 +206,9 @@ var unsaidModifier = (text) => {
       });
       const out=[];
       values.forEach(v => { const k=String(v||"").trim().toLowerCase(); if(k && !out.includes(k)) out.push(k); });
-      return out.slice(0,8).join(", ");
+      // AI Dungeon treats trigger whitespace literally. Emit comma-separated triggers with no
+      // padding so an alias never becomes a different trigger just because it starts with a space.
+      return out.slice(0,8).join(",");
     }
     // Never strip arbitrary CARD-looking prose unless this turn actually
     // requested Codex output. This keeps user-authored bracketed text safe.

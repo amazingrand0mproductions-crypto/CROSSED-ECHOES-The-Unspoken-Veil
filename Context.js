@@ -1,7 +1,9 @@
+// @cache-compatible
 var contextRuntimeToken = typeof utBeginRuntimePhase === "function" ? utBeginRuntimePhase("context") : null;
 
 try {
   initUnsaid();
+  if (typeof CE_noteCacheCompatibleSeen === "function") CE_noteCacheCompatibleSeen();
   checkCacheEfficientWarning();
 } catch (e) {
   if (typeof log === "function") log("UNSAID init/Context error: " + (e && e.message));
@@ -44,6 +46,7 @@ var twistsModifier = (text) => {
     if (!cfg.enabled) {
       syncTwistFrontMemoryHint("");
       c.hintActive = false;
+      c.lastContextHint = "";
       Library.updateConfigCard(cfg, c);
       Library.updateTwistLogCard(c, cfg);
       Library.updateNudgeCard(cacheEfficient, "", []);
@@ -58,6 +61,7 @@ var twistsModifier = (text) => {
     if (manualUnsaidControl) {
       syncTwistFrontMemoryHint("");
       c.hintActive = false;
+      c.lastContextHint = "";
       Library.updateNudgeCard(cacheEfficient, "", []);
       if (typeof utSkipRuntimeTask === "function") utSkipRuntimeTask("single-control-owner-manual");
       return { text };
@@ -67,6 +71,18 @@ var twistsModifier = (text) => {
     // advance pacing twice. Keep the already-delivered managed hint in place
     // and leave pending Output work untouched.
     if (!twistStoryAdvanced && !c.forcePlant && !c.forceEntity) {
+      // Retry/regenerate still needs the SAME managed instruction. In native
+      // cache-compatible mode replay the stored hint as an append-only suffix
+      // instead of advancing or creating a second twist.
+      if (cacheEfficient && c.hintActive && c.lastContextHint &&
+          typeof CE_appendCompleteContextSuffix === "function") {
+        const reserve = typeof UN_contextReserveChars === "function" ? UN_contextReserveChars() : 0;
+        const replay = CE_appendCompleteContextSuffix(text, "\n\n" + c.lastContextHint, reserve);
+        if (replay.appended) {
+          Library.updateNudgeCard(false, "", []);
+          return { text: replay.text };
+        }
+      }
       Library.updateConfigCard(cfg, c);
       Library.updateTwistLogCard(c, cfg);
       return { text };
@@ -74,6 +90,7 @@ var twistsModifier = (text) => {
 
     let hint = null;
     let hintEntities = [];
+    let directTwistDelivered = false;
 
     try {
     if (c.forcePlant) {
@@ -220,13 +237,28 @@ var twistsModifier = (text) => {
       }
     }
 
-    syncTwistFrontMemoryHint(hint || "");
+    c.lastContextHint = hint || "";
+    if (cacheEfficient && hint && typeof CE_appendCompleteContextSuffix === "function") {
+      const reserve = typeof UN_contextReserveChars === "function" ? UN_contextReserveChars() : 0;
+      const delivered = CE_appendCompleteContextSuffix(text, "\n\n" + hint, reserve);
+      if (delivered.appended) {
+        text = delivered.text;
+        directTwistDelivered = true;
+        // Avoid duplicate emphasis: current-turn delivery is already at the
+        // dynamic suffix, which is exactly where optimized context wants it.
+        syncTwistFrontMemoryHint("");
+      } else {
+        syncTwistFrontMemoryHint(hint);
+      }
+    } else {
+      syncTwistFrontMemoryHint(hint || "");
+    }
     c.hintActive = !!hint;
     } catch (e) {
       if (typeof log === "function") log("Context/Twists inner error: " + (e && e.message));
     }
 
-    Library.updateNudgeCard(cacheEfficient, hint, hintEntities);
+    Library.updateNudgeCard(cacheEfficient && !directTwistDelivered, hint, hintEntities);
     Library.updateConfigCard(cfg, c);
     Library.updateTwistLogCard(c, cfg);
   } catch (e) {
@@ -354,7 +386,7 @@ var unsaidModifier = (text) => {
       const fitted = buildAndFitThoughtInstruction(forcedPeek, active, text, cfg.allowCoreShift, cfg);
       if (fitted) {
         state.unsaid.pending = forcedPeek;
-        state.unsaid.pendingCoreShiftAllowed = naturalCoreShiftEligible(state.unsaid.minds[forcedPeek], cfg.allowCoreShift);
+        state.unsaid.pendingCoreShiftAllowed = naturalCoreShiftEligible(state.unsaid.minds[forcedPeek], cfg.allowCoreShift, forcedPeek);
         state.unsaid.pendingCoreCheck = false;
         state.unsaid.pendingRevealForced = true;
         state.unsaid.codex.pendingNames = [];
@@ -656,7 +688,7 @@ var unsaidModifier = (text) => {
         const fitted = buildAndFitThoughtInstruction(chosen, active, text, cfg.allowCoreShift, cfg);
         if (fitted) {
           state.unsaid.pending = chosen;
-          state.unsaid.pendingCoreShiftAllowed = naturalCoreShiftEligible(state.unsaid.minds[chosen], cfg.allowCoreShift);
+          state.unsaid.pendingCoreShiftAllowed = naturalCoreShiftEligible(state.unsaid.minds[chosen], cfg.allowCoreShift, chosen);
           state.unsaid.pendingCoreCheck = false;
           state.unsaid.pendingRevealForced = false;
           updateUnsaidBackupCard(cacheEfficient, fitted);
@@ -736,7 +768,17 @@ var modifier = (text) => {
     if (typeof CW_onContext === "function") working = CW_onContext(working);
     if (typeof UN_markOwnerFromCrossed === "function") UN_markOwnerFromCrossed();
 
-    if (typeof UN_contextPacket === "function") working += UN_contextPacket(working);
+    if (typeof UN_contextPacket === "function") {
+      var bridgePacket = UN_contextPacket(working);
+      if (bridgePacket) {
+        if (typeof CE_isCacheEfficientContext === "function" && CE_isCacheEfficientContext() &&
+            typeof CE_appendCompleteContextSuffix === "function") {
+          var bridgeAppend = CE_appendCompleteContextSuffix(working, bridgePacket, 0);
+          if (bridgeAppend.appended) working = bridgeAppend.text;
+          else if (typeof utSkipRuntimeTask === "function") utSkipRuntimeTask("fusion-cache-headroom");
+        } else working += bridgePacket;
+      }
+    }
     var finalResult = unsaidModifier(working);
     return finalResult;
   } catch (e) {

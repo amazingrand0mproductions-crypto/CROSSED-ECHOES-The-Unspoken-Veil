@@ -11,6 +11,57 @@ var CE_CONFIG_TITLE_ECHO = "CROSSED ECHOES — Config — ECHO VEIL";
 var CE_CONFIG_TITLE_CODEX = "CROSSED ECHOES — Config — CODEX";
 var CE_CONFIG_TITLE_INTEGRATION = "CROSSED ECHOES — Config — INTEGRATION";
 
+// AI Dungeon added cache-compatible V1 Context scripts in mid-2026. In that
+// mode the host only accepts a returned Context when the entire original
+// prompt is preserved as an unchanged prefix and script guidance is appended
+// as a suffix. Keep the platform-facing rule centralized here so every engine
+// can cooperate without accidentally invalidating another engine's edit.
+var CE_CACHE_COMPATIBLE_CONTEXT = true;
+var CE_CONTEXT_SAFETY_MARGIN = 48;
+
+function CE_isCacheEfficientContext() {
+  try { return !!(typeof info !== "undefined" && info && info.useCacheEfficient); }
+  catch (_) { return false; }
+}
+
+function CE_contextMaxChars() {
+  try {
+    if (typeof info !== "undefined" && info && Number.isFinite(Number(info.maxChars))) {
+      return Math.max(0, Math.floor(Number(info.maxChars)));
+    }
+  } catch (_) {}
+  return 0;
+}
+
+function CE_contextHeadroom(text, reserve) {
+  var max = CE_contextMaxChars();
+  if (!max) return Number.POSITIVE_INFINITY;
+  return Math.max(0, max - String(text || "").length - Math.max(0, Number(reserve) || 0) - CE_CONTEXT_SAFETY_MARGIN);
+}
+
+function CE_appendCompleteContextSuffix(text, suffix, reserve) {
+  var base = String(text || ""), extra = String(suffix || "");
+  if (!extra) return { text: base, appended: false, reason: "empty" };
+  var room = CE_contextHeadroom(base, reserve);
+  if (room !== Number.POSITIVE_INFINITY && extra.length > room) {
+    return { text: base, appended: false, reason: "headroom", needed: extra.length, room: room };
+  }
+  return { text: base + extra, appended: true, reason: "ok" };
+}
+
+function CE_noteCacheCompatibleSeen() {
+  try {
+    if (!state || typeof state !== "object") return;
+    if (!state.crossedEchoesPlatform || typeof state.crossedEchoesPlatform !== "object") {
+      state.crossedEchoesPlatform = {};
+    }
+    state.crossedEchoesPlatform.lastCacheEfficient = CE_isCacheEfficientContext();
+    state.crossedEchoesPlatform.lastMaxChars = CE_contextMaxChars();
+    state.crossedEchoesPlatform.cacheCompatible = !!CE_CACHE_COMPATIBLE_CONTEXT;
+    state.crossedEchoesPlatform.lastContextAction = (typeof info !== "undefined" && info && Number.isFinite(Number(info.actionCount))) ? Number(info.actionCount) : null;
+  } catch (_) {}
+}
+
 var CP_VERSION = "1.3";
 
 // Shared by both systems' name/entity detection (TWISTS AND TURNS'
@@ -2628,7 +2679,10 @@ var Library = (() => {
         const idx = addStoryCard(cardKeys, entry, type);
         card = (typeof idx === "number" && storyCards[idx])
           ? storyCards[idx]
-          : storyCards.find(c => c.keys === cardKeys) || null;
+          : storyCards.find(c => {
+              const raw = Array.isArray(c && c.keys) ? c.keys.join(",") : String(c && c.keys || "");
+              return raw.toLowerCase() === String(cardKeys || "").toLowerCase();
+            }) || null;
       }
       if (card) {
         card.title = title;
@@ -2650,26 +2704,31 @@ var Library = (() => {
 
   function updateCacheEfficiencyWarning(cacheEfficient) {
     const title = "Twists and Turns — Optimized Context Notice";
-    if (!cacheEfficient) { removeCardByTitle(title); return; }
-    const notes =
-      "OPTIMIZED CONTEXT DETECTED\n\n" +
-      "Twist nudges are normally invisible, delivered through frontMemory. This model or setting can " +
-      "disable that, so nudges are also being written to a second card (\"Twists and Turns — Nudge\") " +
-      "that updates every turn as a backup delivery path.\n\n" +
-      "This notice clears itself automatically if you switch away from a model or setting where it applies.";
-    safeSetCard(title, "class", " ", notes);
+    // Current CROSSED ECHOES builds use AI Dungeon's native cache-compatible
+    // append-only Context contract. The old warning card is now obsolete and
+    // only wastes Story Card allocation, so remove it even on migrated saves.
+    removeCardByTitle(title);
+    return !!cacheEfficient;
   }
 
   const CP_ALWAYS_MATCH_KEYS = "the, a, and, you, said, was";
 
   function updateNudgeCard(cacheEfficient, hint, entities) {
     const title = "Twists and Turns — Nudge";
-    if (!cacheEfficient) { removeCardByTitle(title); return; }
-    const entry = hint || " ";
+    // Native cache-compatible builds must not create a moving all-match Story
+    // Card just because a dynamic suffix could not fit this turn. Story Cards
+    // are real lore-budget consumers and the nudge would also be stale by the
+    // time it activates. Yield this low-headroom delivery instead; Retry keeps
+    // the managed hint stable and a later turn can surface the thread normally.
+    if (cacheEfficient && typeof CE_CACHE_COMPATIBLE_CONTEXT !== "undefined" && CE_CACHE_COMPATIBLE_CONTEXT) {
+      removeCardByTitle(title);
+      return;
+    }
+    if (!cacheEfficient || !String(hint || "").trim()) { removeCardByTitle(title); return; }
+    const entry = hint;
     const concernNote = (entities && entities.length) ? ("\nConcerns: " + entities.join(", ")) : "";
-    const notes = "BACKUP NUDGE DELIVERY\n\n" +
-      "Active only because Optimized Context was detected this turn — see the Notice card. Carries " +
-      "the same hint frontMemory would normally deliver." + concernNote;
+    const notes = "LEGACY BACKUP NUDGE DELIVERY\n\n" +
+      "Used only by non-native/legacy cache-efficient delivery. Current CROSSED ECHOES native cache-compatible mode removes this card." + concernNote;
     safeSetCard(title, "class", entry, notes, CP_ALWAYS_MATCH_KEYS);
   }
 
@@ -2686,7 +2745,7 @@ var Library = (() => {
       };
       const entry = recent.map(factLine).join(" ") + " Treat all of this as settled fact going forward.";
 
-      const keys = Array.from(new Set(recent.map(t => String(t.entity || "").trim()).filter(Boolean))).join(", ");
+      const keys = Array.from(new Set(recent.map(t => String(t.entity || "").trim()).filter(Boolean))).join(",");
 
       const notes = "ESTABLISHED FACTS\n\n" +
         "Carries the " + recent.length + " most recent resolved twists into the model's context, " +
@@ -2887,6 +2946,10 @@ var MIND_NOTES_MARKER = "💭 Inner Life — private, not visible to other chara
 var CAST_LIST_MARKER = "===";
 var CODEX_MAX_ATTEMPTS = 5;
 var CODEX_MAX_CANDIDATES_PER_TURN = 3;
+// Non-character candidates must still be relevant to the current narrative.
+// Old accumulated mention counts remain remembered but cannot wake up and
+// create a card many turns later until the entity is mentioned again.
+var CODEX_NONCHAR_FRESH_WINDOW = 12;
 // Once a name is confidently identified as a character, failed card
 // generations retry on the next real story turn instead of waiting for the
 // global Codex cooldown. This is what lets a newly introduced character
@@ -3638,7 +3701,13 @@ var UNSAID_BACKUP_MATCH_KEYS = "the, a, and, you, said, is";
 
 function updateUnsaidBackupCard(cacheEfficient, instructionText) {
   const title = "UNSAID — Backup Delivery";
-  if (!cacheEfficient) { removeStoryCardByTitle(title); return; }
+  // Native cache-compatible Context suffixes are now the primary optimized-
+  // context delivery path. Do not burn scarce Story Card budget on a moving
+  // all-match backup card when that path is available. Remove legacy cards.
+  if (!cacheEfficient || (typeof CE_CACHE_COMPATIBLE_CONTEXT!=="undefined" && CE_CACHE_COMPATIBLE_CONTEXT)) {
+    removeStoryCardByTitle(title);
+    return;
+  }
   const entry = instructionText || " ";
   const notes = "BACKUP INSTRUCTION DELIVERY\n\n" +
     "Active only while the host reports cache-efficient/optimized context mode. It mirrors the current " +
@@ -3658,33 +3727,23 @@ function updateUnsaidBackupCard(cacheEfficient, instructionText) {
 }
 
 function checkCacheEfficientWarning() {
-  const title = "UNSAID — Important, Read This ⚠️";
-  const card = storyCards.find(c => c.title === title);
+  const legacyTitle = "UNSAID — Important, Read This ⚠️";
+  const legacyTwistTitle = "Twists and Turns — Optimized Context Notice";
+  removeStoryCardByTitle(legacyTitle);
+  removeStoryCardByTitle(legacyTwistTitle);
+
   const isCacheEfficient = typeof info !== "undefined" && info && !!info.useCacheEfficient;
+  if (!isCacheEfficient) return false;
 
-  if (!isCacheEfficient) {
-    // This is a transient script-owned notice, not user lore. Remove it when
-    // the condition clears instead of leaving dead diagnostic cards behind.
-    if (card) removeStoryCardByTitle(title);
-    return false;
-  }
-
-  const warningText =
-    "Cache-efficient/optimized context mode is being reported by the host. " +
-    "UNSAID will keep returning its normal Context instruction and will also mirror active private-thought " +
-    "or Codex requests through a temporary backup Story Card. This redundancy is intentional and the backup " +
-    "cards remove themselves automatically when the mode is no longer reported. If a particular model still " +
-    "ignores hidden metadata repeatedly, UNSAID's delivery backoff will pause automatic retries instead of flooding the story.";
-  if (!card) {
-    const newCard = createOrFindCard("unsaid warning", warningText, "Class");
-    if (newCard) {
-      newCard.title = title;
-      newCard.description = warningText;
+  // Keep this as a one-time UI status rather than a Story Card. Config/notice
+  // cards compete with lore for context allocation on optimized builds.
+  try {
+    if (!state.crossedEchoesPlatform || typeof state.crossedEchoesPlatform !== "object") state.crossedEchoesPlatform = {};
+    if (!state.crossedEchoesPlatform.optimizedNoticeShown) {
+      state.crossedEchoesPlatform.optimizedNoticeShown = true;
+      state.message = "🌒 Optimized Context detected — CROSSED ECHOES native cache-compatible suffix mode is active.";
     }
-  } else if (card.entry !== warningText) {
-    card.entry = warningText;
-    card.description = warningText;
-  }
+  } catch (_) {}
   return true;
 }
 
@@ -4211,9 +4270,15 @@ function createOrFindCard(keys, initialEntry, type) {
       if (typeof invalidateUnsaidAliasIndex === "function") invalidateUnsaidAliasIndex();
       return storyCards[idx];
     }
-    return storyCards.find(c => c.keys === keys) || null;
+    return storyCards.find(c => {
+      const raw = Array.isArray(c && c.keys) ? c.keys.join(",") : String(c && c.keys || "");
+      return raw.toLowerCase() === String(keys || "").toLowerCase();
+    }) || null;
   } catch (e) {
-    return storyCards.find(c => c.keys === keys) || null;
+    return storyCards.find(c => {
+      const raw = Array.isArray(c && c.keys) ? c.keys.join(",") : String(c && c.keys || "");
+      return raw.toLowerCase() === String(keys || "").toLowerCase();
+    }) || null;
   }
 }
 
@@ -4608,7 +4673,10 @@ function renderUnsaidNotes() {
     "Maximum active NPC minds included in one behavioural-continuity pass. Increase for ensemble scenes; keep low for large/slow adventures.",
     "",
     "coreShift  [true/false]  Default: true",
-    "Allows repeated, well-supported psychological pressure to rewrite a character's durable core truth. This is gated and never triggered by one stray line.",
+    "Allows repeated, well-supported psychological pressure to rewrite a character's durable core truth. Automatic core shifts now require corroborating visible story pressure; private mood oscillation by itself cannot rewrite personality.",
+    "",
+    "🧭 PUBLIC-CANON ANCHOR",
+    "When a public Character Story Card exists, UNSAID uses its supported Role/Personality/Goals/Background/Relationships/Affiliations/Status as a stability anchor. Private thoughts may deepen or complicate that character, but ordinary uncertainty, attraction, embarrassment or irritation should not silently turn a kind/steady character into an obsessive, coercive, manipulative or hostile personality without visible story events supporting the change.",
     "",
     "player  [name or blank]  Default: blank",
     "Player-character name. UNSAID and Codex skip this identity for NPC automation. Blank lets the script infer a suitable Character Creator name placeholder when possible.",
@@ -4695,6 +4763,12 @@ function renderCodexNotes() {
     "Generated Triggers use the exact entity name plus safe aliases actually supplied by the profile; generic words are not invented as triggers.",
     "",
     "Story Card Entry contains public canon only. CROSSED ECHOES script diagnostics/private psychology belong in Notes and are excluded from story-evidence scans.",
+    "",
+    "🕒 FRESHNESS GUARD",
+    "Non-character candidates keep their accumulated evidence, but an old mention count cannot wake up many turns later and suddenly create a Location/Item/Faction card. After a long quiet gap, Codex waits for a fresh mention before scheduling that candidate again. Confidently introduced characters use their separate character-observation/deadline rules.",
+    "",
+    "⚡ OPTIMIZED CONTEXT / LARGE LIBRARIES",
+    "AI Dungeon can allocate Story Card context differently when Optimized Context is enabled. Codex therefore prioritises relevance over raw card count. If a very large library is competing for context, a practical compact range is cardChars≈650–850; keep important permanent facts in Plot Essentials/Author's Note when appropriate rather than inflating every Story Card.",
     "",
     "━━━━━━━━━━ 🎮 CODEX COMMANDS ━━━━━━━━━━",
     "/card <name> — force creation/refresh for one exact entity.",
@@ -5045,6 +5119,14 @@ function readUnsaidConfig() {
 }
 
 function stripConfigNoise(text) {
+  // Cache-compatible Context scripts must preserve AI Dungeon's supplied
+  // prompt byte-for-byte as the returned prefix. Config cards in the combined
+  // build have blank triggers anyway, so in optimized mode we analyze around
+  // any accidental noise rather than deleting text from the host prompt.
+  if (typeof CE_isCacheEfficientContext==="function" && CE_isCacheEfficientContext() &&
+      typeof CE_CACHE_COMPATIBLE_CONTEXT!=="undefined" && CE_CACHE_COMPATIBLE_CONTEXT) {
+    return String(text || "");
+  }
   let cleaned = text;
   storyCards
     .filter(c => isCardOfKind(c, "class") && isOwnCard(c.title))
@@ -6690,6 +6772,11 @@ function findCodexCandidates(threshold, excludeNames, maxAttempts, maxCount) {
     if (!introducedCharacter && counts[name] < threshold) continue;
 
     if (!introducedCharacter) {
+      const nowEpoch=(typeof info!=="undefined"&&info&&Number.isFinite(Number(info.actionCount)))
+        ? Number(info.actionCount)
+        : Number(state.unsaid.turn)||0;
+      const lastSeenEpoch=state.unsaid.codex.lastMentionTurn && Number(state.unsaid.codex.lastMentionTurn[name]);
+      if (Number.isFinite(lastSeenEpoch) && nowEpoch-lastSeenEpoch>CODEX_NONCHAR_FRESH_WINDOW) continue;
       const stableType = dominantCodexType(name);
       const confidence = (state.unsaid.codex.candidateScores && state.unsaid.codex.candidateScores[name]) || 0;
       const typeScore = codexTypeVoteScore(name, stableType);
@@ -7979,13 +8066,68 @@ function buildBehaviorContinuityInstruction(activeNames, baseText, cfgOverride) 
   return prefix + body + suffix;
 }
 
-function naturalCoreShiftEligible(mind, allowCoreShift) {
+function unsaidPublicCharacterAnchor(name) {
+  try {
+    const card=findStoryCardForEntity(name);
+    if (!card || !card.entry) return "";
+    const entry=String(card.entry||"").replace(/\r/g,"");
+    const wanted=["Role","Personality","Goals","Background","Relationships","Affiliations","Status"];
+    const lines=[];
+    wanted.forEach(label=>{
+      const m=entry.match(new RegExp("(?:^|\\n)"+label+"\\s*:\s*([^\\n]{2,220})","i"));
+      if (m && m[1]) lines.push(label+"="+m[1].trim());
+    });
+    if (!lines.length) {
+      const compact=entry.replace(/\s+/g," ").trim();
+      if (compact) lines.push(compact.slice(0,260));
+    }
+    return lines.join("; ").slice(0,360);
+  } catch (_) { return ""; }
+}
+
+function unsaidExternalCorePressure(name, mind) {
+  if (!mind) return 0;
+  let score=0;
+  try {
+    const impacts=Array.isArray(mind.recentTwistImpacts)?mind.recentTwistImpacts:[];
+    const now=(typeof state!=="undefined"&&state.unsaid)?Number(state.unsaid.turn)||0:0;
+    impacts.forEach(x=>{
+      if (!x) return;
+      const age=Math.max(0,now-(Number(x.turn)||now));
+      if (age>8) return;
+      const tier=String(x.tier||"").toLowerCase();
+      score+=(tier==="major"||tier==="cataclysmic")?3:1.5;
+    });
+  } catch (_) {}
+  try {
+    if (name && typeof UN_relationshipPressureScore==="function") score+=Math.min(3,Math.max(0,UN_relationshipPressureScore(name))*.45);
+  } catch (_) {}
+  try {
+    if (name && typeof state!=="undefined"&&state.echoVeil&&Array.isArray(state.echoVeil.consequences)) {
+      const key=String(name).toLowerCase();
+      state.echoVeil.consequences.slice(-40).forEach(c=>{
+        if (!c||c.resolved) return;
+        const actors=Array.isArray(c.actors)?c.actors:[];
+        if (!actors.some(a=>String(a||"").toLowerCase()===key)) return;
+        score+=Math.min(2.5,(Number(c.severity)||0)*.45+(Number(c.pressure)||0)*.25);
+      });
+    }
+  } catch (_) {}
+  return Math.min(8,score);
+}
+
+function naturalCoreShiftEligible(mind, allowCoreShift, name) {
   if (!allowCoreShift || !mind) return false;
   const tension = typeof mind.tensionLevel === "number" ? mind.tensionLevel : 0;
   const atThreshold = tension >= TENSION_THRESHOLD;
   const atDrasticTier = tension >= TENSION_THRESHOLD * DRASTIC_TENSION_MULTIPLIER;
   const naturallyEligible = (mind.revealCount || 0) >= REVEALS_BEFORE_SHIFT_ELIGIBLE;
-  return atDrasticTier || (atThreshold && naturallyEligible);
+  // Internal emotion changes are not sufficient evidence for a permanent
+  // personality rewrite. Automatic shifts need corroborating external story
+  // pressure from confirmed twists, relationship change, or ECHO consequences.
+  const external = unsaidExternalCorePressure(name,mind);
+  if (external < 1.5) return false;
+  return (atDrasticTier && naturallyEligible) || (atThreshold && naturallyEligible && external>=2.25);
 }
 
 function compactMindScenarioGuard() {
@@ -8000,13 +8142,15 @@ function compactMindScenarioGuard() {
 }
 
 function buildCoreCheckInstruction(chosen, mind) {
-  const coreNote = mind && mind.core ? ` Current anchor: "${compactContinuityValue(mind.core, 170)}".` : "";
+  const coreNote = mind && mind.core ? ` Current private anchor: "${compactContinuityValue(mind.core, 170)}".` : "";
+  const publicAnchor=unsaidPublicCharacterAnchor(chosen);
+  const publicNote=publicAnchor?` Public canon anchor: ${compactContinuityValue(publicAnchor,300)}. A core shift may reinterpret this only when the visible story supplied strong sustained evidence; do not contradict stable canon merely to make the character more dramatic.`:"";
   const tensionNote = mind && typeof mind.tensionLevel === "number" && mind.tensionLevel >= TENSION_THRESHOLD
-    ? " Their identity has been under sustained pressure."
+    ? " Their identity has been under sustained pressure, but private mood changes alone are not evidence of a personality rewrite."
     : "";
   const scenarioNote = compactMindScenarioGuard();
   const twistBridgeNote = Library.twistPressureForMind ? Library.twistPressureForMind(chosen) : "";
-  return `\n[UNSAID CONTROL — continue the visible story normally. After the story, decide whether recent events have genuinely and permanently changed how ${chosen} sees themself.${coreNote}${tensionNote}${scenarioNote}${twistBridgeNote} If YES, append exactly one hidden machine tag at the absolute end using this ASCII shape: [[UNSAID|${chosen}|one-word-emotion|core-shift|new lasting truth in 1-2 concise sentences]]. Replace one-word-emotion with a real single emotion word. If NO lasting identity change occurred, append no UNSAID tag. Never expose or explain the tag in story prose.]\n`;
+  return `\n[UNSAID CONTROL — continue the visible story normally. After the story, decide whether RECENT VISIBLE EVENTS have genuinely and permanently changed how ${chosen} sees themself.${coreNote}${publicNote}${tensionNote}${scenarioNote}${twistBridgeNote} If YES, append exactly one hidden machine tag at the absolute end using this ASCII shape: [[UNSAID|${chosen}|one-word-emotion|core-shift|new lasting truth in 1-2 concise sentences]]. Replace one-word-emotion with a real single emotion word. If NO lasting identity change occurred, append no UNSAID tag. Never expose or explain the tag in story prose.]\n`;
 }
 
 function buildAndFitThoughtInstruction(chosen, active, baseText, allowCoreShift, cfgOverride) {
@@ -8070,11 +8214,15 @@ function buildAndFitThoughtInstruction(chosen, active, baseText, allowCoreShift,
   }
 
   let shift = "";
-  if (!target && mind && mind.core && naturalCoreShiftEligible(mind, allowCoreShift)) {
+  if (!target && mind && mind.core && naturalCoreShiftEligible(mind, allowCoreShift, chosen)) {
     shift = ` If this moment truly and permanently changes their identity anchor, you may use [[UNSAID|${chosen}|one-word-emotion|core-shift|new lasting truth]] instead.`;
   }
   const known = continuity.length ? ` Preserve established private continuity where relevant: ${continuity.join("; ")}.` : "";
-  const instruction = `\n[UNSAID CONTROL — MANDATORY HIDDEN TAG. Continue the visible story normally FIRST. Then append exactly ONE machine tag at the absolute end. ${task}${known}${avoid}${reflection}${shift}${scenarioNote}${twistBridgeNote} Use a real single emotion word, never the literal placeholder. Required ASCII format: ${shape}. The tag is script metadata: do not explain it, quote it, italicize it, or let any character perceive it. Do not omit the tag when this instruction is present.]\n`;
+  const publicAnchor=unsaidPublicCharacterAnchor(chosen);
+  const anchorGuard=publicAnchor
+    ? ` Public canon anchor: ${compactContinuityValue(publicAnchor,320)}. Treat established traits/roles as stable. Ordinary uncertainty, embarrassment, attraction, irritation, or tension must not automatically escalate into hostility, coercion, obsession, possessiveness, manipulation, or a personality reversal without visible supporting events.`
+    : " Do not escalate ordinary emotion into extreme motives or a personality rewrite without visible supporting events.";
+  const instruction = `\n[UNSAID CONTROL — MANDATORY HIDDEN TAG. Continue the visible story normally FIRST. Then append exactly ONE machine tag at the absolute end. ${task}${known}${anchorGuard}${avoid}${reflection}${shift}${scenarioNote}${twistBridgeNote} Use a real single emotion word, never the literal placeholder. Required ASCII format: ${shape}. The tag is script metadata: do not explain it, quote it, italicize it, or let any character perceive it. Do not omit the tag when this instruction is present.]\n`;
   return fitInstructionToBudget(baseText, instruction);
 }
 
@@ -11969,6 +12117,11 @@ const ECHO_VEIL = (() => {
       "• Invalid values are ignored or safely clamped; they should not break the adventure.",
       "• Recommended starting point: PRESET = BALANCED and leave the AUTO fields on AUTO.",
       "",
+      "━━━━━━━━━━ PLATFORM / OPTIMIZED CONTEXT ━━━━━━━━━━",
+      "CROSSED ECHOES ships its Context modifier with AI Dungeon's // @cache-compatible marker. When Optimized Context/cache-efficient mode is active, ECHO VEIL preserves AI Dungeon's original Context as an exact unchanged prefix and appends its guidance only as a complete suffix. It does not slice, reorder or rewrite the host prompt in that mode.",
+      "If there is not enough info.maxChars headroom for a complete low-priority ECHO block, the block yields for that generation instead of truncating the story or emitting a broken instruction. Standard Context mode keeps the normal staged budgeting behavior.",
+      "The old temporary Optimized-Context warning/backup Story Cards are automatically removed when native cache-compatible delivery is available, preventing administrative cards from competing with actual lore.",
+      "",
       "━━━━━━━━━━ PRESETS ━━━━━━━━━━",
       "SUBTLE — Quiet background continuity. Strict detection, lighter consequences/director pressure and fewer memory callbacks.",
       "BALANCED — Recommended default. Strong continuity without making the director dominate ordinary scenes.",
@@ -12219,10 +12372,20 @@ const ECHO_VEIL = (() => {
     if (index >= 0) return upgradeConfigCard(index);
     if (typeof addStoryCard !== "function") return -1;
     try {
+      // Official AI Dungeon scripting currently returns the new card index,
+      // but use the observable append position as the primary source of truth.
+      // This makes config bootstrap resilient to wrappers/legacy runtimes that
+      // return a different numeric value while still supporting the documented
+      // index contract. Never upgrade an unrelated Story Card by accident.
+      const before = (typeof storyCards !== "undefined" && Array.isArray(storyCards)) ? storyCards.length : 0;
       const added = addStoryCard(CONFIG_CARD.keys, configCardTemplate(), CONFIG_CARD.type, CONFIG_CARD.title, configNotesText());
       RUNTIME_CARD_INDEX_CACHE = null;
       if (added === false) return upgradeConfigCard(findConfigCardIndex());
-      return upgradeConfigCard(Number.isFinite(added) ? added : findConfigCardIndex());
+      let created = -1;
+      if (typeof storyCards !== "undefined" && Array.isArray(storyCards) && storyCards.length > before && storyCards[before]) created = before;
+      if (created < 0 && Number.isFinite(Number(added)) && storyCards[Number(added)]) created = Number(added);
+      if (created < 0) created = findConfigCardIndex();
+      return upgradeConfigCard(created);
     } catch (_) {
       return -1;
     }
@@ -15553,6 +15716,33 @@ const ECHO_VEIL = (() => {
     const unifiedReserve=typeof UN_contextReserveChars==="function"?UN_contextReserveChars():0;
     const maxChars=Math.max(memoryLength,hostMaxChars-Math.max(0,unifiedReserve));
     const original=String(text||"");
+
+    // Optimized Context/KV-cache mode has a stricter platform contract than
+    // normal V1 Context scripts: the prompt supplied by AI Dungeon must remain
+    // an EXACT prefix of the returned text. ECHO therefore becomes append-only
+    // in this mode. If there is not enough suffix headroom, it yields instead
+    // of deleting/reordering story history and invalidating the cache edit.
+    const cacheMode=typeof CE_isCacheEfficientContext==="function"&&CE_isCacheEfficientContext();
+    if (cacheMode && typeof CE_CACHE_COMPATIBLE_CONTEXT!=="undefined" && CE_CACHE_COMPATIBLE_CONTEXT) {
+      const room=typeof CE_contextHeadroom==="function"
+        ? CE_contextHeadroom(original,Math.max(0,unifiedReserve))
+        : Math.max(0,hostMaxChars-original.length-Math.max(0,unifiedReserve)-48);
+      if (room<520) {
+        if (typeof utSkipRuntimeTask==="function") utSkipRuntimeTask("echo-cache-headroom");
+        return original;
+      }
+      const target=Math.min(guidanceBudget(hostMaxChars,memoryLength),Math.max(0,room-2));
+      if (target<480) return original;
+      const guidance=buildGuidance(target);
+      const extra=guidance?"\n\n"+guidance:"";
+      if (!extra) return original;
+      const appended=typeof CE_appendCompleteContextSuffix==="function"
+        ? CE_appendCompleteContextSuffix(original,extra,Math.max(0,unifiedReserve))
+        : {text:(extra.length<=room?original+extra:original),appended:extra.length<=room};
+      if (!appended.appended && typeof utSkipRuntimeTask==="function") utSkipRuntimeTask("echo-cache-headroom");
+      return appended.text;
+    }
+
     const memory=memoryLength>0?original.slice(0,memoryLength):"";
     let body=memoryLength>0?original.slice(memoryLength):original;
     const available=Math.max(0,maxChars-memory.length);
@@ -16028,7 +16218,7 @@ function CE_syncStoryCardPresentation(){try{var names=[],add=function(n){n=Strin
 // CROSSED ECHOES — THE UNSPOKEN VEIL
 // Coordination bridge for UNSPOKEN TURNS + CROSSED WIRES + ECHO VEIL
 // ============================================================================
-var UNIFIED_NARRATIVE_BUILD = "2026-08-25-crossed-echoes-coherence-pass";
+var UNIFIED_NARRATIVE_BUILD = "2026-08-25-crossed-echoes-research-pass";
 var UN_DEFAULTS = {
   enabled: true,
   sharedScenario: true,
@@ -16169,6 +16359,12 @@ function UN_configNotes() {
     "contextChars — Maximum size of the reconciliation packet. Range 300-1400. Default 1400. The bridge compacts lower-priority detail before dropping cross-system pacing/focus cues.",
     "aftermathWindow — Turns (2-8) used for aftermath continuity, convergent focus and repetition protection. Default 4.",
     "debug — Writes coordinator diagnostics to the script log when available.", "",
+    "PLATFORM / OPTIMIZED CONTEXT",
+    "• Context.js is natively marked // @cache-compatible for current AI Dungeon cache-efficient/Optimized Context support.",
+    "• In optimized mode the original AI Dungeon Context is preserved byte-for-byte as the prefix. ECHO VEIL, Crossed Wires, TWISTS/UNSAID and the Fusion Director add only bounded complete suffixes.",
+    "• When headroom is too tight, lower-priority guidance yields instead of clipping the host prompt or cutting a structured packet in half.",
+    "• TWISTS can deliver its supported instruction directly as a cache-safe suffix and replays that same instruction on Retry without ageing/rescheduling the thread.",
+    "• Legacy optimized-context warning/backup Story Cards are removed when native suffix delivery is available, protecting Story Card relevance budget.", "",
     "ARBITRATION",
     "1) Manual UNSAID/Codex control owns its generation.",
     "2) A forced Crossed Wires spark owns the next normal generation.",
@@ -16932,6 +17128,7 @@ function UN_statusText() {
   return [
     "CROSSED ECHOES — The Unspoken Veil",
     "Bridge: "+(cfg.enabled?"ON":"OFF")+" | single structured beat: "+(cfg.singleStructuredBeat?"ON":"OFF"),
+    "Platform context: "+((typeof CE_isCacheEfficientContext==="function"&&CE_isCacheEfficientContext())?"OPTIMIZED":"STANDARD")+" | cache-compatible suffix: "+((typeof CE_CACHE_COMPATIBLE_CONTEXT!=="undefined"&&CE_CACHE_COMPATIBLE_CONTEXT)?"ON":"OFF")+" | maxChars="+((typeof CE_contextMaxChars==="function"&&CE_contextMaxChars())||"unknown"),
     "Scenario consensus: "+(c?c.primary:"general")+(c&&c.secondary?" + "+c.secondary:"")+" (confidence "+(c?c.confidence:0)+"%)",
     "Current owner: "+(s&&s.director&&s.director.owner?s.director.owner:"none")+(s&&s.director&&s.director.reason?" — "+s.director.reason:""),
     "Recovery guard: "+(UN_recoveryActive()?"ACTIVE":"clear"),
