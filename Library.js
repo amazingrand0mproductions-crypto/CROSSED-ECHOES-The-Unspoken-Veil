@@ -2153,14 +2153,16 @@ var Library = (() => {
       if (!mind) {
         const bondPressure = typeof UN_relationshipPressureScore === "function" ? UN_relationshipPressureScore(thread.entity) : 0;
         const echoPressure = typeof UN_echoEntityPressureScore === "function" ? UN_echoEntityPressureScore(thread.entity) : 0;
-        return Math.max(0, (thread.psychologyLinked ? 1 : 0) + Math.min(4, bondPressure) + Math.min(3, echoPressure) - (typeof UN_recentAftermathPenalty === "function" ? UN_recentAftermathPenalty(thread.entity) : 0));
+        const fusion = typeof UN_entityConvergenceBonus === "function" ? UN_entityConvergenceBonus(thread.entity, "plot") : 0;
+        return Math.max(0, (thread.psychologyLinked ? 1 : 0) + Math.min(4, bondPressure) + Math.min(3, echoPressure) + Math.min(3.5, fusion) - (typeof UN_recentAftermathPenalty === "function" ? UN_recentAftermathPenalty(thread.entity) : 0));
       }
       const tension = Math.max(0, Math.min(6, Number(mind.tensionLevel) || 0));
       const fresh = typeof mind.lastTurn === "number" && state.unsaid
         ? Math.max(0, 3 - Math.min(3, state.unsaid.turn - mind.lastTurn)) : 0;
       const bondPressure = typeof UN_relationshipPressureScore === "function" ? UN_relationshipPressureScore(thread.entity) : 0;
       const echoPressure = typeof UN_echoEntityPressureScore === "function" ? UN_echoEntityPressureScore(thread.entity) : 0;
-      return Math.max(0, tension + fresh + (thread.psychologyLinked ? 2 : 0) + Math.min(4, bondPressure) + Math.min(3, echoPressure) - (typeof UN_recentAftermathPenalty === "function" ? UN_recentAftermathPenalty(thread.entity) : 0));
+      const fusion = typeof UN_entityConvergenceBonus === "function" ? UN_entityConvergenceBonus(thread.entity, "plot") : 0;
+      return Math.max(0, tension + fresh + (thread.psychologyLinked ? 2 : 0) + Math.min(4, bondPressure) + Math.min(3, echoPressure) + Math.min(3.5, fusion) - (typeof UN_recentAftermathPenalty === "function" ? UN_recentAftermathPenalty(thread.entity) : 0));
     } catch (e) { return 0; }
   }
 
@@ -7893,6 +7895,7 @@ function pickUnsaidThinker(names, currentTurn, recentText) {
       if (latestImpact && typeof latestImpact.turn === "number" && currentTurn - latestImpact.turn <= 5) pressure += 3;
       if (typeof mind.tensionLevel === "number" && mind.tensionLevel >= TENSION_THRESHOLD) pressure += 2;
     }
+    if (typeof UN_entityConvergenceBonus === "function") pressure += Math.min(4, Math.round(UN_entityConvergenceBonus(name, "psychology")));
     return Math.max(1, silence + recency + pressure);
   });
   const total = weights.reduce((a, b) => a + b, 0);
@@ -7924,6 +7927,7 @@ function unsaidContinuityScore(name, mind, baseText) {
   if (mind.relationOrder && mind.relationOrder.length) score += 2;
   if (typeof UN_relationshipPressureScore === "function") score += Math.min(4, UN_relationshipPressureScore(name));
   if (typeof UN_echoEntityPressureScore === "function") score += Math.min(3, UN_echoEntityPressureScore(name));
+  if (typeof UN_entityConvergenceBonus === "function") score += Math.min(4, UN_entityConvergenceBonus(name, "psychology"));
   return score;
 }
 
@@ -10623,6 +10627,7 @@ function CW_twistCandidates(link, cfg, turn, forcedTier) {
     if (cfg.twistMode === "UNHINGED" && t.id === "wild_card") weight = Math.max(weight, 11);
     if (link.trajectory === "volatile" && (t.risk || 2) >= 2) weight += 2;
     if (link.unresolved && ["reconciliation_window", "boundary_talk", "define_the_relationship"].includes(t.id)) weight += 2;
+    if (typeof UN_relationshipTwistThemeFactor === "function") weight *= UN_relationshipTwistThemeFactor(t.id, link.from, link.to);
     return Object.assign({}, t, { weight: weight });
   });
 }
@@ -10684,7 +10689,8 @@ function CW_chooseTwistLink(turn, cfg, forced) {
     if (!forced && typeof UN_recentAftermathPenalty === "function") {
       weight -= Math.min(5, Math.round((UN_recentAftermathPenalty(link.from) + UN_recentAftermathPenalty(link.to)) / 2));
     }
-    weight = Math.max(1, Math.min(14, Math.round(weight)));
+    if (typeof UN_pairConvergenceBonus === "function") weight += Math.min(4, UN_pairConvergenceBonus(link.from, link.to));
+    weight = Math.max(1, Math.min(18, Math.round(weight)));
     for (let i = 0; i < weight; i++) weighted.push(link);
   }
   return weighted[Math.floor(CW_rand() * weighted.length)] || recent[0];
@@ -15416,6 +15422,7 @@ const ECHO_VEIL = (() => {
     const candidates=candidateDirectorMoves(data).map(m=>{
       let score=m.score;
       if (last && last.type===m.type && turn-(last.turn||0)<=CFG.directorMoveCooldownTurns && m.type!=="repair") score-=2.4;
+      if (typeof UN_echoMoveAdjustment === "function") score += UN_echoMoveAdjustment(m.type);
       score += (hash(turn+"|"+m.type+"|"+m.text)%100)/1000;
       return {m,score};
     }).sort((a,b)=>b.score-a.score);
@@ -16010,7 +16017,7 @@ function CE_echoCardSection(name) {
   } catch(_){return "Continuity tracking available.";}
 }
 function CE_twistsCardSection(name){try{var c=state.contingency||{},threads=(c.threads||[]).filter(function(t){return t&&t.entity&&CE_sameName(t.entity,name)&&t.status!=="resolved";}).slice(-3);if(!threads.length)return "No active evidence-backed twist thread is attached to this entity.";return threads.map(function(t){var seeds=Array.isArray(t.seeds)?t.seeds.length:Number(t.seedCount||0);return CE_noteClip((t.category||t.type||"thread")+": "+(t.status||"brewing")+(seeds?"; seeds "+seeds:"")+(t.description?"; "+t.description:""),260);}).join("\n");}catch(_){return "Twist tracking available.";}}
-function CE_bridgeCardSection(name){try{var u=state.unifiedNarrative||{},lines=[];if(u.focus&&u.focus.entity&&CE_sameName(u.focus.entity,name))lines.push("Convergent focus: active ("+(Array.isArray(u.focus.sources)?u.focus.sources.join(" + "):"multi-system")+").");var recent=(u.aftermath||[]).filter(function(a){return a&&(CE_sameName(a.entity,name)||CE_sameName(a.from,name)||CE_sameName(a.to,name));}).slice(-2);if(recent.length)lines.push("Recent cross-system aftermath: "+recent.map(function(a){return CE_noteClip(a.summary||a.kind,130);}).join(" | "));return lines.length?lines.join("\n"):"Coordinator: no special cross-system focus currently attached to this entity.";}catch(_){return "Coordinator available.";}}
+function CE_bridgeCardSection(name){try{var u=state.unifiedNarrative||{},lines=[],f=typeof UN_crossSystemFocus==="function"?UN_crossSystemFocus():u.focus;if(f&&f.entity&&CE_sameName(f.entity,name))lines.push("Convergent focus: active ("+(Array.isArray(f.sources)?f.sources.join(" + "):"multi-system")+").");var pair=typeof UN_pairFocus==="function"?UN_pairFocus():u.pairFocus;if(pair&&pair.from&&(CE_sameName(pair.from,name)||CE_sameName(pair.to,name)))lines.push("Convergent pair: "+pair.from+" ↔ "+pair.to+" ("+(pair.sources||[]).join(" + ")+").");var pace=typeof UN_pacingSnapshot==="function"?UN_pacingSnapshot():u.pacing;if(pace&&f&&f.entity&&CE_sameName(f.entity,name))lines.push("Shared pacing: "+pace.mode+" ("+pace.intensity+"/10).");var recent=(u.aftermath||[]).filter(function(a){return a&&((a.names||[]).some(function(n){return CE_sameName(n,name);})||CE_sameName(a.entity,name)||CE_sameName(a.from,name)||CE_sameName(a.to,name));}).slice(-2);if(recent.length)lines.push("Recent cross-system aftermath: "+recent.map(function(a){return CE_noteClip(a.evidence||a.summary||a.kind,130);}).join(" | "));return lines.length?lines.join("\n"):"Coordinator: no special cross-system focus currently attached to this entity.";}catch(_){return "Coordinator available.";}}
 function CE_codexCardSection(name,card){try{var codex=state.unsaid&&state.unsaid.codex;if(!codex)return "Codex: card is available for evidence-backed refreshes.";var meta=null;if(typeof codexManagedCardKey==="function"){var mk=codexManagedCardKey(name,card);meta=codex.cardMeta&&codex.cardMeta[mk];}var lines=[];if(meta){lines.push("Managed by Codex: yes"+(meta.manualEditProtected?" — manual Entry edit protected":""));lines.push("Last generated/refresh turn: "+(meta.lastRefreshTurn!=null?meta.lastRefreshTurn:meta.lastGeneratedTurn));if(Number(meta.updateCount||0)>0)lines.push("Automatic refreshes: "+meta.updateCount);}else lines.push("Managed by Codex: no (manual card or not yet adopted).");var evidence=typeof codexEvidenceSentences==="function"?codexEvidenceSentences(name,"").slice(-2):[];if(evidence&&evidence.length)lines.push("Recent evidence: "+evidence.map(function(x){return CE_noteClip(x,180);}).join(" | "));return lines.join("\n");}catch(_){return "Codex status unavailable this turn.";}}
 function CE_renderManagedEntityNotes(name,card,kind){var common=["Auto-managed diagnostics. This section is NOT treated as public story evidence.","Public canon belongs in Entry; retrieval names belong in Triggers."];if(kind==="character")return common.concat(["","🧠 UNSPOKEN TURNS / UNSAID",CE_unsaidCardSection(name),"","❤️ CROSSED WIRES",CE_crossedCardSection(name),"","🌘 ECHO VEIL",CE_echoCardSection(name),"","🌀 TWISTS AND TURNS",CE_twistsCardSection(name),"","🔗 CROSSED ECHOES",CE_bridgeCardSection(name),"","📚 CODEX",CE_codexCardSection(name,card)]).join("\n");return common.concat(["","🌘 ECHO VEIL",CE_echoCardSection(name),"","🌀 TWISTS AND TURNS",CE_twistsCardSection(name),"","🔗 CROSSED ECHOES",CE_bridgeCardSection(name),"","📚 CODEX",CE_codexCardSection(name,card)]).join("\n");}
 function CE_syncEntityCard(name){try{if(!name||typeof storyCards==="undefined"||!Array.isArray(storyCards))return false;var card=storyCards.find(function(c){return c && !(typeof isOwnCard==="function"&&isOwnCard(c.title)) && CE_sameName(c.title,name);}) || (typeof findStoryCardForEntity==="function"?findStoryCardForEntity(name):null);if(!card||(typeof isOwnCard==="function"&&isOwnCard(card.title)))return false;var kind=typeof codexKindFromExistingCard==="function"?codexKindFromExistingCard(card,name):String(card.type||"").toLowerCase();if(!["character","location","item","faction"].includes(kind)){var raw=String(card.type||"").toLowerCase();if(/character|npc|person/.test(raw))kind="character";else if(/location|place/.test(raw))kind="location";else if(/item|object/.test(raw))kind="item";else if(/faction|group|organization|organisation/.test(raw))kind="faction";else return false;}var base=CE_publicStoryCardNotes(card),managed=CE_renderManagedEntityNotes(name,card,kind),next=(base?base+"\n\n":"")+CE_CARD_NOTES_START+"\n"+managed;if(String(card.description||card.notes||"")!==next){card.description=next;card.notes=next;}return true;}catch(_){return false;}}
@@ -16021,7 +16028,7 @@ function CE_syncStoryCardPresentation(){try{var names=[],add=function(n){n=Strin
 // CROSSED ECHOES — THE UNSPOKEN VEIL
 // Coordination bridge for UNSPOKEN TURNS + CROSSED WIRES + ECHO VEIL
 // ============================================================================
-var UNIFIED_NARRATIVE_BUILD = "2026-08-24-crossed-echoes-knowledge-firewall";
+var UNIFIED_NARRATIVE_BUILD = "2026-08-25-crossed-echoes-coherence-pass";
 var UN_DEFAULTS = {
   enabled: true,
   sharedScenario: true,
@@ -16035,7 +16042,13 @@ var UN_DEFAULTS = {
   repeatGuard: true,
   recoveryGuard: true,
   scenarioStability: true,
-  contextChars: 900,
+  signalBus: true,
+  pacingGovernor: true,
+  pairFocus: true,
+  aftermathPropagation: true,
+  scenePresenceBias: true,
+  fusionStrength: "balanced",
+  contextChars: 1400,
   aftermathWindow: 4,
   debug: false
 };
@@ -16061,7 +16074,13 @@ function UN_init() {
       director: { turn: -1, owner: "", reason: "" },
       consensus: { turn: -1, primary: "general", secondary: "", confidence: 0, sources: [] },
       focus: { turn: -1, entity: "", score: 0, sources: [] },
-      aftermath: [], stats: { plotTwists: 0, relationshipTwists: 0, relationshipEvents: 0, echoBoosts: 0 },
+      pairFocus: { turn: -1, from: "", to: "", score: 0, sources: [] },
+      focusMemory: { turn: -1, entity: "", score: 0, streak: 0 },
+      pairMemory: { turn: -1, from: "", to: "", score: 0, streak: 0 },
+      signals: { turn: -1, entities: [], pairs: [] },
+      pacing: { turn: -1, mode: "steady", intensity: 0, reasons: [] },
+      pulses: [],
+      aftermath: [], stats: { plotTwists: 0, relationshipTwists: 0, relationshipEvents: 0, echoBoosts: 0, psychologyPulses: 0, worldPulses: 0 },
       turnContrib: {}, lastBridgeOutputTurn: -1, preparedTimelineTurn: -1,
       lastError: null
     };
@@ -16071,8 +16090,15 @@ function UN_init() {
   if (!s.director || typeof s.director !== "object") s.director = { turn: -1, owner: "", reason: "" };
   if (!s.consensus || typeof s.consensus !== "object") s.consensus = { turn: -1, primary: "general", secondary: "", confidence: 0, sources: [] };
   if (!s.focus || typeof s.focus !== "object") s.focus = { turn: -1, entity: "", score: 0, sources: [] };
+  if (!s.pairFocus || typeof s.pairFocus !== "object") s.pairFocus = { turn: -1, from: "", to: "", score: 0, sources: [] };
+  if (!s.focusMemory || typeof s.focusMemory !== "object") s.focusMemory = { turn: -1, entity: "", score: 0, streak: 0 };
+  if (!s.pairMemory || typeof s.pairMemory !== "object") s.pairMemory = { turn: -1, from: "", to: "", score: 0, streak: 0 };
+  if (!s.signals || typeof s.signals !== "object") s.signals = { turn: -1, entities: [], pairs: [] };
+  if (!s.pacing || typeof s.pacing !== "object") s.pacing = { turn: -1, mode: "steady", intensity: 0, reasons: [] };
+  if (!Array.isArray(s.pulses)) s.pulses = [];
   if (!Array.isArray(s.aftermath)) s.aftermath = [];
-  if (!s.stats || typeof s.stats !== "object") s.stats = { plotTwists: 0, relationshipTwists: 0, relationshipEvents: 0, echoBoosts: 0 };
+  if (!s.stats || typeof s.stats !== "object") s.stats = { plotTwists: 0, relationshipTwists: 0, relationshipEvents: 0, echoBoosts: 0, psychologyPulses: 0, worldPulses: 0 };
+  ["plotTwists","relationshipTwists","relationshipEvents","echoBoosts","psychologyPulses","worldPulses"].forEach(function(k){ if(!Number.isFinite(Number(s.stats[k]))) s.stats[k]=0; });
   if (!s.turnContrib || typeof s.turnContrib !== "object") s.turnContrib = {};
   if (!Number.isFinite(Number(s.lastBridgeOutputTurn))) s.lastBridgeOutputTurn = -1;
   if (!Number.isFinite(Number(s.preparedTimelineTurn))) s.preparedTimelineTurn = -1;
@@ -16106,6 +16132,12 @@ function UN_renderConfig(cfg) {
     "repeatGuard=" + cfg.repeatGuard,
     "recoveryGuard=" + cfg.recoveryGuard,
     "scenarioStability=" + cfg.scenarioStability,
+    "signalBus=" + cfg.signalBus,
+    "pacingGovernor=" + cfg.pacingGovernor,
+    "pairFocus=" + cfg.pairFocus,
+    "aftermathPropagation=" + cfg.aftermathPropagation,
+    "scenePresenceBias=" + cfg.scenePresenceBias,
+    "fusionStrength=" + cfg.fusionStrength,
     "contextChars=" + cfg.contextChars,
     "aftermathWindow=" + cfg.aftermathWindow,
     "debug=" + cfg.debug
@@ -16119,16 +16151,22 @@ function UN_configNotes() {
     "enabled — Master switch for cross-system coordination only. Turning it off does not disable the three engines.",
     "sharedScenario — Builds one consensus genre/scenario read from all three detectors. It is advisory and never overrides established lore.",
     "singleBeat — Prevents automatic TWISTS AND TURNS and automatic Crossed Wires relationship twists from competing in the same generation. Explicit forced commands still win.",
-    "relationships — Lets established Crossed Wires bond pressure influence compatible plot-thread priority and relationship targeting. It never creates evidence.",
+    "relationships — Lets established Crossed Wires bond salience — both meaningful strain and deeply established positive attachment — influence compatible plot-thread priority and relationship targeting. It never creates evidence.",
     "psychology — Lets UNSAID tension influence relationship/plot salience. Private thoughts affect priority only and never become objective facts.",
     "consequences — Lets ECHO VEIL danger, urgency and unresolved consequences influence pacing and salience. Confirmed beats can strengthen already-visible ECHO episodes without duplicating events.",
     "contextBridge — Adds a compact private reconciliation packet so the model sees shared scenario, beat ownership and recent cross-system aftermath.",
-    "focusBridge — Identifies one NPC only when at least two independent systems point toward them. This is continuity guidance, never permission to force a reveal.",
+    "focusBridge — Identifies one NPC only when at least two independent systems point toward them. Near-ties use short focus hysteresis so the narrative camera does not ping-pong every turn. This is continuity guidance, never permission to force a reveal.",
     "focusHandoff — Adds a compact handoff for the convergent-focus NPC using established relationship/world continuity plus a non-factual psychology-pressure level.",
     "repeatGuard — Reduces immediate dog-piling on the same NPC/pair after a major confirmed beat. Explicit commands and unavoidable consequences are not blocked.",
     "recoveryGuard — Gives the story one breathing turn after a confirmed major plot/relationship beat by suppressing a new automatic payoff/relationship twist. Subtle foreshadowing and explicit commands can still occur.",
     "scenarioStability — Gives the prior shared genre a small persistence bonus only while current detectors still support it, reducing one-turn genre flicker.",
-    "contextChars — Maximum size of the reconciliation packet. Range 300-1400. Default 900.",
+    "signalBus — Builds one bounded per-turn salience map from plot pressure, private psychology, relationship pressure, living-world consequences and recent confirmed aftermath. It changes priority only; it never creates facts.",
+    "pacingGovernor — Derives one shared scene mode (aftermath, crisis, payoff, social pressure, consequence, breathe or steady) so all three engines agree on whether the next beat should escalate, land, react or wait.",
+    "pairFocus — Lets an established Crossed Wires pair become shared focus only when another independent layer points to the BOND itself. NPC↔NPC pair scoring uses shared/pair-specific pressure rather than borrowing an unrelated problem from one member. Near-ties are stabilised briefly to avoid pair-focus jitter.",
+    "aftermathPropagation — Converts confirmed plot twists, relationship twists, strong relationship events, new private-state changes and new ECHO threads/consequences into short-lived cross-system pulses. Pulses affect salience/pacing, not canon truth.",
+    "scenePresenceBias — Prefers characters actually present/recent in the scene when several entities have similar long-term pressure, reducing off-screen hijacking. Strong unresolved off-screen consequences can still matter through ECHO VEIL.",
+    "fusionStrength [light|balanced|strong] — Controls how strongly independent systems influence each other's PRIORITY. Light is subtle, balanced is recommended, strong makes convergent signals more noticeable. It never changes evidence thresholds.",
+    "contextChars — Maximum size of the reconciliation packet. Range 300-1400. Default 1400. The bridge compacts lower-priority detail before dropping cross-system pacing/focus cues.",
     "aftermathWindow — Turns (2-8) used for aftermath continuity, convergent focus and repetition protection. Default 4.",
     "debug — Writes coordinator diagnostics to the script log when available.", "",
     "ARBITRATION",
@@ -16137,7 +16175,15 @@ function UN_configNotes() {
     "3) Otherwise TWISTS AND TURNS gets first refusal on a supported plot payoff/foreshadow beat.",
     "4) Crossed Wires may supply a relationship twist only when no plot beat already owns the generation.",
     "5) UNSAID automatic thought/Codex work yields to a structured twist owner; ordinary behavioral continuity can still run on calm turns.",
-    "6) After a confirmed major beat, recoveryGuard favors reaction/consequence before another automatic major beat.", "",
+    "6) After a confirmed major beat, recoveryGuard favors reaction/consequence before another automatic major beat.",
+    "7) signalBus/pairFocus then align WHICH established character or bond the quieter systems should care about, while pacingGovernor aligns WHAT dramatic function the next beat should serve.", "",
+    "HOW THE THREE ENGINES NOW BOUNCE",
+    "• UNSPOKEN TURNS → Crossed Wires: fresh private tension can raise attention on an already-established bond, but cannot create feelings/events that were never shown. Old private-state salience cools automatically unless refreshed by the story.",
+    "• Crossed Wires → UNSPOKEN TURNS: strong established bond salience (positive or strained) can make an NPC more likely to receive private/behavioral continuity, without exposing the other character's private state.",
+    "• ECHO VEIL → both: danger, urgency, consequences, presence and knowledge boundaries control timing and perspective.",
+    "• TWISTS AND TURNS → all: confirmed plot payoffs create aftermath pulses so relationship/psychology/world continuity react after the reveal rather than forgetting it.",
+    "• All three → ECHO VEIL: the shared pacing mode biases ECHO's director toward consequence, relationship, callback, physical reality or thread progression at the right time.",
+    "• Director contract: the bridge emits one compact per-turn contract covering dramatic function, stable focus/bond and structured-beat ownership so supporting systems reinforce one beat instead of opening parallel major beats.", "",
     "SAFETY OF STATE",
     "Private fears/wants never count as factual proof. Relationship scores never prove a plot secret. ECHO consequences are pacing/salience signals, not permission to invent events. Shared focus is a continuity cue, not a reveal trigger."
   ].join("\n");
@@ -16171,6 +16217,12 @@ function UN_readConfig() {
       else if (k === "repeatguard") cfg.repeatGuard=UN_bool(v,cfg.repeatGuard);
       else if (k === "recoveryguard") cfg.recoveryGuard=UN_bool(v,cfg.recoveryGuard);
       else if (k === "scenariostability") cfg.scenarioStability=UN_bool(v,cfg.scenarioStability);
+      else if (k === "signalbus") cfg.signalBus=UN_bool(v,cfg.signalBus);
+      else if (k === "pacinggovernor") cfg.pacingGovernor=UN_bool(v,cfg.pacingGovernor);
+      else if (k === "pairfocus") cfg.pairFocus=UN_bool(v,cfg.pairFocus);
+      else if (k === "aftermathpropagation") cfg.aftermathPropagation=UN_bool(v,cfg.aftermathPropagation);
+      else if (k === "scenepresencebias") cfg.scenePresenceBias=UN_bool(v,cfg.scenePresenceBias);
+      else if (k === "fusionstrength") { var fs=String(v||"").trim().toLowerCase(); if(["light","balanced","strong"].indexOf(fs)>=0) cfg.fusionStrength=fs; }
       else if (k === "debug") cfg.debug=UN_bool(v,cfg.debug);
       else if (k === "contextchars") { var n=Number(v); if (isFinite(n)) cfg.contextChars=Math.max(300,Math.min(1400,Math.round(n))); }
       else if (k === "aftermathwindow") { var aw=Number(v); if (isFinite(aw)) cfg.aftermathWindow=Math.max(2,Math.min(8,Math.round(aw))); }
@@ -16213,11 +16265,15 @@ function UN_clearBridgeFromTurn(turn) {
   try {
     Object.keys(s.turnContrib||{}).forEach(function(k){
       if(Number(k)<t)return; var d=s.turnContrib[k]||{};
-      ["plotTwists","relationshipTwists","relationshipEvents","echoBoosts"].forEach(function(stat){ s.stats[stat]=Math.max(0,(Number(s.stats[stat])||0)-(Number(d[stat])||0)); });
+      ["plotTwists","relationshipTwists","relationshipEvents","echoBoosts","psychologyPulses","worldPulses"].forEach(function(stat){ s.stats[stat]=Math.max(0,(Number(s.stats[stat])||0)-(Number(d[stat])||0)); });
       delete s.turnContrib[k];
     });
     s.aftermath=(s.aftermath||[]).filter(function(a){return !a||Number(a.turn)<t;});
+    s.pulses=(s.pulses||[]).filter(function(a){return !a||Number(a.turn)<t;});
     s.focus={turn:-1,entity:"",score:0,sources:[]};
+    s.pairFocus={turn:-1,from:"",to:"",score:0,sources:[]};
+    s.signals={turn:-1,entities:[],pairs:[]};
+    s.pacing={turn:-1,mode:"steady",intensity:0,reasons:[]};
     var minds=state.unsaid&&state.unsaid.minds;
     if(minds&&typeof minds==="object") Object.keys(minds).forEach(function(name){
       var m=minds[name]; if(!m||!Array.isArray(m.recentTwistImpacts))return;
@@ -16237,7 +16293,7 @@ function UN_prepareBridgeTimeline() {
 }
 
 function UN_resetHookCaches(phase) {
-  UN_RUNTIME.turn=UN_turn(); UN_RUNTIME.relationship=null; UN_RUNTIME.echo=null; UN_RUNTIME.config=null; UN_RUNTIME.outputBefore=null;
+  UN_RUNTIME.turn=UN_turn(); UN_RUNTIME.relationship=null; UN_RUNTIME.echo=null; UN_RUNTIME.config=null; UN_RUNTIME.outputBefore=null; UN_RUNTIME.signal=null; UN_RUNTIME.pacing=null; UN_RUNTIME.pair=null;
   var s=UN_init(); if (!s) return;
   if (phase === "input" || phase === "context") UN_prepareBridgeTimeline();
   if (s.director.turn !== UN_turn()) s.director={turn:UN_turn(),owner:"",reason:""};
@@ -16337,7 +16393,13 @@ function UN_relationshipPressureScore(entity) {
   UN_relationshipCache().forEach(function(l){
     if (!l || (!UN_nameMatch(l.from,entity) && !UN_nameMatch(l.to,entity))) return;
     var s=l.scores||{};
-    var raw=(Math.max(0,Number(s.tension)||0)+Math.max(0,Number(s.resentment)||0)+Math.max(0,Number(s.jealousy)||0)+Math.max(0,-Number(s.trust)||0))/90;
+    // Relationship salience is not only conflict. A deeply established positive
+    // bond can matter to psychology/plot targeting too, but at a deliberately
+    // lower weight than unresolved tension so ordinary friendliness does not
+    // hijack the story.
+    var negative=(Math.max(0,Number(s.tension)||0)+Math.max(0,Number(s.resentment)||0)+Math.max(0,Number(s.jealousy)||0)+Math.max(0,Number(s.fear)||0)*.35+Math.max(0,-Number(s.trust)||0))/90;
+    var positive=(Math.max(0,Number(s.affection)||0)*.28+Math.max(0,Number(s.trust)||0)*.20+Math.max(0,Number(s.loyalty)||0)*.22+Math.max(0,Number(s.attachment)||0)*.22+Math.max(0,Number(s.respect)||0)*.10+Math.max(0,Number(s.openness)||0)*.08)/30;
+    var raw=negative+positive;
     if (l.unresolved) raw+=1.2; if (l.trajectory==="volatile") raw+=1.2;
     best=Math.max(best,Math.max(0,Math.min(6,raw)));
   });
@@ -16365,7 +16427,12 @@ function UN_unsaidTensionScore(name) {
   var cfg=UN_readConfig(); if (!cfg.enabled||!cfg.bridgePsychology||!name||String(name).toLowerCase()==="you") return 0;
   var m=UN_unsaidMind(name); if (!m) return 0;
   var t=Math.max(0,Math.min(8,Number(m.tensionLevel)||0));
-  if (m.want) t+=0.5; if (m.core) t+=0.5; return Math.min(8,t);
+  if (m.want) t+=0.5; if (m.core) t+=0.5;
+  // Salience should cool when a private-state record has not been refreshed.
+  // The mind itself remains stored; only its ability to hijack current focus decays.
+  var age=Math.max(0,UN_turn()-Number(m.lastTurn==null?UN_turn():m.lastTurn));
+  var freshness=age<=2?1:(age<=5?.82:(age<=10?.60:.42));
+  return Math.min(8,t*freshness);
 }
 
 function UN_echoEntityPressureScore(name) {
@@ -16388,21 +16455,29 @@ function UN_echoContinuityForEntity(name) {
   var cfg=UN_readConfig(); if (!cfg.enabled||!cfg.bridgeConsequences||!name) return "";
   try {
     var s=state.echoVeil; if (!s) return "";
-    var c=(s.consequences||[]).filter(function(x){return x&&!x.resolved&&(x.actors||[]).some(function(a){return UN_nameMatch(a,name);});}).sort(function(a,b){return (Number(b.severity)||0)-(Number(a.severity)||0);})[0];
-    var t=(s.threads||[]).filter(function(x){return x&&!x.resolved&&(x.actors||[]).some(function(a){return UN_nameMatch(a,name);});}).sort(function(a,b){return (Number(b.heat)||0)-(Number(a.heat)||0);})[0];
-    var bits=[]; if(c&&c.summary) bits.push("live consequence: "+UN_clip(c.summary,125)); if(t&&t.summary) bits.push("live thread: "+UN_clip(t.summary,125));
+    var c=(s.consequences||[]).filter(function(x){return x&&!x.resolved&&(x.actors||[]).some(function(a){return UN_nameMatch(a,name);})&&!(typeof UN_blockedForEntity==="function"&&UN_blockedForEntity(name,x.summary||x.sourceText||x.source||""));}).sort(function(a,b){return (Number(b.severity)||0)-(Number(a.severity)||0);})[0];
+    var t=(s.threads||[]).filter(function(x){return x&&!x.resolved&&(x.actors||[]).some(function(a){return UN_nameMatch(a,name);})&&!(typeof UN_blockedForEntity==="function"&&UN_blockedForEntity(name,x.summary||""));}).sort(function(a,b){return (Number(b.heat)||0)-(Number(a.heat)||0);})[0];
+    var bits=[]; if(c&&(c.summary||c.sourceText)) bits.push("live consequence: "+UN_clip(c.summary||c.sourceText,125)); if(t&&t.summary) bits.push("live thread: "+UN_clip(t.summary,125));
     return bits.length ? " Living-world pressure: "+bits.slice(0,2).join("; ")+". Respond only from what this character could actually know." : "";
   } catch(e){ return ""; }
 }
 function UN_echoTwistFactor() {
   var cfg=UN_readConfig(); if (!cfg.enabled||!cfg.bridgeConsequences) return 1;
   try {
-    var m=state.echoVeil&&state.echoVeil.metrics; if (!m) return 1;
+    var m=state.echoVeil&&state.echoVeil.metrics||{};
     var danger=Number(m.danger)||0, urgency=Number(m.urgency)||0, social=Number(m.social)||0, intimacy=Number(m.intimacy)||0;
     var factor=1;
     if (danger>=7||urgency>=7) factor*=0.62; else if (danger>=5||urgency>=5) factor*=0.78;
     if (social>=6||intimacy>=6) factor*=1.10;
-    return Math.max(0.5,Math.min(1.18,factor));
+    if (cfg.pacingGovernor && typeof UN_pacingSnapshot==="function") {
+      var pace=UN_pacingSnapshot();
+      if(pace.mode==="aftermath") factor*=0.55;
+      else if(pace.mode==="crisis") factor*=0.72;
+      else if(pace.mode==="payoff") factor*=0.82;
+      else if(pace.mode==="social-pressure") factor*=1.16;
+      else if(pace.mode==="breathe") factor*=0.82;
+    }
+    return Math.max(0.35,Math.min(1.28,factor));
   } catch(e){ return 1; }
 }
 
@@ -16420,25 +16495,237 @@ function UN_recentAftermathPenalty(name) {
   return Math.min(4,best);
 }
 
+
+// ---------------------------------------------------------------------------
+// CROSSED ECHOES FUSION DIRECTOR
+// A bounded priority/scheduling layer. It NEVER adds evidence: each source
+// contributes only salience, timing and continuity pressure.
+// ---------------------------------------------------------------------------
+function UN_fusionStrengthMult() {
+  var v=String((UN_readConfig()||{}).fusionStrength||"balanced").toLowerCase();
+  return v==="light"?0.72:(v==="strong"?1.24:1);
+}
+
+function UN_textTokens(v) {
+  var stop={the:1,and:1,that:1,this:1,with:1,from:1,have:1,has:1,had:1,into:1,about:1,there:1,their:1,they:1,them:1,then:1,than:1,does:1,doesnt:1,know:1,knows:1,unknown:1,secret:1,story:1,world:1,character:1};
+  var seen={}, out=[];
+  String(v||"").toLowerCase().replace(/[’']/g,"").replace(/[^a-z0-9]+/g," ").split(/\s+/).forEach(function(w){if(w.length>=4&&!stop[w]&&!seen[w]){seen[w]=1;out.push(w);}});
+  return out.slice(0,32);
+}
+function UN_textOverlap(a,b) {
+  var aa=UN_textTokens(a), bb=UN_textTokens(b); if(!aa.length||!bb.length)return 0;
+  var set={}; bb.forEach(function(x){set[x]=1;}); var hit=0; aa.forEach(function(x){if(set[x])hit++;});
+  return hit/Math.max(1,Math.min(aa.length,bb.length));
+}
+function UN_activeKnowledgeBlocks(name) {
+  try { return (state.echoVeil&&state.echoVeil.knowledgeGaps||[]).filter(function(g){return g&&!g.cleared&&(Number(g.confidence)||0)>=0.68&&UN_nameMatch(g.owner,name);}).slice(-8); } catch(e){return [];}
+}
+function UN_blockedForEntity(name,text) {
+  if(!name||!text)return false;
+  return UN_activeKnowledgeBlocks(name).some(function(g){return UN_textOverlap(g.summary||"",text)>=0.42;});
+}
+
+function UN_scenePresenceScore(name) {
+  if(!name||String(name).toLowerCase()==="you")return 0;
+  var now=UN_turn(), best=0;
+  var echoCastKnown=false, echoContains=false;
+  try {
+    var cast=state.echoVeil&&state.echoVeil.scene&&state.echoVeil.scene.cast||{}; echoCastKnown=Object.keys(cast).length>0;
+    Object.keys(cast).forEach(function(k){var c=cast[k]; if(c&&UN_nameMatch(c.name||k,name)){echoContains=true;var age=Math.max(0,now-Number(c.turn||0)); best=Math.max(best,age<=1?4:age<=3?2.5:age<=5?1:0);}});
+  } catch(e){}
+  try {
+    // Crossed Wires tracks mentions as well as physical sightings. Once ECHO
+    // has an explicit live scene cast, do not let an off-screen name-drop
+    // masquerade as presence and hijack convergent focus.
+    if(!echoCastKnown||echoContains){var npcs=state.crossedWires&&state.crossedWires.npcs||{};
+      Object.keys(npcs).forEach(function(k){var n=npcs[k];if(n&&UN_nameMatch(n.name||k,name)){var last=Math.max(Number(n.lastMentionTurn)||-999,Number(n.lastSeen)||-999);var age=Math.max(0,now-last);best=Math.max(best,age<=1?3.5:age<=3?2:age<=5?0.8:0);}});}
+  } catch(e){}
+  try { if((state.unsaid&&state.unsaid.lastActiveCast||[]).some(function(n){return UN_nameMatch(n,name);})) best=Math.max(best,3.2); } catch(e){}
+  return Math.min(4,best);
+}
+
+function UN_plotPressureScore(name) {
+  if(!name||String(name).toLowerCase()==="you")return 0;
+  var best=0;
+  try {(state.contingency&&state.contingency.threads||[]).forEach(function(t){
+    if(!t||t.status==="resolved"||!UN_nameMatch(t.entity,name))return;
+    var v=t.status==="ready"?3.8:Math.min(3,0.65+(Number(t.seedTouches)||0)*0.5+(Number(t.storyEvidenceTouches)||0)*0.24);
+    if(t.psychologyLinked)v+=0.2; if(t.codexLinked)v+=0.2; best=Math.max(best,v);
+  });}catch(e){}
+  return Math.min(5.5,best);
+}
+
+function UN_registerPulse(source,kind,names,summary,strength,pair) {
+  var cfg=UN_readConfig(), s=UN_init(); if(!s||!cfg.enabled||!cfg.signalBus||!cfg.aftermathPropagation)return false;
+  var cleanNames=[]; (names||[]).forEach(function(n){n=String(n||"").trim();if(n&&n.toLowerCase()!=="you"&&!cleanNames.some(function(x){return UN_nameMatch(x,n);}))cleanNames.push(n);});
+  var rec={turn:UN_turn(),source:String(source||"bridge"),kind:String(kind||"signal"),names:cleanNames.slice(0,4),summary:UN_clip(summary,180),strength:Math.max(0.25,Math.min(4,Number(strength)||1)),pair:Array.isArray(pair)?pair.slice(0,2):[]};
+  var sig=rec.turn+"|"+rec.source+"|"+rec.kind+"|"+rec.names.join("|")+"|"+rec.summary;
+  if((s.pulses||[]).some(function(x){return x&&x.sig===sig;}))return false;
+  rec.sig=sig;s.pulses.push(rec);if(s.pulses.length>24)s.pulses=s.pulses.slice(-24);
+  if(rec.source==="psychology")s.stats.psychologyPulses=(s.stats.psychologyPulses||0)+1;
+  if(rec.source==="world")s.stats.worldPulses=(s.stats.worldPulses||0)+1;
+  return true;
+}
+function UN_recentPulseScore(name) {
+  var cfg=UN_readConfig(),s=UN_init(),now=UN_turn(),win=Math.max(2,Number(cfg.aftermathWindow)||4),best=0;
+  if(!s||!cfg.signalBus)return 0;
+  (s.pulses||[]).forEach(function(p){if(!p||!(p.names||[]).some(function(n){return UN_nameMatch(n,name);}))return;var age=Math.max(0,now-Number(p.turn||0));if(age>win)return;best=Math.max(best,(Number(p.strength)||1)*Math.max(.18,1-age/(win+1)));});
+  return Math.min(4,best);
+}
+
+function UN_signalSnapshot() {
+  var cfg=UN_readConfig(),s=UN_init(); if(!s||!cfg.enabled||!cfg.signalBus)return {turn:UN_turn(),entities:[],pairs:[]};
+  if(UN_RUNTIME.signal&&UN_RUNTIME.signal.turn===UN_turn())return UN_RUNTIME.signal;
+  var names=[];function add(n){n=String(n||"").trim();if(!n||n.toLowerCase()==="you")return;if(!names.some(function(x){return UN_nameMatch(x,n);}))names.push(n);}
+  try{UN_relationshipCache().forEach(function(l){if(l){add(l.from);add(l.to);}});}catch(e){}
+  try{(state.unsaid&&state.unsaid.lastActiveCast||[]).slice(0,14).forEach(add);var minds=state.unsaid&&state.unsaid.minds||{};Object.keys(minds).filter(function(k){return Number(minds[k]&&minds[k].lastTurn||-999)>=UN_turn()-4;}).slice(0,20).forEach(add);}catch(e){}
+  try{var ev=state.echoVeil||{};Object.keys(ev.scene&&ev.scene.cast||{}).forEach(function(k){add((ev.scene.cast[k]||{}).name||k);});(ev.consequences||[]).filter(function(x){return x&&!x.resolved;}).slice(-10).forEach(function(x){(x.actors||[]).forEach(add);});(ev.threads||[]).filter(function(x){return x&&!x.resolved;}).slice(-10).forEach(function(x){(x.actors||[]).forEach(add);});}catch(e){}
+  try{(state.contingency&&state.contingency.threads||[]).filter(function(t){return t&&t.status!=="resolved";}).slice(-24).forEach(function(t){add(t.entity);});}catch(e){}
+  try{(s.pulses||[]).slice(-12).forEach(function(p){(p.names||[]).forEach(add);});}catch(e){}
+  var mult=UN_fusionStrengthMult();
+  var entities=names.slice(0,48).map(function(name){
+    var rel=UN_relationshipPressureScore(name),psych=UN_unsaidTensionScore(name),world=UN_echoEntityPressureScore(name),plot=UN_plotPressureScore(name),pulse=UN_recentPulseScore(name),presence=UN_scenePresenceScore(name),penalty=UN_recentAftermathPenalty(name);
+    var sources=[];if(rel>=.65)sources.push("relationship");if(psych>=1)sources.push("psychology");if(world>=1)sources.push("world");if(plot>=1)sources.push("plot");if(pulse>=.7)sources.push("aftermath");
+    // Aftermath is a recency amplifier, not an independent witness. Counting it
+    // as a second source made one event look like multi-system convergence.
+    var coreCount=UN_coreSources(sources).length;
+    var convergence=Math.max(0,coreCount-1)*0.55*mult;
+    var total=(rel*.78+psych*.62+world*.82+plot*.92+pulse*.56)*mult+presence*(cfg.scenePresenceBias ? .65 : .25)+convergence-penalty*.9;
+    return {entity:name,score:Math.max(0,Math.round(total*10)/10),sources:sources,rel:rel,psych:psych,world:world,plot:plot,pulse:pulse,presence:presence,penalty:penalty};
+  }).sort(function(a,b){return b.score-a.score||UN_coreSources(b.sources).length-UN_coreSources(a.sources).length||b.presence-a.presence;});
+  var snap={turn:UN_turn(),entities:entities.slice(0,16),pairs:[]};
+  s.signals=snap;UN_RUNTIME.signal=snap;return snap;
+}
+
+function UN_entitySignal(name) {
+  return (UN_signalSnapshot().entities||[]).find(function(x){return x&&UN_nameMatch(x.entity,name);})||null;
+}
+function UN_entityConvergenceBonus(name,excludeSource) {
+  var cfg=UN_readConfig(); if(!cfg.enabled||!cfg.signalBus)return 0;var x=UN_entitySignal(name);if(!x)return 0;
+  var src=(x.sources||[]).filter(function(s){return s!==excludeSource&&s!=="aftermath";});
+  var component=0;if(excludeSource!=="relationship")component+=x.rel*.6;if(excludeSource!=="psychology")component+=x.psych*.45;if(excludeSource!=="world")component+=x.world*.6;if(excludeSource!=="plot")component+=x.plot*.72;component+=x.pulse*.35+x.presence*.25;
+  if(!src.length)return 0;return Math.max(0,Math.min(4.2,(component*.28+Math.max(0,src.length-1)*.65)*UN_fusionStrengthMult()));
+}
+
+function UN_pairHasBothActors(actors,from,to) {
+  var a=Array.isArray(actors)?actors:[];
+  var fromHit=String(from||"").toLowerCase()==="you" || a.some(function(n){return UN_nameMatch(n,from);});
+  var toHit=String(to||"").toLowerCase()==="you" || a.some(function(n){return UN_nameMatch(n,to);});
+  return fromHit&&toHit;
+}
+function UN_pairWorldPressureScore(from,to) {
+  var cfg=UN_readConfig();if(!cfg.enabled||!cfg.bridgeConsequences)return 0;var best=0;
+  try{var ev=state.echoVeil||{};(ev.consequences||[]).forEach(function(c){if(!c||c.resolved||!UN_pairHasBothActors(c.actors,from,to))return;best=Math.max(best,Math.min(5,(Number(c.severity)||1)+(Number(c.pressure)||0)*.35));});
+  (ev.threads||[]).forEach(function(t){if(!t||t.resolved||!UN_pairHasBothActors(t.actors,from,to))return;best=Math.max(best,Math.min(4.5,(Number(t.heat)||0)*.5));});}catch(e){}
+  return best;
+}
+function UN_pairPsychologyScore(from,to) {
+  var fy=String(from||"").toLowerCase()==="you",ty=String(to||"").toLowerCase()==="you";
+  if(fy&&ty)return 0;var a=fy?0:UN_unsaidTensionScore(from),b=ty?0:UN_unsaidTensionScore(to);
+  if(fy)return b;if(ty)return a;
+  // For NPC↔NPC bonds, one person's unrelated anxiety should not make the pair
+  // convergent. Reward shared pressure, with a small one-sided residue only.
+  return Math.min(a,b)*.82+Math.max(a,b)*.12;
+}
+function UN_pairPlotPressureScore(from,to) {
+  var fy=String(from||"").toLowerCase()==="you",ty=String(to||"").toLowerCase()==="you";
+  var a=fy?0:UN_plotPressureScore(from),b=ty?0:UN_plotPressureScore(to);
+  if(fy)return b;if(ty)return a;
+  return Math.min(a,b)*.85+Math.max(a,b)*.10;
+}
+function UN_recentPairPulseScore(from,to) {
+  var cfg=UN_readConfig(),s=UN_init(),now=UN_turn(),win=Math.max(2,Number(cfg.aftermathWindow)||4),best=0;
+  if(!s||!cfg.signalBus)return 0;(s.pulses||[]).forEach(function(p){if(!p)return;var pair=p.pair||[];if(pair.length<2)return;
+    var match=(UN_nameMatch(pair[0],from)&&UN_nameMatch(pair[1],to))||(UN_nameMatch(pair[0],to)&&UN_nameMatch(pair[1],from));if(!match)return;
+    var age=Math.max(0,now-Number(p.turn||0));if(age>win)return;best=Math.max(best,(Number(p.strength)||1)*Math.max(.18,1-age/(win+1)));});
+  return Math.min(4,best);
+}
+function UN_coreSources(list) { return (list||[]).filter(function(x){return x!=="aftermath";}); }
+
+function UN_pairSignalSnapshot() {
+  var cfg=UN_readConfig(),s=UN_init();if(!s||!cfg.enabled||!cfg.signalBus||!cfg.pairFocus)return [];
+  if(UN_RUNTIME.pair&&UN_RUNTIME.pair.turn===UN_turn())return UN_RUNTIME.pair.items;
+  var out=[];UN_relationshipCache().forEach(function(l){if(!l||!l.from||!l.to)return;
+    var a=UN_entitySignal(l.from)||{presence:0},b=String(l.to).toLowerCase()==="you"?{presence:2}:UN_entitySignal(l.to)||{presence:0};
+    var rel=0,scores=l.scores||{};rel=Math.min(6,(Math.max(0,Number(scores.tension)||0)+Math.max(0,Number(scores.resentment)||0)+Math.max(0,Number(scores.jealousy)||0)+Math.max(0,Number(scores.affection)||0)*.35+Math.max(0,Number(scores.trust)||0)*.18)/95+(l.unresolved?1.1:0)+(l.trajectory==="volatile"?1:0));
+    var psych=UN_pairPsychologyScore(l.from,l.to),world=UN_pairWorldPressureScore(l.from,l.to),plot=UN_pairPlotPressureScore(l.from,l.to),pulse=UN_recentPairPulseScore(l.from,l.to),presence=Math.max(a.presence||0,b.presence||0);
+    var sources=["relationship"];if(psych>=1)sources.push("psychology");if(world>=1)sources.push("world");if(plot>=1)sources.push("plot");if(pulse>=.7)sources.push("aftermath");
+    // Pair convergence is intentionally stricter than entity convergence: an
+    // unrelated problem belonging to only one member must not redefine the bond.
+    var diversity=Math.max(0,UN_coreSources(sources).length-1)*.45;
+    var total=(rel*.9+psych*.48+world*.64+plot*.62+pulse*.32)*UN_fusionStrengthMult()+presence*.4+diversity;
+    out.push({from:l.from,to:l.to,score:Math.round(total*10)/10,sources:sources,rel:rel,psych:psych,world:world,plot:plot,pulse:pulse,presence:presence});
+  });
+  out.sort(function(a,b){return b.score-a.score||UN_coreSources(b.sources).length-UN_coreSources(a.sources).length;});UN_RUNTIME.pair={turn:UN_turn(),items:out.slice(0,12)};return UN_RUNTIME.pair.items;
+}
+
+function UN_pairFocus() {
+  var cfg=UN_readConfig(),s=UN_init();if(!s||!cfg.enabled||!cfg.pairFocus)return null;if(s.pairFocus&&s.pairFocus.turn===UN_turn())return s.pairFocus;
+  var candidates=UN_pairSignalSnapshot().filter(function(x){return UN_coreSources(x.sources).length>=2&&x.score>=2.5&&(!cfg.scenePresenceBias||x.presence>0);});var top=candidates[0]||null;
+  // Focus hysteresis: if the previous bond is still genuinely competitive,
+  // keep it for another turn instead of ping-ponging between near-ties.
+  var mem=s.pairMemory||{},prev=candidates.find(function(x){return mem.from&&((UN_nameMatch(x.from,mem.from)&&UN_nameMatch(x.to,mem.to))||(UN_nameMatch(x.from,mem.to)&&UN_nameMatch(x.to,mem.from)));});
+  if(top&&prev&&Number(mem.turn)>=UN_turn()-1&&prev.score>=top.score*.82)top=prev;
+  if(!top){s.pairFocus={turn:UN_turn(),from:"",to:"",score:0,sources:[]};return s.pairFocus;}
+  var same=mem.from&&((UN_nameMatch(top.from,mem.from)&&UN_nameMatch(top.to,mem.to))||(UN_nameMatch(top.from,mem.to)&&UN_nameMatch(top.to,mem.from)));
+  s.pairMemory={turn:UN_turn(),from:top.from,to:top.to,score:top.score,streak:same?Math.min(8,Number(mem.streak||0)+1):1};
+  s.pairFocus={turn:UN_turn(),from:top.from,to:top.to,score:top.score,sources:(top.sources||[]).slice(0,5),streak:s.pairMemory.streak};return s.pairFocus;
+}
+
+function UN_pairConvergenceBonus(from,to) {
+  var cfg=UN_readConfig();if(!cfg.enabled||!cfg.pairFocus)return 0;var x=UN_pairSignalSnapshot().find(function(p){return (UN_nameMatch(p.from,from)&&UN_nameMatch(p.to,to))||(UN_nameMatch(p.from,to)&&UN_nameMatch(p.to,from));});if(!x)return 0;
+  var external=(x.sources||[]).filter(function(s){return s!=="relationship"&&s!=="aftermath";}).length;if(!external)return 0;return Math.max(0,Math.min(4,(x.psych*.35+x.world*.45+x.plot*.5+x.pulse*.2+external*.55)*UN_fusionStrengthMult()));
+}
+
+function UN_pacingSnapshot() {
+  var cfg=UN_readConfig(),s=UN_init();if(!s||!cfg.enabled||!cfg.pacingGovernor)return {turn:UN_turn(),mode:"steady",intensity:0,reasons:[]};if(UN_RUNTIME.pacing&&UN_RUNTIME.pacing.turn===UN_turn())return UN_RUNTIME.pacing;
+  var m=state.echoVeil&&state.echoVeil.metrics||{},danger=Number(m.danger)||0,urgency=Number(m.urgency)||0,social=Number(m.social)||0,intimacy=Number(m.intimacy)||0;
+  var sig=UN_signalSnapshot(),top=sig.entities&&sig.entities[0]||{},ready=0;try{ready=(state.contingency&&state.contingency.threads||[]).filter(function(t){return t&&t.status==="ready";}).length;}catch(e){}
+  var recentMajor=false;try{recentMajor=(state.crossedWires&&state.crossedWires.ledger||[]).some(function(e){return e&&Number(e.turn)>=UN_turn()-2&&Number(e.severity)>=3;});}catch(e){}
+  var mode="steady",reasons=[],owner=s&&s.director&&s.director.turn===UN_turn()?s.director.owner:"",pair=UN_pairFocus();
+  if(UN_recoveryActive()){mode="aftermath";reasons.push("major beat just landed");}
+  else if(danger>=7||urgency>=7){mode="crisis";reasons.push("high danger/urgency");}
+  else if(owner==="twists"||ready>0&&danger<6.2){mode="payoff";reasons.push(owner==="twists"?"plot beat owns this generation":ready+" supported plot thread"+(ready===1?" is":"s are")+" ready");}
+  else if(owner==="crossed_wires"||owner==="crossed_forced"||(((top.rel||0)+(top.psych||0)>=5.5||social>=6||intimacy>=6||(pair&&pair.from&&pair.score>=4.5))&&danger<5.5)){mode="social-pressure";reasons.push(owner&&/^crossed/.test(owner)?"relationship beat owns this generation":"relationship + psychology pressure");}
+  else if((top.world||0)>=3.5){mode="consequence";reasons.push("living-world consequence pressure");}
+  else if(recentMajor&&danger<5){mode="breathe";reasons.push("recent relationship drama needs space");}
+  var intensity=Math.max(danger,urgency,Math.min(10,(top.world||0)+(top.plot||0)*.6+(top.rel||0)*.35+(top.psych||0)*.25));if(mode==="aftermath"||mode==="breathe")intensity=Math.min(intensity,5.5);
+  var pace={turn:UN_turn(),mode:mode,intensity:Math.round(intensity*10)/10,reasons:reasons.slice(0,3)};s.pacing=pace;UN_RUNTIME.pacing=pace;return pace;
+}
+function UN_echoMoveAdjustment(type) {
+  var cfg=UN_readConfig();if(!cfg.enabled||!cfg.pacingGovernor)return 0;var m=UN_pacingSnapshot().mode,t=String(type||"");
+  var map={
+    aftermath:{consequence:2.1,callback:1.6,relationship:1.2,pacing:1.4,thread:-1.1,inference:-.8,physical:-.4,agency:-.3},
+    crisis:{physical:2.2,consequence:1.9,repair:1.1,thread:.4,relationship:-1.6,callback:-.7,agency:-.5},
+    payoff:{thread:2.1,callback:1.0,consequence:.7,relationship:-.5,agency:-.4},
+    "social-pressure":{relationship:2.2,callback:.7,thread:.4,physical:-1.2,agency:-.5},
+    consequence:{consequence:2.0,thread:.8,callback:.6,physical:.5},
+    breathe:{relationship:.8,callback:1.2,pacing:1.6,consequence:.5,thread:-1.0,physical:-1.0}
+  };return (map[m]&&map[m][t])||0;
+}
+
+function UN_relationshipTwistThemeFactor(id,from,to) {
+  var cfg=UN_readConfig();if(!cfg.enabled||!cfg.signalBus)return 1;var key=String(id||"").toLowerCase(),factor=1;
+  var plotCats=[];try{(state.contingency&&state.contingency.threads||[]).forEach(function(t){if(t&&t.status!=="resolved"&&(UN_nameMatch(t.entity,from)||UN_nameMatch(t.entity,to)))plotCats.push(String(t.category||"").toLowerCase());});}catch(e){}
+  var secretish=plotCats.some(function(c){return /secret|hidden|identity|debt|blackmail|affair|deception|confession|cover|betray|double|lie|truth|record/.test(c);});
+  if(secretish&&["vulnerable_reveal","confidant_dilemma","secret_exposed","withheld_clue","loyalty_test","boundary_talk","quiet_followup"].indexOf(key)>=0)factor*=1.28;
+  var world=Math.max(UN_echoEntityPressureScore(from),UN_echoEntityPressureScore(to));if(world>=3&&["protective_choice","care_under_pressure","resource_choice","order_vs_loyalty","loyalty_test","unexpected_alliance"].indexOf(key)>=0)factor*=1.22;
+  var psych=Math.max(UN_unsaidTensionScore(from),UN_unsaidTensionScore(to));if(psych>=3&&["quiet_followup","vulnerable_reveal","boundary_talk","define_the_relationship","reconciliation_window","mixed_signals"].indexOf(key)>=0)factor*=1.18;
+  return Math.max(.82,Math.min(1.55,factor));
+}
+
 function UN_crossSystemFocus() {
-  var cfg=UN_readConfig(), s=UN_init(); if(!s||!cfg.enabled||!cfg.focusBridge) return null;
-  if(s.focus&&Number(s.focus.turn)===Number(UN_turn())) return s.focus;
-  var candidates=[];
-  function add(n){ n=String(n||"").trim(); if(!n||n.toLowerCase()==="you") return; if(!candidates.some(function(x){return UN_nameMatch(x,n);})) candidates.push(n); }
-  try { UN_relationshipCache().forEach(function(l){if(l){add(l.from);add(l.to);}}); } catch(e){}
-  try { Object.keys(state.unsaid&&state.unsaid.minds||{}).forEach(add); } catch(e){}
-  try { (state.echoVeil&&state.echoVeil.consequences||[]).forEach(function(x){(x&&x.actors||[]).forEach(add);}); (state.echoVeil&&state.echoVeil.threads||[]).forEach(function(x){(x&&x.actors||[]).forEach(add);}); } catch(e){}
-  try { (state.contingency&&state.contingency.threads||[]).forEach(function(t){if(t&&t.status!=="resolved")add(t.entity);}); } catch(e){}
-  var scored=candidates.slice(0,40).map(function(name){
-    var rel=UN_relationshipPressureScore(name), psych=UN_unsaidTensionScore(name), echo=UN_echoEntityPressureScore(name), plot=0;
-    try { (state.contingency&&state.contingency.threads||[]).forEach(function(t){ if(t&&t.status!=="resolved"&&UN_nameMatch(t.entity,name)){ plot=Math.max(plot,t.status==="ready"?2.5:Math.min(1.8,0.5+(Number(t.seedTouches)||0)*0.35)); } }); } catch(e){}
-    var sources=[]; if(rel>=1)sources.push("relationship"); if(psych>=1)sources.push("psychology"); if(echo>=1)sources.push("world"); if(plot>=1)sources.push("plot");
-    var raw=rel*0.9+psych*0.72+echo*0.9+plot; var penalty=UN_recentAftermathPenalty(name);
-    return {entity:name,score:Math.max(0,raw-penalty),sources:sources,raw:raw,penalty:penalty};
-  }).filter(function(x){return x.sources.length>=2&&x.score>=2.2;}).sort(function(a,b){return b.score-a.score||b.sources.length-a.sources.length||String(a.entity).localeCompare(String(b.entity));});
-  var top=scored[0]||{entity:"",score:0,sources:[]};
-  s.focus={turn:UN_turn(),entity:top.entity,score:Math.round(top.score*10)/10,sources:top.sources.slice(0,4)};
-  return s.focus;
+  var cfg=UN_readConfig(),s=UN_init();if(!s||!cfg.enabled||!cfg.focusBridge)return null;
+  if(s.focus&&Number(s.focus.turn)===Number(UN_turn()))return s.focus;
+  var items=UN_signalSnapshot().entities||[],presentExists=items.some(function(x){return x&&x.presence>0&&UN_coreSources(x.sources).length>=2;});
+  var scored=items.filter(function(x){return x&&UN_coreSources(x.sources).length>=2&&x.score>=2.2&&(!cfg.scenePresenceBias||!presentExists||x.presence>0);});
+  var top=scored[0]||null,mem=s.focusMemory||{},prev=scored.find(function(x){return mem.entity&&UN_nameMatch(x.entity,mem.entity);});
+  // Stable focus improves continuity and reduces "camera jitter" when two NPCs
+  // have almost equal salience. A materially stronger candidate still wins.
+  if(top&&prev&&Number(mem.turn)>=UN_turn()-1&&prev.score>=top.score*.82)top=prev;
+  if(!top){s.focus={turn:UN_turn(),entity:"",score:0,sources:[]};return s.focus;}
+  var same=mem.entity&&UN_nameMatch(top.entity,mem.entity);s.focusMemory={turn:UN_turn(),entity:top.entity,score:top.score,streak:same?Math.min(8,Number(mem.streak||0)+1):1};
+  s.focus={turn:UN_turn(),entity:top.entity,score:top.score||0,sources:(top.sources||[]).slice(0,5),presence:top.presence||0,streak:s.focusMemory.streak};return s.focus;
 }
 
 function UN_profileKey(v) {
@@ -16481,35 +16768,84 @@ function UN_focusHandoffLine(focus) {
   var cfg=UN_readConfig();
   if(!cfg.enabled || !cfg.focusHandoff || !focus || !focus.entity) return "";
   var bits=[];
-  try { var rel=UN_relationshipContinuityForEntity(focus.entity); if(rel) bits.push(UN_clip(rel.replace(/^\s+/,""),220)); } catch(e){}
-  try { var echo=UN_echoContinuityForEntity(focus.entity); if(echo) bits.push(UN_clip(echo.replace(/^\s+/,""),220)); } catch(e){}
+  try { var rel=UN_relationshipContinuityForEntity(focus.entity); if(rel) bits.push("relationship — "+UN_clip(rel.replace(/^\s+/,"").replace(/^Established relationship continuity:\s*/i,"").replace(/Treat it as social pressure, not proof of any hidden plot fact\.?/i,""),135)); } catch(e){}
+  try { var echo=UN_echoContinuityForEntity(focus.entity); if(echo) bits.push("world — "+UN_clip(echo.replace(/^\s+/,"").replace(/^Living-world pressure:\s*/i,"").replace(/Respond only from what this character could actually know\.?/i,""),135)); } catch(e){}
   try {
     var p=UN_unsaidTensionScore(focus.entity);
-    if(p>=1) bits.push("Private psychology pressure is "+(p>=4?"high":p>=2.5?"moderate":"present")+"; use it only for emotional continuity, never as proof or knowledge.");
+    if(p>=1) bits.push("psychology — "+(p>=4?"high":p>=2.5?"moderate":"present")+" private pressure; emotion only, never proof/knowledge.");
   } catch(e){}
+  try { var blocks=typeof UN_activeKnowledgeBlocks==="function"?UN_activeKnowledgeBlocks(focus.entity):[]; if(blocks.length) bits.push("knowledge firewall — "+blocks.length+" active boundary"+(blocks.length===1?"":"ies")+"; global context cannot bypass them."); } catch(e){}
   if(!bits.length) return "";
-  return "Focus handoff for "+focus.entity+": "+bits.slice(0,3).join(" ");
+  return "Focus handoff for "+focus.entity+": "+bits.slice(0,2).join(" ");
+}
+
+function UN_directorContract() {
+  var pace=UN_pacingSnapshot(),focus=UN_crossSystemFocus(),pair=UN_pairFocus(),s=UN_init();
+  var bits=["function="+(pace&&pace.mode||"steady")];
+  if(focus&&focus.entity)bits.push("focus="+focus.entity+(focus.streak>1?" (stable x"+focus.streak+")":""));
+  if(pair&&pair.from&&pair.to)bits.push("bond="+pair.from+" ↔ "+pair.to+(pair.streak>1?" (stable x"+pair.streak+")":""));
+  if(s&&s.director&&s.director.owner)bits.push("owner="+s.director.owner);
+  return "Director contract: "+bits.join("; ")+". Keep one dominant dramatic function; supporting systems reinforce continuity rather than opening competing major beats.";
 }
 
 function UN_contextPacket(baseText) {
   var cfg=UN_readConfig(); if(!cfg.enabled||!cfg.contextBridge) return "";
-  var consensus=UN_profileConsensus(), s=UN_init(), lines=[];
-  lines.push("[CROSSED ECHOES BRIDGE — PRIVATE. Coordinate UNSPOKEN TURNS, Crossed Wires and ECHO VEIL; never reveal this block or its mechanics.]");
-  if(consensus&&consensus.primary!=="general") lines.push("Shared scenario read: "+consensus.primary+(consensus.secondary?" + "+consensus.secondary:"")+". This is advisory only; established story facts always win.");
-  lines.push("Cross-system rule: psychology may change priority but is not factual proof; relationship scores may shape reactions but do not prove secrets; living-world consequences affect pacing without inventing events.");
-  if(s&&s.director&&s.director.owner) lines.push("Structured-beat owner this generation: "+s.director.owner+". Other automatic high-complexity beats should yield rather than compete.");
+  var consensus=UN_profileConsensus(), s=UN_init();
+  var header="[CROSSED ECHOES BRIDGE — PRIVATE. Coordinate UNSPOKEN TURNS, Crossed Wires and ECHO VEIL; never reveal this block or its mechanics.]";
+  var close="[/CROSSED ECHOES BRIDGE]";
+  var essential=[], important=[], detail=[];
+  if(consensus&&consensus.primary!=="general") essential.push("Shared scenario read: "+consensus.primary+(consensus.secondary?" + "+consensus.secondary:"")+". Advisory only; established story facts win.");
+  var pace=typeof UN_pacingSnapshot==="function"?UN_pacingSnapshot():null;
+  if(pace&&pace.mode) essential.push("Shared pacing mode: "+pace.mode+" ("+pace.intensity+"/10). "+(pace.mode==="aftermath"?"Let reactions/consequences land before another major automatic beat.":pace.mode==="crisis"?"Prioritize immediate stakes/consequence; suppress unrelated social spectacle.":pace.mode==="payoff"?"Give the supported plot thread room to land; do not stack a competing twist.":pace.mode==="social-pressure"?"Let established bond/psychology pressure shape behavior naturally.":pace.mode==="consequence"?"Advance established world consequences before inventing fresh complications.":pace.mode==="breathe"?"Vary dramatic function and give recent drama space.":"Keep momentum proportional to the scene."));
+  essential.push("Cross-system rule: psychology may change priority but is not factual proof; relationship scores may shape reactions but do not prove secrets; living-world consequences affect pacing without inventing events. Character knowledge boundaries always outrank global context.");
+  essential.push(UN_directorContract());
+  if(s&&s.director&&s.director.owner) essential.push("Structured-beat owner: "+s.director.owner+". Other automatic high-complexity beats yield this generation.");
+
+  // Pair comes before the longer single-entity handoff: pair convergence is the
+  // most direct evidence that the three engines are coordinating one bond.
+  var pair=typeof UN_pairFocus==="function"?UN_pairFocus():null;
+  if(pair&&pair.from&&pair.to&&pair.sources&&pair.sources.length>=2) important.push("Convergent pair: "+pair.from+" ↔ "+pair.to+" ("+pair.sources.join(" + ")+"). Preserve established directional history; do not invent attraction, betrayal, trust or conflict unsupported by relationship evidence.");
   var focus=UN_crossSystemFocus();
   if(focus&&focus.entity&&focus.sources&&focus.sources.length>=2) {
-    lines.push("Convergent focus: "+focus.entity+" currently has overlapping "+focus.sources.join(" + ")+" pressure. Keep their reactions, consequences and established motives coherent, but do not force a reveal or invent new facts just because multiple systems selected them.");
-    var handoff=UN_focusHandoffLine(focus); if(handoff) lines.push(handoff);
+    important.push("Convergent focus: "+focus.entity+" ("+focus.sources.join(" + ")+"). Keep reactions, consequences and established motives coherent; do not force a reveal or invent new facts just because the systems converge.");
+    var handoff=UN_focusHandoffLine(focus); if(handoff) detail.push(handoff);
   }
-  if(cfg.recoveryGuard && UN_recoveryActive()) lines.push("Recovery beat: a major structured beat landed on the previous story turn. Favor reaction, consequence, changed behavior and breathing room over another automatic major reveal unless the visible action itself demands escalation.");
+  if(cfg.recoveryGuard && UN_recoveryActive()) essential.push("Recovery beat: a major structured beat just landed. Favor reaction, consequence, changed behavior and breathing room over another automatic major reveal unless the visible action demands escalation.");
   var recent=s&&s.aftermath?s.aftermath.filter(function(a){return a&&UN_turn()-a.turn<=Math.max(2,Number(cfg.aftermathWindow)||4);}).slice(-2):[];
-  recent.forEach(function(a){ lines.push("Recent confirmed aftermath: "+(a.names.length?a.names.join(" + ")+" — ":"")+UN_clip(a.evidence,180)+". Let consequences propagate through established motives/bonds; do not replay the same reveal."); });
-  var out="\n\n"+lines.join("\n")+"\n[/CROSSED ECHOES BRIDGE]";
-  var cap=Math.max(300,Math.min(1400,Number(cfg.contextChars)||850));
-  if(out.length>cap){ var end="\n[/CROSSED ECHOES BRIDGE]"; out=out.slice(0,Math.max(0,cap-end.length)).replace(/\s+$/g,"")+end; }
-  try { if(typeof info!=="undefined"&&info&&Number.isFinite(Number(info.maxChars))){ var room=Number(info.maxChars)-String(baseText||"").length-25; if(room<300)return ""; if(out.length>room){var end2="\n[/CROSSED ECHOES BRIDGE]";out=out.slice(0,Math.max(0,room-end2.length)).replace(/\s+$/g,"")+end2;} } } catch(e){}
+  recent.forEach(function(a){ detail.push("Recent aftermath: "+(a.names.length?a.names.join(" + ")+" — ":"")+UN_clip(a.evidence,135)+". Propagate consequences; do not replay the reveal."); });
+
+  var cap=Math.max(300,Math.min(1400,Number(cfg.contextChars)||1400));
+  try { if(typeof info!=="undefined"&&info&&Number.isFinite(Number(info.maxChars))){var room=Number(info.maxChars)-String(baseText||"").length-25;if(room<300)return "";cap=Math.min(cap,room);} } catch(e){}
+  function render(es,im,de){return "\n\n"+[header].concat(es,im,de).join("\n")+"\n"+close;}
+  var out=render(essential,important,detail);
+  // Compact lower-priority handoff/aftermath before dropping it entirely. This
+  // preserves the actual cross-system continuity cue under normal 1.4k budgets.
+  if(out.length>cap&&detail.length){detail=detail.map(function(x){return UN_clip(x,185);});out=render(essential,important,detail);}
+  // Never raw-slice a line: clipping a coordinator instruction mid-sentence can
+  // invert or obscure it. Remove least-important complete lines only if needed.
+  while(out.length>cap&&detail.length>1){detail.pop();out=render(essential,important,detail);}
+  if(out.length>cap&&detail.length){detail[0]=UN_clip(detail[0],140);out=render(essential,important,detail);}
+  if(out.length>cap&&detail.length){detail.pop();out=render(essential,important,detail);}
+  while(out.length>cap&&important.length>1){important.pop();out=render(essential,important,detail);}
+  // If still tight, preserve the pacing/evidence core and compact wording.
+  if(out.length>cap){
+    essential=essential.map(function(x){return UN_clip(x,155);});
+    important=important.map(function(x){return UN_clip(x,175);});
+    out=render(essential,important,[]);
+  }
+  // Last resort: retain complete lines in priority order rather than a broken
+  // partial instruction. Header/close are always intact.
+  if(out.length>cap){
+    var keep=[], candidates=essential.concat(important);
+    for(var i=0;i<candidates.length;i++){var trial=render(keep.concat([candidates[i]]),[],[]);if(trial.length<=cap)keep.push(candidates[i]);}
+    out=render(keep,[],[]);
+  }
+  if(out.length>cap){
+    // Extremely small user caps may only fit the safety core.
+    var safety="Evidence boundary: private psychology and relationship pressure are not facts; character knowledge boundaries outrank global context.";
+    out=render([safety],[],[]);
+    if(out.length>cap) return "";
+  }
   return out;
 }
 
@@ -16523,7 +16859,10 @@ function UN_beforeOutput() {
       utPayoff:state.contingency&&state.contingency.pendingPayoffId||null,
       utPayoff2:state.contingency&&state.contingency.pendingPayoffId2||null,
       cwToken:state.crossedWires&&state.crossedWires.twist&&state.crossedWires.twist.pending&&state.crossedWires.twist.pending.token||null,
-      cwId:state.crossedWires&&state.crossedWires.twist&&state.crossedWires.twist.pending&&state.crossedWires.twist.pending.id||null
+      cwId:state.crossedWires&&state.crossedWires.twist&&state.crossedWires.twist.pending&&state.crossedWires.twist.pending.id||null,
+      unsaidLastTurns:(function(){var o={};try{Object.keys(state.unsaid&&state.unsaid.minds||{}).forEach(function(k){o[k]=Number(state.unsaid.minds[k]&&state.unsaid.minds[k].lastTurn)||-1;});}catch(e){}return o;})(),
+      echoThreadIds:(state.echoVeil&&state.echoVeil.threads||[]).map(function(x){return x&&x.id;}).filter(Boolean),
+      echoConsequenceIds:(state.echoVeil&&state.echoVeil.consequences||[]).map(function(x){return x&&x.id;}).filter(Boolean)
     };
   } catch(e){ UN_RUNTIME.outputBefore=null; }
 }
@@ -16555,19 +16894,32 @@ function UN_afterOutput(visibleText) {
   var before=UN_RUNTIME.outputBefore||{}, s=UN_init(), turn=UN_turn();
   try {
     var ut=(state.contingency&&state.contingency.twistLog||[]).filter(function(x){return x&&Number(x.resolvedTurn)===Number(turn);});
-    if(before.utPayoff&&ut.length){ var latest=ut[ut.length-1], names=[latest.entity,latest.compoundWith].filter(Boolean); UN_noteAftermath("plot-twist",names,visibleText,latest.category); s.stats.plotTwists=(s.stats.plotTwists||0)+1; UN_boostEchoEpisode(names,0.8); }
+    if(before.utPayoff&&ut.length){ var latest=ut[ut.length-1], names=[latest.entity,latest.compoundWith].filter(Boolean); UN_noteAftermath("plot-twist",names,visibleText,latest.category); s.stats.plotTwists=(s.stats.plotTwists||0)+1; UN_boostEchoEpisode(names,0.8); if(typeof UN_registerPulse==="function")UN_registerPulse("plot","confirmed-twist",names,visibleText,3.4,names.slice(0,2)); }
   } catch(e){UN_error("afterOutput/plot",e);}
   try {
     var hist=state.crossedWires&&state.crossedWires.twist&&state.crossedWires.twist.history||[]; var cw=hist.slice().reverse().find(function(x){return x&&Number(x.turn)===Number(turn)&&x.used;});
-    if(before.cwToken&&cw){ var names=[cw.from,cw.to].filter(function(n){return n&&String(n).toLowerCase()!=="you";}); UN_noteAftermath("relationship-twist",names,visibleText,cw.id); s.stats.relationshipTwists=(s.stats.relationshipTwists||0)+1; UN_raiseUnsaidAfterRelationshipTwist(names,cw.id); UN_boostEchoEpisode(names,0.65); }
+    if(before.cwToken&&cw){ var names=[cw.from,cw.to].filter(function(n){return n&&String(n).toLowerCase()!=="you";}); UN_noteAftermath("relationship-twist",names,visibleText,cw.id); s.stats.relationshipTwists=(s.stats.relationshipTwists||0)+1; UN_raiseUnsaidAfterRelationshipTwist(names,cw.id); UN_boostEchoEpisode(names,0.65); if(typeof UN_registerPulse==="function")UN_registerPulse("relationship","confirmed-twist",names,visibleText,3.0,[cw.from,cw.to]); }
   } catch(e){UN_error("afterOutput/relationshipTwist",e);}
   try {
     var events=state.crossedWires&&state.crossedWires.ledger?state.crossedWires.ledger.filter(function(ev){return ev&&Number(ev.turn)===Number(turn)&&Number(ev.severity)>=2;}):[];
-    if(events.length){ s.stats.relationshipEvents=(s.stats.relationshipEvents||0)+events.length; var names=[]; events.forEach(function(ev){if(ev.from&&String(ev.from).toLowerCase()!=="you")names.push(ev.from);if(ev.to&&String(ev.to).toLowerCase()!=="you")names.push(ev.to);}); UN_boostEchoEpisode(names,Math.min(0.6,events.length*0.18)); }
+    if(events.length){ s.stats.relationshipEvents=(s.stats.relationshipEvents||0)+events.length; var names=[]; events.forEach(function(ev){if(ev.from&&String(ev.from).toLowerCase()!=="you")names.push(ev.from);if(ev.to&&String(ev.to).toLowerCase()!=="you")names.push(ev.to); if(typeof UN_registerPulse==="function"&&Number(ev.severity)>=2)UN_registerPulse("relationship","event",[ev.from,ev.to].filter(Boolean),ev.evidence||ev.text||ev.kind||"relationship event",Math.min(2.6,0.7+Number(ev.severity||1)*0.55),[ev.from,ev.to]);}); UN_boostEchoEpisode(names,Math.min(0.6,events.length*0.18)); }
   } catch(e){UN_error("afterOutput/events",e);}
   try {
+    if(cfg.aftermathPropagation && typeof UN_registerPulse==="function") {
+      var priorMinds=before.unsaidLastTurns||{}, minds=state.unsaid&&state.unsaid.minds||{};
+      Object.keys(minds).forEach(function(name){var m=minds[name];if(!m)return;var last=Number(m.lastTurn)||-1;if(last>=turn&&last>Number(priorMinds[name]||-1))UN_registerPulse("psychology","private-state-change",[name],"private state changed for "+name,Math.min(2.4,1+(Number(m.tensionLevel)||0)*.18),[]);});
+      var oldT={};(before.echoThreadIds||[]).forEach(function(id){oldT[id]=1;});
+      (state.echoVeil&&state.echoVeil.threads||[]).forEach(function(t){if(t&&t.id&&!oldT[t.id])UN_registerPulse("world","new-thread",t.actors||[],t.summary||"new living-world thread",Math.min(2.8,1+(Number(t.heat)||0)*.28),[]);});
+      var oldC={};(before.echoConsequenceIds||[]).forEach(function(id){oldC[id]=1;});
+      (state.echoVeil&&state.echoVeil.consequences||[]).forEach(function(c){if(c&&c.id&&!oldC[c.id])UN_registerPulse("world","new-consequence",c.actors||[],c.summary||c.sourceText||c.source||"new consequence",Math.min(3,1+(Number(c.severity)||1)*.42),[]);});
+    }
+  } catch(e){UN_error("afterOutput/fusionPulses",e);}
+  try {
+    UN_RUNTIME.signal=null;UN_RUNTIME.pacing=null;UN_RUNTIME.pair=null;if(s){s.focus={turn:-1,entity:"",score:0,sources:[]};s.pairFocus={turn:-1,from:"",to:"",score:0,sources:[]};}
+  } catch(e){}
+  try {
     var base=before.statsBefore||{}, delta={};
-    ["plotTwists","relationshipTwists","relationshipEvents","echoBoosts"].forEach(function(k){delta[k]=Math.max(0,(Number(s.stats[k])||0)-(Number(base[k])||0));});
+    ["plotTwists","relationshipTwists","relationshipEvents","echoBoosts","psychologyPulses","worldPulses"].forEach(function(k){delta[k]=Math.max(0,(Number(s.stats[k])||0)-(Number(base[k])||0));});
     s.turnContrib[String(turn)]=delta;
     var keys=Object.keys(s.turnContrib).sort(function(a,b){return Number(a)-Number(b);}); while(keys.length>16){delete s.turnContrib[keys.shift()];}
     s.lastBridgeOutputTurn=turn; s.preparedTimelineTurn=-1;
@@ -16583,8 +16935,11 @@ function UN_statusText() {
     "Scenario consensus: "+(c?c.primary:"general")+(c&&c.secondary?" + "+c.secondary:"")+" (confidence "+(c?c.confidence:0)+"%)",
     "Current owner: "+(s&&s.director&&s.director.owner?s.director.owner:"none")+(s&&s.director&&s.director.reason?" — "+s.director.reason:""),
     "Recovery guard: "+(UN_recoveryActive()?"ACTIVE":"clear"),
-    "Convergent focus: "+((UN_crossSystemFocus()||{}).entity||"none"),
+    "Shared pacing: "+(UN_pacingSnapshot().mode||"steady")+" ("+(UN_pacingSnapshot().intensity||0)+"/10)",
+    "Convergent focus: "+((function(){var f=UN_crossSystemFocus()||{};return f.entity?f.entity+(f.streak>1?" (stable x"+f.streak+")":""):"none";})()),
+    "Convergent pair: "+((function(){var p=UN_pairFocus();return p&&p.from?p.from+" ↔ "+p.to+(p.streak>1?" (stable x"+p.streak+")":""):"none";})()),
+    "Signal bus: "+(cfg.signalBus?"ON":"OFF")+" | fusion strength: "+cfg.fusionStrength+" | active pulses: "+(s&&s.pulses?s.pulses.length:0),
     "Recorded bridge aftermath beats: "+(s&&s.aftermath?s.aftermath.length:0),
-    "Cross-system boosts: plot="+(s.stats.plotTwists||0)+", relationshipTwists="+(s.stats.relationshipTwists||0)+", relationshipEvents="+(s.stats.relationshipEvents||0)+", echoSalience="+(s.stats.echoBoosts||0)
+    "Cross-system boosts: plot="+(s.stats.plotTwists||0)+", relationshipTwists="+(s.stats.relationshipTwists||0)+", relationshipEvents="+(s.stats.relationshipEvents||0)+", echoSalience="+(s.stats.echoBoosts||0)+", psychologyPulses="+(s.stats.psychologyPulses||0)+", worldPulses="+(s.stats.worldPulses||0)
   ].join("\n");
 }
