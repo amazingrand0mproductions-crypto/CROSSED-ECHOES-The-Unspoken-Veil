@@ -535,6 +535,7 @@ var unsaidModifier = (text) => {
         return age >= deadline;
       });
       const matureCharacters = characterCandidates.filter(name => {
+        if (typeof codexCharacterGateReady === "function") return codexCharacterGateReady(name, cfg);
         const age = state.unsaid.turn - state.unsaid.codex.introducedTurn[name];
         return age >= minObserve && codexAppearanceCount(name) >= minAppearances;
       });

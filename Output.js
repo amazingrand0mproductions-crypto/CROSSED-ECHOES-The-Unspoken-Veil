@@ -192,6 +192,14 @@ var unsaidModifier = (text) => {
     const maxFieldLength = 420;
     function codexSafeCardTriggers(name, fields, evidence, existingKeys) {
       const values = [String(name || "").trim()];
+      // Explicit aliases learned directly from story text are stronger than a
+      // profile generator's inferred Aliases field. Carry them into the card
+      // triggers even if the model omits the Aliases line on this generation.
+      try {
+        const canonical = typeof canonicalUnsaidName === "function" ? canonicalUnsaidName(name) : String(name || "").trim();
+        const learned = state.unsaid && state.unsaid.aliases && state.unsaid.aliases[canonical];
+        if (Array.isArray(learned)) learned.forEach(alias => { if(alias) values.push(String(alias).trim()); });
+      } catch (_) {}
       const aliasText = fields && fields["Aliases"] ? String(fields["Aliases"]) : "";
       aliasText.split(/[,;|/]/).map(v => v.trim()).filter(Boolean).forEach(alias => {
         if (alias.length < 2 || alias.length > 60) return;
@@ -776,12 +784,23 @@ var unsaidModifier = (text) => {
           (typeof resolveCodexEntityType === "function" ? resolveCodexEntityType(name, evidenceSource) : null) ||
           upfrontType || "character";
 
-        // Automatic fallback is deliberately character-only: introduced NPCs
-        // are high-confidence and should not disappear merely because a model
-        // ignored CARD formatting. Locations/items/factions stay conservative
-        // and wait for a successful structured response or a manual /card.
-        if (!pendingForcedCodex && type !== "character") return false;
-        if (!pendingForcedCodex && !(state.unsaid.codex.likelyCharacters && state.unsaid.codex.likelyCharacters[name])) return false;
+        // Evidence rescue is a deterministic safety net, not a second model
+        // guess. It is allowed automatically only for already-confirmed people
+        // or strongly/explicitly typed non-characters. This prevents the common
+        // Auto-Cards failure mode where a good entity is detected but the model
+        // ignores CARD formatting, forcing several Continue presses or /card.
+        if (!pendingForcedCodex) {
+          if (cfg.codexEvidenceRescue === false) return false;
+          const strongScore = state.unsaid.codex.strongScores && state.unsaid.codex.strongScores[name] || 0;
+          const likelyCharacter = !!(state.unsaid.codex.likelyCharacters && state.unsaid.codex.likelyCharacters[name]);
+          const trustedType = state.unsaid.codex.trustedEntities && state.unsaid.codex.trustedEntities[name];
+          const explicit = typeof hasExplicitCodexNamingCue === "function" && hasExplicitCodexNamingCue(name, evidenceSource);
+          const typedReason = state.unsaid.codex.strongReasons && state.unsaid.codex.strongReasons[name] || [];
+          const safeNonCharacter = type !== "character" && trustedType === type &&
+            (explicit || typedReason.indexOf("typed-" + type) >= 0) && strongScore >= CODEX_FAST_TRACK_NONCHAR_SCORE;
+          if (type === "character" && !likelyCharacter) return false;
+          if (type !== "character" && !safeNonCharacter) return false;
+        }
 
         let entry;
         const compactEvidence = evidence.length > 360 ? evidence.slice(0, 357).trimEnd() + "…" : evidence;
@@ -894,8 +913,20 @@ var unsaidModifier = (text) => {
       if (succeededNames.has(name) || pendingRefreshNames.has(name)) return;
       const attempts = (state.unsaid.codex.attempts && state.unsaid.codex.attempts[name]) || 0;
       const likelyCharacter = !!(state.unsaid.codex.likelyCharacters && state.unsaid.codex.likelyCharacters[name]);
-      if (pendingForcedCodex || (likelyCharacter && attempts >= 2)) {
-        createEvidenceFallbackCard(name, expectedTypes[name]);
+      const strongScore = state.unsaid.codex.strongScores && state.unsaid.codex.strongScores[name] || 0;
+      const reasons = state.unsaid.codex.strongReasons && state.unsaid.codex.strongReasons[name] || [];
+      const upfrontType = expectedTypes[name] || state.unsaid.codex.observedTypes[name] || "character";
+      const trustedType = state.unsaid.codex.trustedEntities && state.unsaid.codex.trustedEntities[name];
+      const strongCharacter = likelyCharacter && strongScore >= CODEX_FAST_TRACK_CHARACTER_SCORE;
+      const strongNonCharacter = upfrontType !== "character" && trustedType === upfrontType &&
+        strongScore >= CODEX_FAST_TRACK_NONCHAR_SCORE &&
+        (reasons.indexOf("typed-" + upfrontType) >= 0 || reasons.some(r=>/^explicit-input-/.test(r)));
+      // Strongly established entities get a deterministic rescue immediately
+      // after the first malformed/ignored CARD response. Ordinary characters
+      // retain one retry; weak non-characters never get an automatic fallback.
+      const rescueAt = (strongCharacter || strongNonCharacter) ? 1 : 2;
+      if (pendingForcedCodex || ((likelyCharacter || strongNonCharacter) && attempts >= rescueAt)) {
+        createEvidenceFallbackCard(name, upfrontType);
       }
     });
 

@@ -1,125 +1,159 @@
-# CROSSED-ECHOES-The-Unspoken-Veil
-Three of my AI Dungeon scripts combined into one living narrative engine: UNSPOKEN TURNS + Crossed Wires + ECHO VEIL.
+# 🌒 CROSSED ECHOES — The Unspoken Veil
 
-CROSSED ECHOES — The Unspoken Veil
+**A combined AI Dungeon living-narrative engine built from UNSPOKEN TURNS + Crossed Wires + ECHO VEIL.**
 
-A combined living-narrative engine for AI Dungeon built from UNSPOKEN TURNS, Crossed Wires, and ECHO VEIL.
+CROSSED ECHOES is not three scripts pasted together. The four live tabs now contain a **Fusion Director** that gives the three engines a shared signal bus, scene pacing, entity/pair focus and aftermath handoffs. Psychology, relationships, twists, Story Cards, continuity and consequences can reinforce the same beat without turning private inference into canon.
 
-CROSSED ECHOES — The Unspoken Veil takes the three systems and turns them into one coordinated four-tab script. It is not a simple concatenation. The engines keep their specialist logic, while a shared coordination layer manages priority, context space, scenario interpretation, aftermath, retries, and cross-system handoffs.
+## Core systems
 
-The aim is simple: NPCs should remember, relationships should matter, twists should be earned, and consequences should keep moving after the scene that created them.
+- **🧠 UNSPOKEN TURNS / UNSAID** — persistent NPC inner life, private wants/beliefs/tension and behavioural continuity.
+- **🌀 TWISTS AND TURNS** — evidence-backed long-form threads, foreshadowing, logical gating and confirmed payoffs.
+- **❤️ Crossed Wires** — directional relationships, trust, resentment, affection, jealousy, loyalty, roles, scars, repair and relationship arcs.
+- **🌘 ECHO VEIL** — causality, knowledge boundaries, episodic memory, consequences, unresolved world threads, continuity and off-screen agency.
+- **🔗 CROSSED ECHOES Fusion Director** — shared signal bus, pacing governor, convergent NPC/pair focus, theme resonance, context budgeting, aftermath propagation and Retry/Undo cleanup.
+- **📚 CODEX** — automatic entity detection/classification plus detailed Character, Location, Item and Faction Story Cards.
 
-What is combined
+## 🔗 Fusion Director — stronger three-way combination
 
-UNSPOKEN TURNS / UNSAID
+The integration layer now does more than stop the engines colliding. It actively coordinates **who matters, which bond matters, and what dramatic function the next beat should serve**.
 
-Handles persistent NPC psychology, private wants, beliefs, tensions, behavioral continuity, and adaptive Story Card/Codex work.
+- **Shared signal bus** — combines bounded salience from Crossed Wires relationship history, UNSAID private pressure, TWISTS plot readiness, ECHO VEIL consequences, scene presence and recent confirmed aftermath. Signals change priority only; they never become evidence.
+- **Shared pacing governor** — classifies the scene as `aftermath`, `crisis`, `payoff`, `social-pressure`, `consequence`, `breathe` or `steady`, then makes Crossed Wires and ECHO VEIL pull in the same dramatic direction.
+- **Convergent pair focus** — a relationship pair becomes shared focus only when another layer points to the **bond itself**. NPC↔NPC pairs use shared/pair-specific pressure instead of borrowing an unrelated problem from one member, reducing false pair convergence.
+- **Scene-presence bias** — active/recent characters beat off-screen pressure magnets when scores are close, while serious unresolved ECHO consequences can still matter.
+- **Focus stability** — near-tie NPC and pair scores use short hysteresis so the narrative camera does not ping-pong between equally important characters from one turn to the next. A materially stronger candidate still takes over.
+- **Freshness decay** — old UNSAID private-state pressure remains stored but gradually loses current-scene salience unless the story refreshes it, preventing abandoned emotional states from dominating later scenes.
+- **Theme resonance** — evidence-backed plot themes can modestly bias compatible Crossed Wires relationship beats; world pressure can favour protective/care choices; psychology can favour vulnerable/repair beats. None of this bypasses Crossed Wires' own eligibility gates.
+- **Aftermath propagation** — confirmed plot twists, relationship twists, meaningful relationship events, new private-state changes and new ECHO threads/consequences create short-lived pulses so the other engines react instead of forgetting the beat.
+- **Priority-safe handoff** — the bridge keeps pacing, pair focus, single-entity focus and knowledge rules as complete lines. It now compacts continuity detail before dropping it entirely, preserving useful handoffs under the normal 1.4k bridge budget.
+- **Director contract** — each turn gets one compact contract describing dramatic function, stable focus/bond and structured-beat ownership, helping all three engines reinforce the same beat instead of opening parallel major beats.
+- **Knowledge-aware fusion** — ECHO facts that an NPC is explicitly blocked from knowing are filtered out of the cross-system handoff, so better integration does not reintroduce omniscience.
 
-TWISTS AND TURNS
+The result is a stronger loop: **people affect relationships, relationships affect plot attention, plot reveals create emotional/world aftermath, and ECHO VEIL decides when consequences or breathing room should take precedence.**
 
-Included inside UNSPOKEN TURNS. Tracks evidence-backed plot threads, foreshadowing, payoff readiness, twist tiers, logical gating, and confirmation so revelations are supported rather than random.
+## What changed in this hardened build
 
-Crossed Wires
+### Hard NPC knowledge firewall
+ECHO VEIL now separates **world truth** from **character knowledge** much more aggressively. A fact appearing in Story Cards, Plot Essentials, narration or the model's context does **not** automatically mean an NPC knows it.
 
-Tracks directional relationships and how they change over time: trust, resentment, jealousy, affection, attraction, fear, loyalty, roles, scars, needs, unresolved pressure, arcs, and relationship-driven twists.
+Explicit boundaries such as `Mercer does not know that Leo has the black key`, `Mercer is unaware of the tunnel`, `Mercer has no idea about the plan`, `unknown to Mercer...`, `Mercer should not know...` and similar wording become persistent per-character knowledge gaps. These are placed near the top of ECHO's private director packet so they survive tight context budgets.
 
-ECHO VEIL
+Private creator Notes on a Character Story Card can also define a boundary without putting the secret in Entry:
 
-Handles the wider living-world layer: scene facts, causality, knowledge boundaries, episodic memory, delayed consequences, unresolved threads, pacing, continuity repair, and off-screen agency.
+```text
+Does not know: Leo hid the black key beneath the floorboards.
+Knowledge Boundary: The north warehouse contains a hidden tunnel.
+Restricted Knowledge: Mara is working for Internal Affairs.
+```
 
-CROSSED ECHOES coordination layer
+The script reads those creator Notes directly, keeps them out of public Entry, and displays active boundaries inside the Character's managed **🌘 ECHO VEIL** Notes dashboard. Explicit secret holders also create temporary non-holder restrictions for other active NPCs.
 
-Makes the three systems cooperate without allowing one system’s private inference to become another system’s factual evidence.
+`KNOWLEDGE_FIREWALL = ON` controls the hard boundary layer. `KNOWLEDGE_REPAIR = ON` adds a conservative final safety net that removes clear sentences where an NPC uses an explicitly blocked fact without an on-page way to have learned it. Credible disclosures/observations clear the boundary naturally.
 
-What the merged engine does differently
+### No visible script analysis
+A final output sanitation layer now removes exact hidden tags **and malformed model paraphrases** such as `[NPC [] ...`, `[EVENT ...]`, `[ROLE ...]`, Codex diagnostics and other known internal labels. Real story prose is preserved. Crossed Wires prompts also explicitly tell the model to output an exact hidden tag or no metadata at all — never an `[NPC]` prose paragraph.
 
-CROSSED ECHOES lets signals travel between the engines in controlled ways:
+### Dedicated Codex config
+Codex/Story Card automation is no longer buried inside the UNSAID config. It has its own card:
 
-• Established Crossed Wires relationship pressure can raise the priority of a compatible existing plot thread, but it cannot invent or prove a secret.
-• UNSAID psychological tension can make an established relationship or character more narratively important, while private thoughts remain private and non-factual.
-• ECHO VEIL danger and urgency can reduce opportunistic relationship-twist pressure during high-stakes scenes.
-• Social or intimate scenes can modestly increase relationship-beat opportunity when the story has room for it.
-• Active ECHO consequences and threads increase salience for characters already involved in them.
-• Confirmed plot and relationship twists create cross-system aftermath so later behavior and world pressure reflect what actually happened.
-• A convergent-focus system activates only when at least two independent engines point toward the same NPC.
-• A focus handoff carries compact established relationship/world continuity for that NPC into the shared private guidance while keeping psychology explicitly non-factual.
-• A repeat guard reduces automatic dog-piling on the same character immediately after a major beat.
-• A recovery guard gives the story a breathing turn after a confirmed major plot or relationship beat. New automatic major payoffs are held back for one turn while reactions, consequences, and changed behavior get room to land. Explicit commands still work and subtle foreshadowing can continue.
-• Scenario consensus combines the detectors instead of letting each subsystem drift toward a different genre interpretation.
-• Scenario stability reduces one-turn genre flicker without locking the story to an outdated classification.
+`CROSSED ECHOES — Config — CODEX`
 
-Structured-beat arbitration
+Key option:
 
-The combined engine prevents multiple high-complexity workers from fighting over the same model response.
+`cardChars=950` — configurable **300–2000** character ceiling for generated Story Card Entries.
 
-Priority is:
+### Richer Story Cards
+Codex now supports detailed structured profiles for:
 
-1. Manual UNSAID / Codex control.
-2. Player-forced Crossed Wires spark.
-3. Supported TWISTS AND TURNS plot payoff or foreshadowing.
-4. Automatic Crossed Wires relationship pressure.
-5. Automatic UNSAID thought / Codex work.
+- **Characters:** aliases, role, race/nature, age, pronouns, capability, background, personality, appearance, abilities, weaknesses, goals, relationships, affiliations, location, status and significance.
+- **Locations:** aliases, type, region, description, atmosphere, layout, key areas, people/factions, features/resources, hazards, history, current state, connections and significance.
+- **Items:** aliases, type, appearance, description, properties, abilities, limitations, origin, owner, location, condition, history and significance.
+- **Factions:** aliases, type, description, purpose, leadership, members, territory, resources, allies, rivals, reputation, current activity, history and significance.
 
-ECHO VEIL continues underneath as the continuity and causality director because its ordinary operation does not require a competing hidden confirmation format.
+Unsupported facts are omitted rather than invented. Refreshes merge useful old fields and respect manual-edit protection.
 
-After a confirmed major plot or relationship beat, the recovery guard temporarily favors reaction and consequence over another automatic major reveal.
+### Cleaner Story Card presentation
+- **Entry** = public/canonical story information only.
+- **Triggers** = exact name + safe corroborated aliases only.
+- **Notes** = creator Notes plus an auto-managed engine dashboard.
 
-Context budgeting
+Character Notes can show UNSAID, Crossed Wires, ECHO VEIL, TWISTS, coordinator and Codex state. Location/Item/Faction Notes get the relevant world/twist/Codex sections without character-only psychology.
 
-Running three large systems independently can cause the first one to consume the context space needed by the others. The merged build reserves headroom in stages instead:
+The managed Notes block is excluded from story-evidence scanning, so private psychology cannot bootstrap itself into plot truth.
 
-• ECHO VEIL yields space for Crossed Wires.
-• Crossed Wires preserves room for UNSAID and the shared bridge.
-• The coordination packet is bounded and only added when enough room remains.
+### Detection hardening
+CROSSED ECHOES now uses a shared evidence-driven entity pipeline rather than treating capitalization as identity. The current detector has four layers:
 
-The supplied tests exercise 8k, 16k, and 32k context budgets.
+- **Strong-introduction fast path:** explicit player-authored introductions such as `a detective named Nyra Voss`, `the city called Thornhaven`, `a sword named Dawnfall`, or `a guild called The Ashen Circle` can become trusted candidates immediately instead of waiting for three generic mentions.
+- **Cross-engine type consensus:** CODEX, ECHO VEIL and Crossed Wires share only public identity/type confidence. A confirmed sword stays an Item when ECHO sees `Nyra draws Dawnfall`; a newly named guild is treated as a group rather than a person; a current named destination can be recognised before its Story Card exists.
+- **Candidate hygiene:** weak one-off guesses decay after a quiet stretch and are eventually garbage-collected. Explicit/trusted entities, introduced characters and pending work are protected. Old junk therefore cannot accumulate forever and compete with the current scene.
+- **Importance arbitration:** when several legitimate entities are waiting, the single automatic CARD slot is ranked by explicit introduction strength, current ECHO cast/location/item activity, Crossed Wires consensus, fusion focus, recency, evidence strength and waiting time. Repeated malformed CARD attempts get a small fairness penalty so one stubborn candidate cannot starve everything else.
 
-Installation
+Additional hardening includes Unicode-aware Latin/Greek/Cyrillic names, quoted and unquoted codenames, same-introduction aliases, lowercase/casing drift recovery, route grammar (`Head north on Harbison`), much broader action attribution, Story Card alias refresh matching, common-noun/food/furniture/weather/title/manufacturer stop filters, type-margin arbitration and evidence-only rescue cards after a strong candidate's malformed structured response.
 
-In your AI Dungeon scenario, open Scripts and replace the four tabs with the files from this package:
+The result is intentionally asymmetric: **strong explicit evidence can fast-track; weak ambiguous evidence decays.** That gives important people/places/items/factions a much better chance of receiving a card without bringing back the old flood of `Scar`, `Door`, `Passenger Seat`, brand modifiers and sentence-starter false positives.
 
-1. Library → Library.js
-2. Input → Input.js
-3. Context → Context.js
-4. Output → Output.js
+## ⚙️ Five unified config cards
 
-Do not install the three original packages beside this build. Their code is already contained in these four tabs.
+All config cards use category **`CROSSED ECHOES CONFIG`**, have **blank Triggers**, keep editable values in **Entry**, and put the complete guide in **Notes**.
 
-Play one normal story turn. The script will create its config cards automatically.
+1. `CROSSED ECHOES — Config — UNSPOKEN TURNS`
+2. `CROSSED ECHOES — Config — CROSSED WIRES`
+3. `CROSSED ECHOES — Config — ECHO VEIL`
+4. `CROSSED ECHOES — Config — CODEX`
+5. `CROSSED ECHOES — Config — INTEGRATION`
 
-You can also use CONFIG_CARD_IMPORTS.json if you want the supplied full Notes immediately.
+All live config Entries remain below AI Dungeon's 2,000-character config Entry limit. See `CONFIG_NOTES.md` for the exact Entry and full Notes of every card.
 
-Configuration
+## ECHO VEIL config documentation
 
-The original engine settings remain separated so each specialist system can still be tuned properly. The additional integration card is:
+ECHO VEIL's live config Notes are a built-in manual covering:
 
-CROSSED ECHOES — The Unspoken Veil — Integration
+- SUBTLE, BALANCED, CINEMATIC, LONGFORM and DYNAMIC presets;
+- every ON/OFF subsystem;
+- what AUTO means;
+- every numeric range and what raising/lowering it changes;
+- causality, threads, knowledge, **KNOWLEDGE_FIREWALL**, **KNOWLEDGE_REPAIR**, continuity and off-screen agency;
+- episodic memory and consolidation;
+- detection strictness and event confidence;
+- context share and guidance caps;
+- consequence/thread/off-screen pressure;
+- Retry/rewind, temporal-scope and uncertainty safety;
+- store limits and recommended tuning.
 
-Its live Entry is intentionally compact and remains below AI Dungeon’s 2,000-character Entry limit. Full option explanations are kept in Notes and in CONFIG_NOTES.md.
+## Current AI Dungeon platform compatibility
 
-Main integration settings:
+This research pass was checked against AI Dungeon's current scripting and Story Card documentation rather than relying only on older script conventions.
 
-• enabled — master switch for cross-system coordination only.
-• sharedScenario — shared scenario/genre consensus.
-• singleBeat — single structured-beat arbitration.
-• relationships — Crossed Wires → plot/focus salience bridge.
-• psychology — UNSAID → relationship/focus salience bridge.
-• consequences — ECHO VEIL → pacing/salience bridge.
-• contextBridge — private reconciliation packet.
-• focusBridge — multi-system convergent NPC focus.
-• focusHandoff — compact established continuity handoff for the focus NPC.
-• repeatGuard — damp repeated automatic focus after major beats.
-• recoveryGuard — one-turn reaction window after confirmed major beats.
-• scenarioStability — reduces one-turn genre flicker.
-• contextChars — bridge packet character ceiling.
-• aftermathWindow — duration used for aftermath continuity and repeat protection.
-• debug — coordinator diagnostic logging.
+- **Native cache-compatible Context:** `Context.js` begins with `// @cache-compatible`. On cache-efficient / Optimized Context calls, CROSSED ECHOES preserves the complete host Context as an unchanged prefix and appends only complete bounded suffix packets. If there is not enough headroom for a packet, that worker yields instead of rewriting/truncating the host prefix.
+- **Standard Context still supported:** on ordinary models the original staged context budgeting remains available, including the 8k / 16k / 32k regression coverage.
+- **Story Card visibility is respected:** only Entry is model-facing when a Story Card activates; Name and Notes are treated as creator/UI metadata. Generated Entries therefore identify their own subject explicitly.
+- **Trigger whitespace is treated literally:** Codex-generated alias lists are emitted as `name,alias` rather than `name, alias`, so the alias does not accidentally gain a leading space.
+- **Append-safe Story Card creation:** the documented API return index is supported, but config/Codex bootstrap also verifies the card that was actually appended before mutating UI metadata. This avoids a wrong-card write if a wrapper/runtime reports a different numeric value.
+- **Story Card economy:** Codex keeps `cardChars` configurable from 300–2000, but the default remains intentionally compact and non-character candidates now require a fresh mention before stale accumulated counts can schedule a card.
+- **No moving Optimized-Context pseudo-lore:** when a low-headroom cache-compatible TWISTS packet cannot fit, it yields instead of creating a temporary all-match Nudge Story Card that could waste lore allocation or arrive stale.
+- **Private Notes remain non-evidence:** CROSSED ECHOES can use managed Notes as script state/debugging, but those private sections are stripped from plot/scenario evidence scans and never treated as public canon.
 
-See CONFIG_NOTES.md for every option across all systems.
+See `RESEARCH_NOTES.md` for the platform findings that informed this pass.
 
-Commands
+## Installation
 
-Coordinator status:
+Replace the four AI Dungeon script tabs with:
+
+1. **Library** → `Library.js`
+2. **Input** → `Input.js`
+3. **Context** → `Context.js`
+4. **Output** → `Output.js`
+
+Do **not** install the three source packages alongside this build; their code is already included.
+
+Then play one normal turn to create/migrate config cards. You can also import `CONFIG_CARD_IMPORTS.json` for the supplied polished Notes immediately.
+
+> **Important:** AI Dungeon Story Card import replaces the entire existing Story Card set. If the Scenario/Adventure already contains lore cards, export them first and merge the five CROSSED ECHOES config objects into that JSON rather than importing the config file by itself.
+
+## Commands
+
+Coordinator:
 
 ```text
 !crossedechoes
@@ -128,7 +162,7 @@ Coordinator status:
 !cestatus
 ```
 
-Migration aliases are intentionally preserved:
+Legacy merged aliases remain compatible:
 
 ```text
 !threadbound
@@ -138,94 +172,105 @@ Migration aliases are intentionally preserved:
 !unifiedstatus
 ```
 
-Existing UNSPOKEN TURNS / TWISTS AND TURNS commands and the Crossed Wires !wire... command family still work.
+UNSAID/Codex examples:
 
-Existing-save migration
+```text
+/peek <name>
+/peek <name> core
+/card <name>
+/alias <character> = <alias>
+/unalias <character> = <alias>
+/unsaid status
+/unsaid health
+/unsaid resetcodex
+```
 
-The merge keeps the original state namespaces, including state.unifiedNarrative, to avoid breaking existing adventures.
+Existing TWISTS AND TURNS and Crossed Wires command families remain available.
 
-If an older save contains either of these cards:
+## Structured-beat arbitration
 
-• THREADBOUND — Integration
-• UNIFIED NARRATIVE — Integration
+Major hidden structured work is prioritised so systems do not fight over the same response:
 
-it is migrated in place to:
+1. manual UNSAID/Codex;
+2. player-forced Crossed Wires spark;
+3. supported TWISTS AND TURNS beat;
+4. automatic Crossed Wires pressure;
+5. automatic UNSAID work.
 
-• CROSSED ECHOES — The Unspoken Veil — Integration
+ECHO VEIL continues underneath as continuity/causality director. Recovery Guard gives reactions/consequences room after confirmed major beats.
 
-Old integration keys and old status commands remain accepted. The migration does not intentionally create a duplicate coordinator card.
+## Evidence and safety rules
 
-Retry / Undo safety
+- Private fear/desire ≠ fact.
+- Relationship pressure ≠ proof.
+- Managed Notes ≠ story evidence.
+- A twist needs story support.
+- Story Card/world truth ≠ automatic NPC knowledge.
+- Explicit “does not know / unaware / should not know” boundaries persist until an established learning event.
+- Character knowledge remains perspective-bounded.
+- Retry/Undo retracts rejected hidden aftermath.
+- Established lore outranks detector guesses.
+- Explicit player commands may override automatic pacing, but not fabricate evidence on their own.
 
-Retrying a generation must not leave rejected hidden state behind.
+## Context budgeting
 
-The combined build preserves the source engines’ retry behavior and also retracts coordinator-created state from the rejected turn, including:
+The merged build reserves headroom in stages rather than letting one engine consume everything. Regression tests cover **8k, 16k and 32k** budgets in standard mode. Optimized Context is tested separately with the same three budgets and asserts that the returned Context begins with the **exact original host prefix** on every pass.
 
-• bridge aftermath records,
-• coordinator counters,
-• coordinator-created UNSAID tension boosts,
-• stale convergent focus.
+Cache-compatible packets are atomic: a TWISTS instruction, ECHO director block, Crossed Wires block, Fusion Director packet or UNSAID/Codex task is appended whole when it fits; lower-priority work yields when it does not. This avoids half-instructions and preserves provider prefix caching.
 
-The replacement generation is then processed cleanly.
+## Verification
 
-Evidence safety
-
-The merge follows several hard rules:
-
-• A private fear is not proof.
-• A private desire is not canon knowledge.
-• A relationship score is not proof of a betrayal or affair.
-• A plot thread is not revealed merely because another engine finds the same NPC interesting.
-• ECHO VEIL consequences can affect pacing only from already-recorded story evidence.
-• Shared focus is a continuity cue, not a reveal trigger.
-• Established story facts always outrank detector guesses.
-
-Verification
-
-From the package directory:
+Run:
 
 ```bash
 node run_tests.js
 node stress_test.js
 ```
 
-Current captured result:
+Current build:
 
-• 17/17 integration tests passed
-• 60-turn stress simulation passed
-• 180 hook executions
-• 207 Story Cards in the stress environment
-• context-budget coverage at 8k / 16k / 32k
-• all live config Entries remain under 2,000 characters
-• no hidden protocol leakage detected in the stress run
-• all four live JavaScript tabs pass syntax validation
+- **74/74 integration/regression tests passed**
+- **standard 60-turn / 180-hook stress simulation passed**
+- **Optimized Context 60-turn / 180-hook stress simulation passed** with exact-prefix assertion every Context call
+- **208 Story Cards** in both stress environments
+- cache-compatible TWISTS Retry replay tested without advancing thread state
+- whitespace-safe multi-trigger alias generation tested
+- stale non-character Codex freshness gate tested
+- UNSAID public-canon personality anchoring / anti-drift tested
+- weak-candidate confidence decay + stale garbage collection tested
+- multi-candidate fairness/importance arbitration tested
+- first-sight ECHO Location/Item/Faction typing before Story Card generation tested
+- malformed `[NPC []` output-leak regression covered
+- hard NPC knowledge-boundary Context regression covered
+- private Character Notes → knowledge-boundary regression covered
+- illegal knowledge output repair + attributed-dialogue repair + legitimate disclosure clearing covered
+- explicit secret-holder / active non-holder restriction covered
+- dedicated Codex config + `cardChars 300–2000` regression covered
+- Character/Location/Item/Faction field coverage tested
+- non-character managed Notes tested
+- scenario/evidence isolation tested
+- Retry/Undo, arbitration, focus/recovery and hidden-tag cleanup tested
+- Fusion signal bus, pair-specific convergence, focus hysteresis, stale-psychology decay, shared pacing, scene-presence bias and knowledge-aware handoff tested
+- all live JavaScript tabs pass syntax validation
 
-See TEST_REPORT.txt for the packaged report.
+See `TEST_REPORT.txt` for the captured report.
 
-Included files
+## Included files
 
-• Library.js
-• Input.js
-• Context.js
-• Output.js
-• CONFIG_CARD_IMPORTS.json
-• CONFIG_NOTES.md
-• QUICK_START.txt
-• INTEGRATION_NOTES.txt
-• REDDIT_DESCRIPTION.md
-• SCENARIO_DESCRIPTION.txt
-• run_tests.js
-• stress_test.js
-• TEST_REPORT.txt
-• BUILD_MANIFEST.json
-• SHA256SUMS.txt
+- `Library.js`, `Input.js`, `Context.js`, `Output.js`
+- `CONFIG_CARD_IMPORTS.json`
+- `CONFIG_NOTES.md`
+- `STORY_CARD_FORMAT.md`
+- `QUICK_START.txt`
+- `INTEGRATION_NOTES.txt`
+- `RESEARCH_NOTES.md`
+- `REDDIT_DESCRIPTION.md`
+- `SCENARIO_DESCRIPTION.txt`
+- `run_tests.js`, `stress_test.js`
+- `TEST_REPORT.txt`
+- `BUILD_MANIFEST.json`
+- `SHA256SUMS.txt`
 
-Source lineage
+## Source lineage
 
-CROSSED ECHOES — The Unspoken Veil is a combination of three existing scripts:
-
-• UNSPOKEN TURNS
-• Crossed Wires
-• ECHO VEIL
-
-Their specialist systems remain recognizable inside the merged build. The coordinator exists to make those systems reinforce one another instead of independently pushing the model in competing directions.
+CROSSED ECHOES — The Unspoken Veil combines **UNSPOKEN TURNS**, **Crossed Wires**, and **ECHO VEIL**. The specialist systems remain distinct internally; the coordinator exists to make them behave like parts of one persistent story.
