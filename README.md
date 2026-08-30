@@ -459,41 +459,91 @@ Play one normal turn and the config cards will be created or migrated automatica
 
 ---
 
-## ⌨️ Useful commands
+## ⌨️ Commands
 
-### CROSSED ECHOES
+Every CROSSED ECHOES command uses `/`. Commands are control actions: the script consumes them instead of treating them as story prose.
+
+### 🌒 CROSSED ECHOES
 
 ```text
-!crossedechoes
-!crossedechoesstatus
-!ce
-!cestatus
+/crossedechoes
+/crossedechoes status
+/crossedechoes help
+/ce
+/ce status
+/ce help
 ```
 
-Older merged aliases are still recognised:
+`/crossedechoes` and `/ce` show the coordinator status. The `help` form gives a quick command overview.
+
+Compatibility aliases from older merged builds are also slash commands:
 
 ```text
-!threadbound
-!threadboundstatus
-!tbstatus
-!unified
-!unifiedstatus
+/threadbound
+/threadboundstatus
+/tbstatus
+/unified
+/unifiedstatus
 ```
 
-### UNSPOKEN TURNS / CODEX
+### 🧠 UNSPOKEN TURNS / CODEX
 
 ```text
-/peek <name>
-/peek <name> core
-/card <name>
-/alias <character> = <alias>
-/unalias <character> = <alias>
+/unsaid
 /unsaid status
 /unsaid health
 /unsaid resetcodex
+/peek <name>
+/peek <name> core
+/card <name>
+/alias <character>
+/alias <character> = <alias>
+/unalias <character> = <alias>
 ```
 
-TWISTS AND TURNS and Crossed Wires keep their own command families as well.
+`/peek` asks for a private-thought check. `/card` forces a CODEX create/refresh request. Alias commands keep nicknames, callsigns and alternate names tied to the same character identity.
+
+### 🌀 TWISTS AND TURNS
+
+```text
+/twists
+/twist [name]
+/plant <name> [categoryKey]
+/threads
+/twisttypes
+/twistlog
+/mature on|off
+/scenario status|auto|off|<custom guidance>
+/synergy on|off
+/intensity low|medium|high
+/rescan
+```
+
+`/twist` forces the next eligible payoff. `/plant` starts a thread deliberately. `/threads` writes a spoiler-safe brewing overview. The remaining controls tune or inspect the twist engine without advancing the story.
+
+### ❤️ Crossed Wires
+
+```text
+/wire <name>
+/wires
+/wire twists
+/wire status
+/wire profile
+/wire forget <name>
+/wire merge <alias> | <canonical>
+/wire role <name> | <role>
+/wire role <from> | <to> | <role>
+/wire age <name> | adult|minor|unknown
+/spark
+/spark small
+/spark medium
+/spark major
+/wire help
+```
+
+Compact slash aliases such as `/wirestatus`, `/wireprofile`, `/wiretwists`, `/wireforget`, `/wiremerge`, `/wirerole`, `/wireage` and `/wirehelp` are accepted too.
+
+Commands are recognised from direct Story input and the normal AI Dungeon Story/Do/Say wrappers. A command mentioned inside ordinary prose is not treated as a control action.
 
 ---
 

@@ -752,7 +752,7 @@ var modifier = (text) => {
       return unsaidModifier(manualTwists.text);
     }
 
-    // A previously armed !wirespark is explicit player intent and receives
+    // A previously armed /spark is explicit player intent and receives
     // priority over an automatic plot beat. Normal turns give seeded plot
     // threads first refusal, then relationship pressure, then UNSAID work.
     var afterTwists = { text: originalText };

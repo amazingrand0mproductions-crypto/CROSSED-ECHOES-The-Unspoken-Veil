@@ -20,23 +20,37 @@ var cleanCommandEntity = (raw, maxLen) => {
 // model as ordinary prose.
 var ownedControlCommand = (raw) => {
   try {
-    if (typeof Library !== "undefined" && Library.extractCommand) {
-      return Library.extractCommand(raw);
-    }
+    if (typeof Library !== "undefined" && Library.extractCommand) return Library.extractCommand(raw);
   } catch (e) {}
   const t = String(raw || "").replace(/\r/g, "").trim();
-  const owned = "(?:unsaid|pe(?:e|a)k|card|alias|unalias|twist|plant|mature|scenario|synergy|link|twisttypes|twistcategories|twistlog|intensity|threads|rescan|twists|twisthelp)";
-  const direct = new RegExp(`^[/:]${owned}\\b`, "i");
-  if (direct.test(t)) return t.charAt(0) === ":" ? "/" + t.slice(1) : t;
-  const labeled = t.match(new RegExp(`^(?:story|do|say|see|guide)\\s*[:=-]\\s*["“‘']?([/:]${owned}\\b[\\s\\S]*?)["”’']?\\s*[.!]?\\s*$`, "i"));
-  return labeled ? (labeled[1].charAt(0) === ":" ? "/" + labeled[1].slice(1) : labeled[1]) : null;
+  const owned = "(?:crossedechoesstatus|crossedechoes|cestatus|ce|threadboundstatus|threadbound|tbstatus|unifiedstatus|unified|unsaid|pe(?:e|a)k|card|alias|unalias|twistcategories|twisttypes|twistlog|twisthelp|twist|plant|mature|scenario|synergy|link|intensity|threads|rescan|twists|wiremerge|wireforget|wireprofile|wirestatus|wiretwists|wirehelp|wirerole|wireage|wires|wire|spark)";
+  const direct = new RegExp(`^[!/:]${owned}\\b`, "i");
+  const normalize = value => {
+    let v = String(value || "").trim();
+    if (/^[!:]/.test(v)) v = "/" + v.slice(1);
+    return v;
+  };
+  if (direct.test(t)) return normalize(t);
+  const labeled = t.match(new RegExp(`^(?:story|do|say|see|guide)\\s*[:=-]\\s*["“‘']?([!/:]${owned}\\b[\\s\\S]*?)["”’']?\\s*[.!]?\\s*$`, "i"));
+  return labeled ? normalize(labeled[1]) : null;
 };
+
+var crossedEchoesCommandHelp = () => [
+  "🌒 CROSSED ECHOES COMMANDS",
+  "/crossedechoes — coordinator status",
+  "/crossedechoes help — command overview",
+  "/wire help — Crossed Wires commands",
+  "/unsaid — UNSPOKEN TURNS / CODEX commands",
+  "/twists — TWISTS AND TURNS config/help",
+  "",
+  "Quick controls: /peek <name> • /card <name> • /wire <name> • /spark [small|medium|major] • /threads • /twist [name]"
+].join("\n");
 
 var controlCommandFailedSafely = (raw, where, knownCommand) => {
   const command = knownCommand || ownedControlCommand(raw);
   if (!command) return null;
   try {
-    pushMessage(`⚠️ ${where || "Command"} hit an internal script error, so UNSPOKEN TURNS stopped the action instead of letting the command become story text. Retry the command once; if it repeats, run /unsaid health.`);
+    pushMessage(`⚠️ ${where || "Command"} hit an internal script error, so CROSSED ECHOES stopped the action instead of letting the command become story text. Retry the command once; if it repeats, run /unsaid health.`);
   } catch (e) {}
   return { text: null, stop: true };
 };
@@ -290,7 +304,7 @@ var unsaidModifier = (text) => {
 
     if (/^\/unsaid(?:\s+(?:help|commands?|guide))?\s*$/i.test(commandText)) {
       ensureSharedConfigCard();
-      pushMessage("📖 Commands are active. They work from Story, Do, Say, and third-person input: /peek <name>, /peek <name> core, /card <name>, /alias <character> = <alias>, /unalias <character> = <alias>, /unsaid status, /unsaid health, /unsaid resetcodex. Colon form (:unsaid status) is also accepted. Full settings are on the \"CROSSED ECHOES — Config — UNSPOKEN TURNS\" card.");
+      pushMessage("📖 Commands are active. They work from Story, Do, Say, and third-person input: /peek <name>, /peek <name> core, /card <name>, /alias <character> = <alias>, /unalias <character> = <alias>, /unsaid status, /unsaid health, /unsaid resetcodex. Full settings are on the \"CROSSED ECHOES — Config — UNSPOKEN TURNS\" card.");
       return stopControl();
     }
 
@@ -458,6 +472,15 @@ var unsaidModifier = (text) => {
       return { text: "[UNSPOKEN TURNS CONTROL REQUEST]" };
     }
 
+    if (isUnsaidCommand) {
+      const head = (commandText.slice(1).trim().split(/\s+/)[0] || "").toLowerCase();
+      if (head === "alias") pushMessage("🏷️ Use /alias <character> to list aliases, or /alias <character> = <alias> to add one.");
+      else if (head === "unalias") pushMessage("🏷️ Use /unalias <character> = <alias>.");
+      else if (head === "unsaid") pushMessage("📖 Unknown UNSPOKEN TURNS option. Use /unsaid to see the available commands.");
+      else pushMessage("📖 That control command could not be parsed. Use /unsaid or /crossedechoes help for command syntax.");
+      return stopControl();
+    }
+
     return { text };
   } catch (e) {
     if (typeof utRecordRuntimeError === "function") utRecordRuntimeError("Input/UNSAID", e);
@@ -475,12 +498,21 @@ var modifier = (text) => {
   try {
     if (typeof UN_resetHookCaches === "function") UN_resetHookCaches("input");
 
-    if (/^\s*!(?:crossedechoes(?:status)?|cestatus|ce|threadbound(?:status)?|tbstatus|unified(?:status)?)\s*$/i.test(String(originalText || ""))) {
-      try { pushMessage(UN_statusText()); } catch (_) {}
+    var coordinatorCommand = ownedControlCommand(originalText);
+    if (coordinatorCommand && /^\/(?:crossedechoes(?:status)?|cestatus|ce|threadbound(?:status)?|tbstatus|unified(?:status)?)\b/i.test(coordinatorCommand)) {
+      try {
+        if (/^\/(?:crossedechoes|ce)\s+(?:help|commands?|guide)\s*$/i.test(coordinatorCommand)) {
+          pushMessage(crossedEchoesCommandHelp());
+        } else if (/^\/(?:crossedechoes(?:status)?|cestatus|ce|threadbound(?:status)?|tbstatus|unified(?:status)?)(?:\s+status)?\s*$/i.test(coordinatorCommand)) {
+          pushMessage(UN_statusText());
+        } else {
+          pushMessage("🌒 Unknown CROSSED ECHOES coordinator option. Use /crossedechoes for status or /crossedechoes help for commands.");
+        }
+      } catch (_) {}
       return { text: null, stop: true };
     }
 
-    // Crossed Wires uses its own !wire command family. Keep those turns local
+    // Crossed Wires uses the /wire command family. Keep those turns local
     // so ECHO/UNSAID do not learn from a synthetic zero-width command action.
     var cwCommand = null;
     try { cwCommand = typeof CW_readCommand === "function" ? CW_readCommand(originalText) : null; } catch (_) {}

@@ -1524,47 +1524,42 @@ var Library = (() => {
 
   function extractCommand(raw) {
     if (!raw) return null;
-    // AI Dungeon can wrap identical user input differently by mode. Treat a
-    // slash/colon token as a command only when it occupies the control action,
-    // never merely because ordinary narration happens to mention `/card X`.
+    // Slash is the canonical command prefix across CROSSED ECHOES. AI Dungeon
+    // can wrap the same action differently in Story/Do/Say/third-person modes,
+    // so normalize those wrappers here before any subsystem parses arguments.
+    // Legacy ! and : prefixes remain accepted for old adventures, but are
+    // immediately normalized to `/`; every visible help/config uses slash only.
     const t = String(raw).replace(/\r/g, "").trim();
     if (!t) return null;
-    const owned = "(?:unsaid|pe(?:e|a)k|card|alias|unalias|twist|plant|mature|scenario|synergy|link|twisttypes|twistcategories|twistlog|intensity|threads|rescan|twists|twisthelp)";
-    const ownedAtStart = new RegExp(`^[/:]${owned}\\b`, "i");
-    const ownedAnywhere = new RegExp(`[/:]${owned}\\b`, "i");
+    const owned = "(?:crossedechoesstatus|crossedechoes|cestatus|ce|threadboundstatus|threadbound|tbstatus|unifiedstatus|unified|unsaid|pe(?:e|a)k|card|alias|unalias|twistcategories|twisttypes|twistlog|twisthelp|twist|plant|mature|scenario|synergy|link|intensity|threads|rescan|twists|wiremerge|wireforget|wireprofile|wirestatus|wiretwists|wirehelp|wirerole|wireage|wires|wire|spark)";
+    const prefixedAtStart = new RegExp(`^[!/:]${owned}\\b`, "i");
+    const prefixedAnywhere = new RegExp(`[!/:]${owned}\\b`, "i");
+    const canonicalAtStart = new RegExp(`^/${owned}\\b`, "i");
 
     const clean = value => {
       let command = String(value || "").trim();
       command = command.replace(/["'”’]+\s*$/g, "").trim();
       command = command.replace(/[.!?]+\s*$/g, "").trim();
-      if (command.charAt(0) === ":") command = "/" + command.slice(1);
-      return command.charAt(0) === "/" && ownedAtStart.test(command) ? command : null;
+      if (/^[!:]/.test(command)) command = "/" + command.slice(1);
+      return canonicalAtStart.test(command) ? command : null;
     };
 
-    // Raw Story input / direct command.
-    if (ownedAtStart.test(t)) return clean(t);
+    if (prefixedAtStart.test(t)) return clean(t);
 
-    // Script Test and some UI surfaces expose the input mode as a label.
-    const labeledWrapper = t.match(/^(?:story|do|say|see|guide)\s*[:=-]\s*["“‘']?([/:][\s\S]*?)["”’']?\s*[.!]?\s*$/i);
-    if (labeledWrapper && ownedAtStart.test(labeledWrapper[1].trim())) return clean(labeledWrapper[1]);
+    const labeledWrapper = t.match(/^(?:story|do|say|see|guide)\s*[:=-]\s*["“‘']?([!/:][\s\S]*?)["”’']?\s*[.!]?\s*$/i);
+    if (labeledWrapper && prefixedAtStart.test(labeledWrapper[1].trim())) return clean(labeledWrapper[1]);
 
-    // Say wrappers, both with and without the leading `>` platform marker.
-    // Requiring the command to be the quoted utterance avoids matching prose
-    // such as `You write "/card Alice" on the wall`.
     const body = t.replace(/^>\s*/, "");
-    const sayWrapper = body.match(/^.{1,80}?\s+(?:say|says),?\s*["“‘']\s*([/:][\s\S]*?)["”’']\s*[.!]?\s*$/i);
-    if (sayWrapper && ownedAtStart.test(sayWrapper[1].trim())) return clean(sayWrapper[1]);
+    const sayWrapper = body.match(/^.{1,80}?\s+(?:say|says),?\s*["“‘']\s*([!/:][\s\S]*?)["”’']\s*[.!]?\s*$/i);
+    if (sayWrapper && prefixedAtStart.test(sayWrapper[1].trim())) return clean(sayWrapper[1]);
 
-    // Do/Third Person sometimes arrives as `> You /command` or
-    // `> Jessica /command`. Only actor-like boilerplate may precede the token.
-    // A substantive verb phrase before it means this is ordinary narration.
     if (/^>/.test(t)) {
-      const m = ownedAnywhere.exec(body);
+      const m = prefixedAnywhere.exec(body);
       if (!m) return null;
       let prefix = body.slice(0, m.index).trim();
       prefix = prefix.replace(/[,:;\-—"“”'‘’]+\s*$/g, "").trim();
 
-      const actorWord = "[A-Z][A-Za-z0-9'’.-]*";
+      const actorWord = "[A-Z][A-Za-z0-9'’.\-]*";
       const particle = "(?:de|del|la|le|van|von|da|di|of|the)";
       const actor = new RegExp(`^(?:You|${actorWord}(?:\\s+(?:${actorWord}|${particle})){0,5})(?:\\s+(?:say|says|do|does))?$`);
       if (actor.test(prefix)) return clean(body.slice(m.index));
@@ -9596,7 +9591,7 @@ function CW_configNotes() {
     "• Role Awareness — ON lets the narrator classify established bonds such as friend, family, rival, teammate, mentor/student, superior/subordinate, colleague, ally/enemy, romantic/ex, clinician/patient, attorney/client, handler/asset, captain/crew and professional. Roles guide twists and prevent mismatched assumptions.",
     "• Role Inference — ON lets the JavaScript itself recognize explicit phrases such as ‘your sister Mara’, ‘Leo is your boss’, ‘Dr. Chen is your doctor’ or ‘your teammate Alex’. It only acts on explicit relationship wording and complements the narrator’s ROLE tags.",
     "• Scenario Twists — ON enables genre-shaped relationship complications such as chain-of-command conflicts, horror suspicion, survival resource choices, workplace credit disputes, superhero secret-identity strain, fantasy oath conflicts and family expectations. OFF keeps only universal relationship twists.",
-    "• Offscreen Twists — OFF keeps automatic twists tied to relationships actually present in the recent scene. ON allows an established offscreen relationship to re-enter naturally. Forced !spark may always use a recent bond if needed.",
+    "• Offscreen Twists — OFF keeps automatic twists tied to relationships actually present in the recent scene. ON allows an established offscreen relationship to re-enter naturally. Forced /spark may always use a recent bond if needed.",
     "",
     "DRAMA & TWISTS",
     "• Twist Mode — OFF, GROUNDED, DRAMATIC, WILD, UNHINGED. Controls natural twist frequency and the maximum risk of automatic relationship twists.",
@@ -9627,14 +9622,14 @@ function CW_configNotes() {
     "• Repeat Twist Cooldown — Minimum turns before the same twist type can be selected again. 4–100.",
     "",
     "DISPLAY",
-    "• Dashboard Numbers — ON shows exact hidden scores in !wire and !wires. OFF keeps only descriptive reads.",
+    "• Dashboard Numbers — ON shows exact hidden scores in /wire and /wires. OFF keeps only descriptive reads.",
     "",
     "REPAIR & LONG-TERM MEMORY",
     "Major betrayal, abandonment and boundary damage creates durable scars. A normal apology or forgiveness lowers immediate heat but does not erase those scars. The narrator must observe concrete repair before trust repair, boundary repair or abandonment repair can reduce them.",
     "When the main event ledger eventually fills, major turning points such as commitments, rescues, betrayals, breakups, sacrifices and repair milestones are moved into a compact archive instead of being forgotten with routine old interactions.",
     "",
     "COMMANDS",
-    "!wire NAME • !wires • !wiretwists • !wirestatus • !wireprofile • !wireforget NAME • !wiremerge ALIAS | CANONICAL • !wirerole NAME | ROLE • !wireage NAME | adult/minor/unknown • !spark [small|medium|major] • !wirehelp",
+    "/wire NAME • /wires • /wire twists • /wire status • /wire profile • /wire forget NAME • /wire merge ALIAS | CANONICAL • /wire role NAME | ROLE • /wire age NAME | adult/minor/unknown • /spark [small|medium|major] • /wire help",
     "",
     "Internal format marker: " + CW_CONFIG_MARKER
   ].join("\n");
@@ -12021,22 +12016,23 @@ function CW_profileStatus() {
 function CW_help() {
   return [
     "CROSSED WIRES COMMANDS",
-    "!wire NAME        — inspect relationships involving one character",
-    "!wires            — inspect all tracked relationships",
-    "!wiretwists       — show recent twist seeds and whether the narrator used them",
-    "!wirestatus       — show engine/config status",
-    "!wireprofile      — show the detected/adaptive scenario profile",
-    "!wireforget NAME  — remove one NPC and all tracked relationship history involving them",
-    "!wiremerge ALIAS | CANONICAL — merge duplicate/alias NPC identities without losing history",
-    "!wirerole NAME | ROLE — manually set NAME → YOU role; or FROM | TO | ROLE for NPC→NPC",
-    "!wireage NAME | adult/minor/unknown — correct one NPC's age status used by adult-only gating",
-    "!spark            — force any eligible twist on the NEXT normal turn",
-    "!spark small      — force a low-risk relational beat",
-    "!spark medium     — force a medium complication",
-    "!spark major      — force a high-stakes twist when eligible",
-    "!wirehelp         — show this help",
+    "/wire NAME        — inspect relationships involving one character",
+    "/wires            — inspect all tracked relationships",
+    "/wire twists      — show recent twist seeds and whether the narrator used them",
+    "/wire status      — show engine/config status",
+    "/wire profile     — show the detected/adaptive scenario profile",
+    "/wire forget NAME — remove one NPC and all tracked relationship history involving them",
+    "/wire merge ALIAS | CANONICAL — merge duplicate/alias identities without losing history",
+    "/wire role NAME | ROLE — set NAME → YOU role; or FROM | TO | ROLE for NPC→NPC",
+    "/wire age NAME | adult/minor/unknown — correct one NPC's adult-only gating status",
+    "/spark            — arm any eligible relationship twist for the next normal turn",
+    "/spark small      — arm a low-risk relational beat",
+    "/spark medium     — arm a medium complication",
+    "/spark major      — arm a high-stakes twist when eligible",
+    "/wire help        — show this help",
     "",
-    "Settings live in the 'CROSSED ECHOES — Config — CROSSED WIRES' Story Card under the shared 'CROSSED ECHOES CONFIG' category. AUTO Scenario Mode adapts to the adventure; Notes explain every setting, supported profile and repair rule."
+    "Compact aliases such as /wirestatus, /wireprofile, /wiretwists, /wireforget, /wiremerge, /wirerole, /wireage and /wirehelp are also accepted.",
+    "Settings live in the 'CROSSED ECHOES — Config — CROSSED WIRES' Story Card under the shared 'CROSSED ECHOES CONFIG' category."
   ].join("\n");
 }
 
@@ -12048,29 +12044,50 @@ function CW_commandNameArg(raw) {
 }
 
 function CW_readCommand(text) {
-  const s = String(text || "").trim();
-  let m = s.match(/^!wiremerge\s+(.+?)\s*\|\s*(.+?)\s*$/i);
+  let s = String(text || "").trim();
+  try {
+    const extracted = typeof Library !== "undefined" && Library.extractCommand ? Library.extractCommand(text) : null;
+    if (extracted) s = extracted;
+  } catch (_) {}
+  if (/^[!:]/.test(s)) s = "/" + s.slice(1);
+
+  let m = s.match(/^\/wire(?:merge|\s+merge)\s+(.+?)\s*\|\s*(.+?)\s*$/i);
   if (m) return { type: "merge", alias: CW_commandNameArg(m[1]), canonical: CW_commandNameArg(m[2]) };
-  m = s.match(/^!wireage\s+(.+?)\s*\|\s*(adult|minor|unknown)\s*$/i);
+  m = s.match(/^\/wire(?:age|\s+age)\s+(.+?)\s*\|\s*(adult|minor|unknown)\s*$/i);
   if (m) return { type: "age", name: CW_commandNameArg(m[1]), status: String(m[2]).toLowerCase() };
-  m = s.match(/^!wirerole\s+(.+?)\s*\|\s*(.+?)\s*\|\s*([a-z_ -]+)\s*$/i);
+  m = s.match(/^\/wire(?:role|\s+role)\s+(.+?)\s*\|\s*(.+?)\s*\|\s*([a-z_ -]+)\s*$/i);
   if (m) return { type: "role", from: CW_commandNameArg(m[1]), to: CW_commandNameArg(m[2]), role: String(m[3]).trim() };
-  m = s.match(/^!wirerole\s+(.+?)\s*\|\s*([a-z_ -]+)\s*$/i);
+  m = s.match(/^\/wire(?:role|\s+role)\s+(.+?)\s*\|\s*([a-z_ -]+)\s*$/i);
   if (m) return { type: "role", from: CW_commandNameArg(m[1]), to: "YOU", role: String(m[2]).trim() };
-  m = s.match(/^!wireforget\s+(.+?)\s*$/i);
+  m = s.match(/^\/wire(?:forget|\s+forget)\s+(.+?)\s*$/i);
   if (m) return { type: "forget", name: CW_commandNameArg(m[1]) };
-  m = s.match(/^!wire\s+(.+?)\s*$/i);
-  if (m) return { type: "one", name: CW_commandNameArg(m[1]) };
-  if (/^!wires\s*$/i.test(s)) return { type: "all" };
-  if (/^!wiretwists\s*$/i.test(s)) return { type: "twists" };
-  if (/^!wirestatus\s*$/i.test(s)) return { type: "status" };
-  if (/^!wireprofile\s*$/i.test(s)) return { type: "profile" };
-  m = s.match(/^!spark(?:\s+(small|medium|major))?\s*$/i);
+
+  if (/^\/(?:wiretwists|wire\s+twists)\s*$/i.test(s)) return { type: "twists" };
+  if (/^\/(?:wirestatus|wire\s+status)\s*$/i.test(s)) return { type: "status" };
+  if (/^\/(?:wireprofile|wire\s+profile)\s*$/i.test(s)) return { type: "profile" };
+  if (/^\/(?:wirehelp|wire\s+help)\s*$/i.test(s)) return { type: "help" };
+  if (/^(?:\/wires|\/wire\s+all|\/wire)\s*$/i.test(s)) return { type: "all" };
+
+  m = s.match(/^\/spark(?:\s+(small|medium|major))?\s*$/i);
   if (m) return { type: "spark", tier: String(m[1] || "").toLowerCase() };
-  if (/^!wirehelp\s*$/i.test(s)) return { type: "help" };
+
+  // Reserved subcommands fail closed when their syntax is malformed. Without
+  // this guard, a typo such as `/spark huge` or `/wire merge` could escape the
+  // admin path and become literal story text.
+  if (/^\/spark\b/i.test(s)) return { type: "invalid", message: "Use /spark, /spark small, /spark medium, or /spark major." };
+  if (/^\/wire(?:merge|\s+merge)\b/i.test(s)) return { type: "invalid", message: "Use /wire merge ALIAS | CANONICAL." };
+  if (/^\/wire(?:age|\s+age)\b/i.test(s)) return { type: "invalid", message: "Use /wire age NAME | adult/minor/unknown." };
+  if (/^\/wire(?:role|\s+role)\b/i.test(s)) return { type: "invalid", message: "Use /wire role NAME | ROLE, or /wire role FROM | TO | ROLE." };
+  if (/^\/wire(?:forget|\s+forget)\b/i.test(s)) return { type: "invalid", message: "Use /wire forget NAME." };
+  if (/^\/(?:wirestatus|wireprofile|wiretwists|wirehelp|wires)\b/i.test(s) || /^\/wire\s+(?:status|profile|twists|help|all)\b/i.test(s)) {
+    return { type: "invalid", message: "That /wire command has extra or invalid arguments. Use /wire help for the exact syntax." };
+  }
+
+  m = s.match(/^\/wire\s+(.+?)\s*$/i);
+  if (m) return { type: "one", name: CW_commandNameArg(m[1]) };
+  if (/^\/wire\b/i.test(s)) return { type: "invalid", message: "Use /wire NAME, /wires, or /wire help." };
   return null;
 }
-
 function CW_validateRegistries() {
   const issues = [];
   for (const mode in CW_PROFILE_EVENT_CODES) {
@@ -12188,6 +12205,7 @@ function CW_onOutput(text) {
       return ok ? "Crossed Wires: set " + cmd.from + " → " + (cmd.to || "YOU") + " role to " + normalizedRole + "." : "Crossed Wires: could not set that role. Valid roles: " + CW_ROLE_CODES.join(", ") + ".";
     }
     if (cmd.type === "spark") return "Crossed Wires: " + (cmd.tier ? cmd.tier + "-risk " : "") + "relationship twist armed for your next normal turn.";
+    if (cmd.type === "invalid") return "Crossed Wires: " + (cmd.message || "Invalid command. Use /wire help.");
     return CW_dashboard("");
   }
 

@@ -1374,7 +1374,7 @@ var modifier = (text) => {
   try {
     if (typeof UN_resetHookCaches === "function") UN_resetHookCaches("output");
 
-    // !wire commands are local admin turns; only Crossed Wires should consume
+    // /wire commands are local admin turns; only Crossed Wires should consume
     // their generated placeholder response.
     if (state.crossedWires && state.crossedWires.command) {
       return { text: CW_onOutput(originalText) };
