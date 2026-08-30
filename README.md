@@ -585,30 +585,6 @@ node stress_test.js
 
 ---
 
-## 📦 Repository files
-
-```text
-Library.js
-Input.js
-Context.js
-Output.js
-CONFIG_CARD_IMPORTS.json
-CONFIG_NOTES.md
-STORY_CARD_FORMAT.md
-QUICK_START.txt
-INTEGRATION_NOTES.txt
-RESEARCH_NOTES.md
-REDDIT_DESCRIPTION.md
-SCENARIO_DESCRIPTION.txt
-run_tests.js
-stress_test.js
-TEST_REPORT.txt
-BUILD_MANIFEST.json
-SHA256SUMS.txt
-```
-
----
-
 ## 🌒 Source lineage
 
 **CROSSED ECHOES — The Unspoken Veil** combines three separate AI Dungeon projects:
