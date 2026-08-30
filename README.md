@@ -152,6 +152,32 @@ The Director also keeps a stable **NPC focus** and **relationship-pair focus** w
 
 Near-ties are deliberately stabilised so the story does not bounce between different characters every turn.
 
+### 🎯 Player Intent Anchor
+
+The Director pays attention to what the player is actually trying to do right now. It can recognise broad objectives such as investigating, travelling, fighting, protecting someone, escaping, sneaking, talking, using an item, observing, planning or resting.
+
+A clear objective can push unrelated automatic drama out of the way. If you are actively searching a crime scene, the relationship engine is less likely to interrupt with a random confrontation. If a supported twist is directly tied to the thing you are investigating, it can still land naturally.
+
+Intent is only a scheduling signal. It never means the attempted action succeeded and it never creates evidence.
+
+### ✍️ Continuation Guard
+
+If the player deliberately hands the model an unfinished line — for example ending with a comma, em dash, ellipsis, an open quote, or a clear trailing connective — the Director treats that generation as a continuation first. Automatic plot twists, relationship sparks and UNSAID/Codex side-tasks yield for the turn, while ECHO VEIL keeps continuity and knowledge safety active.
+
+The result is much less interruption when you write things like `Mara looks at Leo and says,` or stop midway through dialogue/action for the AI to finish. Complete ordinary actions are left alone.
+
+### 🧭 Entity Lattice
+
+CROSSED ECHOES keeps a shared, type-aware map of the important **Characters, Locations, Items and Factions** in the current story. CODEX, ECHO VEIL, Crossed Wires, Story Cards and player intent can all contribute public identity confidence without flattening different entity types into the same thing.
+
+That means a named sword can matter as an Item, a fortress can matter as a Location and a guild can matter as a Faction without being mistaken for NPCs. Strong conflicting type evidence makes the Director abstain instead of forcing a bad classification.
+
+### 🕯️ Long-Arc Memory
+
+Major reveals, betrayals, rescues, relationship turning points and severe world consequences can become compact milestones. They cool down when the involved people, places, items or factions are absent, then regain callback salience when something genuinely connected returns.
+
+This gives old events weight without keeping every major moment permanently hot. Returning to the place where something terrible happened can matter again dozens of turns later without the script replaying the old event or treating it as a new fact.
+
 ---
 
 ## 🎭 Shared pacing
@@ -416,6 +442,8 @@ If there is not enough room for a lower-priority packet, that worker simply wait
 
 Standard Context is supported as well.
 
+The Director also uses **adaptive context reservation**. Quiet turns reserve less private headroom; dense crisis, payoff or convergence turns can reserve modestly more, always inside the hard context cap. High-priority safety and knowledge rules stay whole, while lower-priority detail is compacted or deferred first.
+
 ---
 
 ## 🔄 Retry / Undo safety
@@ -582,6 +610,7 @@ Run them with:
 node run_tests.js
 node stress_test.js
 ```
+
 
 ---
 

@@ -296,8 +296,8 @@ var unsaidModifier = (text) => {
       state.unsaid.pendingRevealForced = false;
       state.unsaid.controlRequest = "";
       state.unsaid.codex.pendingNames = [];
-    state.unsaid.codex.pendingForced = false;
-    state.unsaid.codex.pendingRefreshNames = [];
+      state.unsaid.codex.pendingForced = false;
+      state.unsaid.codex.pendingRefreshNames = [];
       syncFrontMemoryHint(false);
       updateUnsaidBackupCard(cacheEfficient, "");
       return { text };
@@ -312,8 +312,8 @@ var unsaidModifier = (text) => {
       state.unsaid.pendingCoreCheck = false;
       state.unsaid.pendingRevealForced = false;
       state.unsaid.codex.pendingNames = [];
-    state.unsaid.codex.pendingForced = false;
-    state.unsaid.codex.pendingRefreshNames = [];
+      state.unsaid.codex.pendingForced = false;
+      state.unsaid.codex.pendingRefreshNames = [];
       updateUnsaidBackupCard(cacheEfficient, "");
       return { text };
     }
@@ -338,7 +338,8 @@ var unsaidModifier = (text) => {
     // hook above yields to them before setting hintActive.
     const twistInstructionActive = !!(state.contingency && state.contingency.hintActive) ||
       (typeof UN_structuredOwnerActive === "function" && UN_structuredOwnerActive());
-    if (twistInstructionActive && !forcedPeek && !forcedCodex) {
+    const continuationTurn = typeof UN_isContinuationTurn === "function" && UN_isContinuationTurn();
+    if ((twistInstructionActive || continuationTurn) && !forcedPeek && !forcedCodex) {
       state.unsaid.pending = null;
       state.unsaid.pendingCoreShiftAllowed = false;
       state.unsaid.pendingCoreCheck = false;
@@ -347,7 +348,7 @@ var unsaidModifier = (text) => {
       state.unsaid.codex.pendingForced = false;
       state.unsaid.codex.pendingRefreshNames = [];
       updateUnsaidBackupCard(cacheEfficient, "");
-      if (typeof utSkipRuntimeTask === "function") utSkipRuntimeTask("single-control-owner-twist");
+      if (typeof utSkipRuntimeTask === "function") utSkipRuntimeTask(continuationTurn ? "player-continuation-handoff" : "single-control-owner-twist");
       return { text };
     }
 
@@ -358,8 +359,8 @@ var unsaidModifier = (text) => {
       state.unsaid.pendingCoreCheck = false;
       state.unsaid.pendingRevealForced = false;
       state.unsaid.codex.pendingNames = [];
-    state.unsaid.codex.pendingForced = false;
-    state.unsaid.codex.pendingRefreshNames = [];
+      state.unsaid.codex.pendingForced = false;
+      state.unsaid.codex.pendingRefreshNames = [];
       updateUnsaidBackupCard(cacheEfficient, "");
       return { text };
     }
@@ -373,8 +374,8 @@ var unsaidModifier = (text) => {
         state.unsaid.pendingCoreCheck = true;
         state.unsaid.pendingRevealForced = true;
         state.unsaid.codex.pendingNames = [];
-    state.unsaid.codex.pendingForced = false;
-    state.unsaid.codex.pendingRefreshNames = [];
+      state.unsaid.codex.pendingForced = false;
+      state.unsaid.codex.pendingRefreshNames = [];
         updateUnsaidBackupCard(cacheEfficient, fitted);
         return { text: text + fitted };
       }
@@ -390,8 +391,8 @@ var unsaidModifier = (text) => {
         state.unsaid.pendingCoreCheck = false;
         state.unsaid.pendingRevealForced = true;
         state.unsaid.codex.pendingNames = [];
-    state.unsaid.codex.pendingForced = false;
-    state.unsaid.codex.pendingRefreshNames = [];
+      state.unsaid.codex.pendingForced = false;
+      state.unsaid.codex.pendingRefreshNames = [];
         updateUnsaidBackupCard(cacheEfficient, fitted);
         return { text: text + fitted };
       }
