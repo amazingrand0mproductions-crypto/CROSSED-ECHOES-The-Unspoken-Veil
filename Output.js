@@ -155,9 +155,15 @@ var twistsModifier = (text) => {
 
 var unsaidModifier = (text) => {
   const originalText = text;
+  // Keep this outside the try block so the recovery path can safely decide
+  // whether a failed /peek or /card worker turn should suppress prose.  A
+  // block-scoped declaration here used to throw a second ReferenceError from
+  // the catch path, which could abort the unified Output wrapper and prevent
+  // Crossed Wires/ECHO/Story Card diagnostics from completing their turn.
+  let controlRequest = "";
   try {
     const cfg = readUnsaidConfig();
-    const controlRequest = String((state.unsaid && state.unsaid.controlRequest) || "");
+    controlRequest = String((state.unsaid && state.unsaid.controlRequest) || "");
 
     // Accept the exact markers requested by this version plus the two
     // common bracket variants models sometimes substitute on their own.

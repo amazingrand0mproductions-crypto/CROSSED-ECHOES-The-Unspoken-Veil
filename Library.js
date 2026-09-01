@@ -3094,7 +3094,7 @@ var Library = (() => {
   function applyEntryConfig(cfg) {
     const card = ensureSharedConfigCard();
     if (!card) return;
-    const section = extractConfigSection(card.entry, CONFIG_SECTION_TWIST);
+    const section = extractConfigSection(CW_cardEntryText(card), CONFIG_SECTION_TWIST);
     if (!section) return;
     applyTwistConfigText(cfg, section);
   }
@@ -3102,9 +3102,9 @@ var Library = (() => {
   function updateConfigCard(cfg, c) {
     const card = ensureSharedConfigCard();
     if (!card) return;
-    const nextEntry = spliceConfigSection(card.entry, CONFIG_SECTION_TWIST, renderTwistSection(cfg));
+    const nextEntry = spliceConfigSection(CW_cardEntryText(card), CONFIG_SECTION_TWIST, renderTwistSection(cfg));
     const nextDescription = spliceConfigSection(card.description, CONFIG_SECTION_TWIST, renderTwistNotes(cfg, c));
-    if (card.entry !== nextEntry) card.entry = nextEntry;
+    if (CW_cardEntryText(card) !== nextEntry) { card.entry = nextEntry; card.value = nextEntry; }
     if (card.description !== nextDescription) card.description = nextDescription;
   }
 
@@ -5324,8 +5324,9 @@ function ensureCodexConfigCard(sourceCard) {
   if (!card) {
     const seed = { ...UNSAID_DEFAULTS };
     const source = sourceCard || findConfigCardTolerant(CONFIG_CARD_TITLE) || findConfigCardTolerant("UNSAID Config");
-    if (source && source.entry) {
-      const legacy = extractConfigSection(source.entry, CONFIG_SECTION_UNSAID) || source.entry;
+    if (source && CW_cardEntryText(source)) {
+      const sourceEntry = CW_cardEntryText(source);
+      const legacy = extractConfigSection(sourceEntry, CONFIG_SECTION_UNSAID) || sourceEntry;
       applyCodexConfigText(seed, legacy);
       const legacyEnabled = configBool(legacy, "codex", /Enable Codex:\s*(true|false)/i);
       if (legacyEnabled !== null) seed.codexEnabled = legacyEnabled;
@@ -5339,7 +5340,7 @@ function ensureCodexConfigCard(sourceCard) {
   }
   if (card) {
     card.title = CE_CONFIG_TITLE_CODEX; card.name = CE_CONFIG_TITLE_CODEX; card.type = CE_CONFIG_CATEGORY; card.keys = "";
-    if (!card.entry || !card.entry.trim()) card.entry = renderCodexSection(UNSAID_DEFAULTS);
+    if (!CW_cardEntryText(card).trim()) { card.entry = renderCodexSection(UNSAID_DEFAULTS); card.value = card.entry; } else if (!card.entry) card.entry = CW_cardEntryText(card);
     if (String(card.description || card.notes || "") !== CONFIG_DEFAULT_CODEX_NOTES_SECTION) { card.description = CONFIG_DEFAULT_CODEX_NOTES_SECTION; card.notes = CONFIG_DEFAULT_CODEX_NOTES_SECTION; }
   }
   return card;
@@ -5361,12 +5362,13 @@ function ensureSharedConfigCard() {
     // merge, carry its current entry/notes over rather than resetting to
     // defaults on upgrade.
     const twistCfg = Object.assign({}, (typeof CP_DEFAULTS !== "undefined" ? CP_DEFAULTS : {}), (typeof state !== "undefined" && state.contingencyConfig) || {});
-    if (oldTwistCard && oldTwistCard.entry) applyTwistConfigText(twistCfg, oldTwistCard.entry);
+    if (oldTwistCard && CW_cardEntryText(oldTwistCard)) applyTwistConfigText(twistCfg, CW_cardEntryText(oldTwistCard));
     if (typeof state !== "undefined" && state) state.contingencyConfig = Object.assign({}, twistCfg);
     const twistSection = renderTwistSection(twistCfg);
 
-    const unsaidEntrySection = (oldUnsaidCard && oldUnsaidCard.entry && oldUnsaidCard.entry.trim())
-      ? CONFIG_SECTION_UNSAID + "\n" + oldUnsaidCard.entry.trim() + "\n"
+    const oldUnsaidEntry = oldUnsaidCard ? CW_cardEntryText(oldUnsaidCard) : "";
+    const unsaidEntrySection = (oldUnsaidCard && oldUnsaidEntry.trim())
+      ? CONFIG_SECTION_UNSAID + "\n" + oldUnsaidEntry.trim() + "\n"
       : renderUnsaidSection(UNSAID_DEFAULTS);
     const unsaidNotesSection = (oldUnsaidCard && oldUnsaidCard.description && oldUnsaidCard.description.trim())
       ? CONFIG_SECTION_UNSAID + "\n" + oldUnsaidCard.description.trim()
@@ -5392,7 +5394,7 @@ function ensureSharedConfigCard() {
     if (card) {
       card.title = CONFIG_CARD_TITLE;
       card.type = CE_CONFIG_CATEGORY;
-      if (!card.entry || !card.entry.trim()) card.entry = initialEntry;
+      if (!CW_cardEntryText(card).trim()) { card.entry = initialEntry; card.value = initialEntry; } else if (!card.entry) card.entry = CW_cardEntryText(card);
       if (!card.description || !card.description.trim()) card.description = initialDescription;
       // fold in complete — the two old separate cards are now redundant
       removeStoryCardByTitle("Twists and Turns Config");
@@ -5410,15 +5412,17 @@ function ensureSharedConfigCard() {
     // Config cards are administrative; use an inert key so the card is not
     // accidentally recalled into normal story context by its own title words.
     card.keys = "";
-    if (card.entry.indexOf(CONFIG_SECTION_TWIST) === -1) {
-      card.entry = spliceConfigSection(card.entry, CONFIG_SECTION_TWIST, renderTwistSection(Object.assign({}, CP_DEFAULTS, (state.contingencyConfig || {}))));
+    if (CW_cardEntryText(card).indexOf(CONFIG_SECTION_TWIST) === -1) {
+      card.entry = spliceConfigSection(CW_cardEntryText(card), CONFIG_SECTION_TWIST, renderTwistSection(Object.assign({}, CP_DEFAULTS, (state.contingencyConfig || {}))));
+      card.value = card.entry;
     }
-    if (card.entry.indexOf(CONFIG_SECTION_UNSAID) === -1) {
-      card.entry = spliceConfigSection(card.entry, CONFIG_SECTION_UNSAID, renderUnsaidSection(UNSAID_DEFAULTS));
+    if (CW_cardEntryText(card).indexOf(CONFIG_SECTION_UNSAID) === -1) {
+      card.entry = spliceConfigSection(CW_cardEntryText(card), CONFIG_SECTION_UNSAID, renderUnsaidSection(UNSAID_DEFAULTS));
+      card.value = card.entry;
     }
-    if (card.description.indexOf(CONFIG_SECTION_TWIST) === -1) {
+    if (String(card.description || card.notes || "").indexOf(CONFIG_SECTION_TWIST) === -1) {
       card.description = spliceConfigSection(
-        card.description,
+        String(card.description || card.notes || ""),
         CONFIG_SECTION_TWIST,
         renderTwistNotes(
           Object.assign({}, CP_DEFAULTS, (state.contingencyConfig || {})),
@@ -5426,8 +5430,9 @@ function ensureSharedConfigCard() {
         )
       );
     }
-    if (card.description.indexOf(CONFIG_SECTION_UNSAID) === -1) {
-      card.description = spliceConfigSection(card.description, CONFIG_SECTION_UNSAID, CONFIG_DEFAULT_UNSAID_NOTES_SECTION);
+    if (String(card.description || card.notes || "").indexOf(CONFIG_SECTION_UNSAID) === -1) {
+      card.description = spliceConfigSection(String(card.description || card.notes || ""), CONFIG_SECTION_UNSAID, CONFIG_DEFAULT_UNSAID_NOTES_SECTION);
+      card.notes = card.description;
     }
   }
   return card;
@@ -5475,7 +5480,7 @@ function readUnsaidConfig() {
   // Consume any legacy/manual cast list into persistent state, then restore the
   // clean built-in Config Notes guide. Auto-discovered characters live in this
   // bounded registry instead of being appended to the documentation forever.
-  const legacyNotes = extractConfigSection(card.description, CONFIG_SECTION_UNSAID) || CONFIG_DEFAULT_UNSAID_NOTES_SECTION;
+  const legacyNotes = extractConfigSection(String(card.description || card.notes || ""), CONFIG_SECTION_UNSAID) || CONFIG_DEFAULT_UNSAID_NOTES_SECTION;
   const legacyMarkerIdx = legacyNotes.lastIndexOf(CAST_LIST_MARKER);
   const importedCast = (legacyMarkerIdx >= 0 ? legacyNotes.slice(legacyMarkerIdx + CAST_LIST_MARKER.length) : "")
     .split("\n")
@@ -5489,7 +5494,7 @@ function readUnsaidConfig() {
   }
 
   const cfg = { ...UNSAID_DEFAULTS };
-  const entrySection = extractConfigSection(card.entry, CONFIG_SECTION_UNSAID);
+  const entrySection = extractConfigSection(CW_cardEntryText(card), CONFIG_SECTION_UNSAID);
   let v;
 
   v = configBool(entrySection, "enabled", /Enable UNSAID:\s*(true|false)/i); if (v !== null) cfg.enabled = v;
@@ -5513,7 +5518,7 @@ function readUnsaidConfig() {
   if (!isNaN(v)) cfg.adaptiveReflectionInterval = Math.min(20, Math.max(2, v));
   v = parseInt(configValue(entrySection, "continuityMinds", /Maximum active NPC minds used for behavioral continuity:\s*(\d+)/i), 10);
   if (!isNaN(v)) cfg.behavioralContinuityCharacters = Math.min(4, Math.max(1, v));
-  const codexEntrySection = codexCard ? String(codexCard.entry || "") : "";
+  const codexEntrySection = codexCard ? CW_cardEntryText(codexCard) : "";
   applyCodexConfigText(cfg, codexEntrySection);
   const resetValue = configBool(codexEntrySection, "resetCodex", /Reset Codex tracking now:\s*(true|false)/i);
   if (resetValue === true) resetCodexTrackingState();
@@ -5635,9 +5640,10 @@ function readUnsaidConfig() {
   // identical. This matters in long mobile adventures where Input, Context,
   // and Output all read the same config card every turn.
   const renderedUnsaidEntry = renderUnsaidSection(cfg);
-  const currentUnsaidEntry = extractConfigSection(card.entry, CONFIG_SECTION_UNSAID);
+  const currentUnsaidEntry = extractConfigSection(CW_cardEntryText(card), CONFIG_SECTION_UNSAID);
   if (String(currentUnsaidEntry || "").replace(/\s+$/, "") !== renderedUnsaidEntry.replace(/\s+$/, "")) {
-    card.entry = spliceConfigSection(card.entry, CONFIG_SECTION_UNSAID, renderedUnsaidEntry);
+    card.entry = spliceConfigSection(CW_cardEntryText(card), CONFIG_SECTION_UNSAID, renderedUnsaidEntry);
+    card.value = card.entry;
   }
   const currentUnsaidDescription = extractConfigSection(card.description, CONFIG_SECTION_UNSAID);
   if (String(currentUnsaidDescription || "").replace(/\s+$/, "") !== CONFIG_DEFAULT_UNSAID_NOTES_SECTION.replace(/\s+$/, "")) {
@@ -5646,7 +5652,7 @@ function readUnsaidConfig() {
   }
   if (codexCard) {
     const renderedCodexEntry = renderCodexSection(cfg);
-    if (String(codexCard.entry || "").replace(/\s+$/, "") !== renderedCodexEntry.replace(/\s+$/, "")) codexCard.entry = renderedCodexEntry;
+    if (CW_cardEntryText(codexCard).replace(/\s+$/, "") !== renderedCodexEntry.replace(/\s+$/, "")) { codexCard.entry = renderedCodexEntry; codexCard.value = renderedCodexEntry; }
     codexCard.type = CE_CONFIG_CATEGORY; codexCard.title = CE_CONFIG_TITLE_CODEX; codexCard.name = CE_CONFIG_TITLE_CODEX; codexCard.keys = "";
     if (String(codexCard.description || codexCard.notes || "") !== CONFIG_DEFAULT_CODEX_NOTES_SECTION) { codexCard.description = CONFIG_DEFAULT_CODEX_NOTES_SECTION; codexCard.notes = CONFIG_DEFAULT_CODEX_NOTES_SECTION; }
   }
@@ -9469,7 +9475,7 @@ function linkTwistPayoffToReveal(entity, tier) {
 // state, scoring, pacing, scars, milestones, trajectory and twist selection.
 // ============================================================================
 
-const CW_ENGINE_VERSION = 8;
+const CW_ENGINE_VERSION = 9;
 
 let CW_RUNTIME_EVENT_INDEX = null;
 let CW_RUNTIME_CONFIG_CACHE = null;
@@ -9479,6 +9485,8 @@ let CW_RUNTIME_SCENE_SCORES = null;
 let CW_RUNTIME_PROFILE_CACHE = null;
 let CW_RUNTIME_ENV_CACHE = null;
 let CW_RUNTIME_LINK_CACHE = null;
+let CW_RUNTIME_PAIR_KEYS = null;
+let CW_RUNTIME_PAIR_INDEX = null;
 
 const CW_DEFAULT_CONFIG = {
   enabled: true,
@@ -10000,6 +10008,27 @@ function CW_init() {
   cw.aliases = cw.aliases && typeof cw.aliases === "object" ? cw.aliases : {};
   cw.roles = cw.roles && typeof cw.roles === "object" ? cw.roles : {};
   cw.roleHistory = Array.isArray(cw.roleHistory) ? cw.roleHistory : [];
+  // Story Card foundations are derived canon, not synthetic turn-events. They
+  // let an established marriage/family/friendship exist before the first new
+  // relationship tag is emitted in a resumed or time-skipped adventure.
+  cw.foundations = cw.foundations && typeof cw.foundations === "object" ? cw.foundations : {};
+  cw.foundationSignature = String(cw.foundationSignature || "");
+  cw.foundationRebuiltTurn = Number.isFinite(Number(cw.foundationRebuiltTurn)) ? Number(cw.foundationRebuiltTurn) : -1;
+  // Relationship Story Cards rarely change three times inside one AI Dungeon turn.
+  // Remember that we already checked them this action so Input/Context/Output and
+  // managed-note rendering do not repeatedly rescan every Character card. A real
+  // Story Card edit is picked up on the next action, while dynamic relationship
+  // events still update immediately through the ledger.
+  cw.foundationCheckedTurn = Number.isFinite(Number(cw.foundationCheckedTurn)) ? Number(cw.foundationCheckedTurn) : -1;
+  // Managed Story Card Notes are a presentation cache, separate from the
+  // relationship graph itself. Older CROSSED ECHOES builds could therefore
+  // know an established bond in Context while the visible Notes still said
+  // "no mature directional bond". Keep a small migration queue tied to the
+  // foundation signature so existing adventures repair their visible cards
+  // without rescanning/updating every Character on every hook.
+  cw.foundationPresentationSignature = String(cw.foundationPresentationSignature || "");
+  cw.foundationPresentationTargetSignature = String(cw.foundationPresentationTargetSignature || "");
+  cw.foundationPresentationQueue = Array.isArray(cw.foundationPresentationQueue) ? cw.foundationPresentationQueue : [];
   cw.scenario = cw.scenario && typeof cw.scenario === "object" ? cw.scenario : { primary: "UNIVERSAL", secondary: "", confidence: 0, turn: -1, sinceTurn: -1 };
   cw.ledger = Array.isArray(cw.ledger) ? cw.ledger : [];
   cw.archivedAnchors = Array.isArray(cw.archivedAnchors) ? cw.archivedAnchors : [];
@@ -10098,16 +10127,41 @@ function CW_cleanName(name) {
 
 function CW_playerNames() {
   const names = ["you"];
+  function addName(raw) {
+    const clean = CW_cleanName(String(raw || ""));
+    const key = CW_key(clean || raw);
+    if (!key) return;
+    names.push(key);
+    // First-name aliases are useful in Character-card relationship fields such
+    // as "Married to Kyle" when the platform reports "Kyle Walker". Only add
+    // a non-trivial first token; full names remain authoritative.
+    const bits = key.split(/\s+/).filter(Boolean);
+    if (bits.length >= 2 && bits[0].length >= 3) names.push(bits[0]);
+  }
   if (typeof info !== "undefined" && Array.isArray(info.characterNames)) {
-    for (const n of info.characterNames) if (CW_key(n)) names.push(CW_key(n));
+    for (const n of info.characterNames) addName(n);
   }
   const ph = (state && Array.isArray(state.placeholders)) ? state.placeholders : [];
   for (const p of ph) {
     if (!p) continue;
     const q = String(p.question || "").toLowerCase();
     if (!/(?:character\.name|player\s*name|protagonist\s*name|your\s*name|what\s+is\s+your\s+name)/i.test(q)) continue;
-    const answer = CW_cleanName(String(p.answer || ""));
-    if (answer) names.push(CW_key(answer));
+    addName(String(p.answer || ""));
+  }
+  // AI Dungeon does not always expose characterNames to scripts. If exactly
+  // one Character card explicitly identifies itself as the protagonist/player,
+  // use that as a safe fallback instead of registering the player as an NPC.
+  if (typeof storyCards !== "undefined" && Array.isArray(storyCards)) {
+    const explicit = [];
+    for (const card of storyCards) {
+      if (!card || !/^(?:character|npc)$/i.test(String(card.type || ""))) continue;
+      const entry = CW_cardEntryText(card);
+      if (!/(?:^|\n)\s*(?:Arc\s+Role|Role)\s*:\s*(?:PRIMARY\s*\/\s*)?PROTAGONIST\b|(?:^|\n)\s*PLAYER\s*CHARACTER\s*:/im.test(entry)) continue;
+      const title = CW_cleanName(card.title || card.name || "");
+      if (title) explicit.push(title);
+    }
+    const unique = explicit.filter(function(x,i,a){ return a.findIndex(function(y){return CW_key(y)===CW_key(x);})===i; });
+    if (unique.length === 1) addName(unique[0]);
   }
   return names.filter(function (x, i, arr) { return x && arr.indexOf(x) === i; });
 }
@@ -10138,6 +10192,16 @@ function CW_cardKeysText(card) {
   if (!card) return "";
   if (Array.isArray(card.keys)) return card.keys.join(",");
   return String(card.keys || "");
+}
+
+function CW_cardEntryText(card) {
+  if (!card) return "";
+  // `entry` is the live AI Dungeon field. Exported Story Card JSON commonly
+  // calls the same public field `value`; supporting both makes audits/tests
+  // reflect the adventure the user actually exported.
+  if (card.entry != null && String(card.entry).trim()) return String(card.entry);
+  if (card.value != null && String(card.value).trim()) return String(card.value);
+  return "";
 }
 
 function CW_configCard() {
@@ -10826,9 +10890,347 @@ function CW_roleKey(from, to) {
   return f + "->" + t;
 }
 
+const CW_ROLE_PRIORITY = {
+  unknown:0, stranger:5, acquaintance:10, professional:32, colleague:34, teammate:36, ally:38,
+  political:40, client:42, attorney:42, patient:42, clinician:42, asset:42, handler:42,
+  crew:44, captain:44, subordinate:44, superior:44, student:46, mentor:46,
+  friend:52, best_friend:60, rival:64, enemy:68, romantic:78, ex:82,
+  relative:90, family:91, sibling:94, parent:96, child:96, caregiver:70, dependent:70
+};
+
+function CW_rolePriority(role) {
+  return Number(CW_ROLE_PRIORITY[String(role || "unknown").toLowerCase()] || 0);
+}
+
+function CW_foundationKey(from, to) {
+  const f = CW_key(CW_resolveNpcName(from) || from);
+  let t = CW_key(to);
+  if (t === "you" || CW_isPlayerName(to)) t = "you";
+  else t = CW_key(CW_resolveNpcName(to) || to);
+  return f + "->" + t;
+}
+
+function CW_foundationForPair(from, to) {
+  const cw = state && state.crossedWires;
+  if (!cw || !cw.foundations) return null;
+  return cw.foundations[CW_foundationKey(from, to)] || null;
+}
+
 function CW_getRole(from, to) {
   const rec = state.crossedWires.roles[CW_roleKey(from, to)];
-  return rec && CW_ROLE_CODES.includes(rec.role) ? rec.role : "unknown";
+  const dynamicRole = rec && CW_ROLE_CODES.includes(rec.role) ? rec.role : "unknown";
+  const foundation = CW_foundationForPair(from, to);
+  const foundationRole = foundation && CW_ROLE_CODES.includes(foundation.role) ? foundation.role : "unknown";
+  // Explicit family status must never be overwritten by an incidental romance
+  // or colleague tag. An explicit ex-state may supersede a current romantic
+  // foundation, while other dynamic roles only win when they are more specific.
+  if (CW_isFamilyRole(foundationRole)) return foundationRole;
+  if (dynamicRole === "ex" && foundationRole === "romantic") return "ex";
+  if (CW_rolePriority(dynamicRole) > CW_rolePriority(foundationRole)) return dynamicRole;
+  return foundationRole !== "unknown" ? foundationRole : dynamicRole;
+}
+
+function CW_foundationRoleSpec(clause) {
+  const c = String(clause || "").replace(/[–—]/g, "-");
+  // Explicit negative/no-current-relationship prose must never create a
+  // foundation simply because it contains words such as "friendship".
+  if (/\b(?:no\s+(?:specific\s+|established\s+|current\s+|known\s+)?(?:personal\s+)?(?:history|relationship|family|romantic|friendship|rivalry|mentorship)|relationship\s+(?:is|remains)\s+(?:unknown|unestablished)|unknown\s+relationship|do\s+not\s+invent\s+(?:one|a\s+relationship))\b/i.test(c)) return null;
+
+  const tests = [
+    {role:"ex", re:/\b(?:ex[- ]?(?:husband|wife|spouse|boyfriend|girlfriend|partner)|former\s+(?:husband|wife|spouse|boyfriend|girlfriend|romantic\s+partner|partner|relationship)|previous\s+(?:spouse|romantic\s+partner)|former\s+partner\s*\/\s*co[- ]?parent)\b/i, flags:{brokenUp:true}},
+    {role:"parent", re:/\b(?:adoptive\s+|foster\s+|step[- ]?|biological\s+)?(?:mother|father|parent)\s+(?:of|to)\b/i},
+    {role:"parent", re:/\b[^;,:]{1,80}[’']s\s+(?:biological\s+|adoptive\s+|foster\s+|step[- ]?)?(?:mother|father|parent)\b/i},
+    {role:"child", re:/\b(?:adopted\s+|foster\s+|step[- ]?)?(?:daughter|son|child)\s+(?:of|to)\b/i},
+    {role:"child", re:/\b[^;,:]{1,80}[’']s\s+(?:adopted\s+|foster\s+|step[- ]?)?(?:daughter|son|child)\b/i},
+    {role:"sibling", re:/\b(?:step[- ]|half[- ])?(?:sister|brother|sibling)\s+(?:of|to)\b/i},
+    {role:"sibling", re:/\b[^;,:]{1,80}[’']s\s+(?:step[- ]|half[- ])?(?:sister|brother|sibling)\b/i},
+    {role:"relative", re:/\b(?:grandmother|grandfather|grandparent|granddaughter|grandson|grandchild|aunt|uncle|niece|nephew|cousin|(?:mother|father|sister|brother|son|daughter)-in-law)\s+(?:of|to)\b/i},
+    {role:"relative", re:/\b[^;,:]{1,80}[’']s\s+(?:grandmother|grandfather|grandparent|granddaughter|grandson|grandchild|aunt|uncle|niece|nephew|cousin|(?:mother|father|sister|brother|son|daughter)-in-law)\b/i},
+    {role:"relative", re:/\b(?:in-law|extended\s+family|chosen[- ]family|family\s+elder)\b/i},
+    {role:"romantic", re:/\b(?:married\s+to|wife\s+of|husband\s+of|spouse\s+of|widow(?:er)?\s+of|boyfriend\s+of|girlfriend\s+of|romantic\s+partner\s+(?:of|to)|engaged\s+to)\b/i, flags:{defined:true,exclusive:true,committed:true}},
+    {role:"best_friend", re:/\bbest\s+friend(?:s)?\b/i},
+    {role:"friend", re:/\b(?:close\s+|long[- ]term\s+|trusted\s+)?friend(?:s|ship)?\b/i},
+    {role:"friend", re:/\b(?:especially\s+)?(?:close|attached)\s+(?:to|with)\b/i},
+    {role:"friend", re:/\bfriendly\s+with\b/i},
+    {role:"ally", re:/\b(?:deeply\s+)?trusted\s+by\b/i},
+    {role:"enemy", re:/\b(?:enemy|nemesis|archenemy|hostile\s+opponent)\b/i},
+    {role:"rival", re:/\b(?:rival|competitive\s+rival)\b/i},
+    {role:"mentor", re:/\b(?:mentor|coach)\s+(?:of|to)\b/i},
+    {role:"student", re:/\b(?:student|pupil|trainee)\s+(?:of|to)\b/i},
+    {role:"handler", re:/\bhandler\s+(?:of|to|for)\b/i},
+    {role:"asset", re:/\basset\s+(?:of|to|for)\b/i},
+    {role:"clinician", re:/\b(?:doctor|clinician|therapist|physician)\s+(?:of|to|for)\b/i},
+    {role:"patient", re:/\bpatient\s+(?:of|to)\b/i},
+    {role:"attorney", re:/\b(?:attorney|lawyer|counsel)\s+(?:of|to|for)\b/i},
+    {role:"client", re:/\bclient\s+(?:of|to)\b/i},
+    {role:"superior", re:/\b(?:boss|manager|supervisor|commander|commanding\s+officer)\s+(?:of|to)\b/i},
+    {role:"subordinate", re:/\b(?:subordinate|direct\s+report)\s+(?:of|to)|\bworking\s+under\b/i},
+    {role:"captain", re:/\bcaptain\s+(?:of|to)\b/i},
+    {role:"crew", re:/\bcrew(?:mate)?\s+(?:of|to|with)\b/i},
+    {role:"colleague", re:/\b(?:trusted\s+|close\s+|long[- ]term\s+)?colleague(?:s)?\b/i},
+    {role:"colleague", re:/\bclose\s+working\s+relationship(?:s)?\s+with\b/i},
+    {role:"professional", re:/\b(?:professional\s+partner|working\s+relationship|professional\s+relationship|professional\s+trust\s+with|works?\s+(?:closely\s+)?with)\b/i},
+    {role:"political", re:/\b(?:political\s+opponent|political\s+ally|political\s+partner)\b/i},
+    {role:"ally", re:/\b(?:long[- ]term\s+|trusted\s+|close\s+)?all(?:y|ies)|\ballied\s+with\b/i},
+    {role:"family", re:/\b(?:family\s+bond|family\s+relationship|family\s+member|chosen[- ]family)\b/i},
+    // A deliberately generic but explicit relationship statement can still
+    // carry familiarity/trust without inventing friendship or romance.
+    {role:"acquaintance", re:/\brelationship\s+with\b.*\b(?:trust|respect|familiarity)\b|\b(?:respected|trusted)\s+by\b/i}
+  ];
+  let best = null;
+  for (const t of tests) {
+    const m=t.re.exec(c);
+    if (!m) continue;
+    // Relationship labels in explicit negation are constraints, not bonds:
+    // "not subordinate to Legacy" must not turn a friendly ally into a
+    // subordinate. Likewise, co-parent describes adult co-parenting, not a
+    // parent→partner family direction.
+    const pre=c.slice(Math.max(0,m.index-18),m.index);
+    if(/(?:\bnot|\bnever|\bno\s+longer|isn't|isnt|wasn't|wasnt|aren't|arent|weren't|werent)\s*$/i.test(pre)) continue;
+    if(t.role==="parent"&&(/co[- ]?parent/i.test(String(m[0]||""))||/co[- ]?$/.test(c.slice(Math.max(0,m.index-4),m.index)))) continue;
+    const candidate={role:t.role,flags:Object.assign({},t.flags||{}),matchIndex:Number(m.index)||0,matchEnd:(Number(m.index)||0)+String(m[0]||"").length,matchText:String(m[0]||"")};
+    if (!best || CW_rolePriority(t.role) > CW_rolePriority(best.role)) best = candidate;
+  }
+  if (best && best.role === "romantic" && /\bmarried\s+to|\b(?:wife|husband|spouse|widow|widower)\s+of\b/i.test(c)) {
+    best.flags.married = true; best.flags.proposed = true; best.flags.committed = true; best.flags.exclusive = true; best.flags.defined = true;
+    if (/\bwidow(?:er)?\s+of\b/i.test(c)) best.flags.widowed = true;
+  }
+  return best;
+}
+
+function CW_aliasIsVariantQualifiedInClause(clause, aliasKey) {
+  const c=String(clause||""), a=String(aliasKey||"").trim();
+  if(!c||!a) return false;
+  const esc=a.replace(/[.*+?^${}()|[\]\\]/g,"\\$&").replace(/\s+/g,"\\s+");
+  const before="(?:future|past|alternate|alternative|parallel|variant|other[-\\s]+(?:world|universe|timeline)|multiversal|earth[-\\s]?\\d+|timeline[-\\s]+[a-z0-9_-]+|older|younger|one[-\\s]+year[-\\s]+future)";
+  const re1=new RegExp("\\b"+before+"\\s+(?:version\\s+of\\s+|counterpart\\s+of\\s+)?"+esc+"\\b","i");
+  const re2=new RegExp("\\b"+esc+"[’']s\\s+(?:future|past|alternate|parallel|variant)\\s+(?:self|version|counterpart)\\b","i");
+  const re3=new RegExp("\\b(?:version|counterpart)\\s+of\\s+"+esc+"\\s+from\\s+(?:another|an?\\s+alternate|a\\s+parallel)\\b","i");
+  return re1.test(c)||re2.test(c)||re3.test(c);
+}
+
+function CW_foundationScopedClause(clause,spec) {
+  const c=String(clause||""); if(!c||!spec)return c;
+  // Relationship fields often explain *when/why* a bond happened after naming
+  // its actual target. Names inside that explanatory tail are context, not
+  // additional relationship objects (e.g. "former relationship with Ravati
+  // during Kyle's five-year death"). Keep the relationship phrase and target
+  // list, but stop at a later temporal/causal aside.
+  const start=Math.max(0,Number(spec.matchEnd||0));
+  const tail=c.slice(start);
+  const cut=/\b(?:during|while|because|when|following|due\s+to|after|before|for\s+(?:sacrificing|saving|helping|protecting)|so\s+(?:that|he|she|they|it|you))\b/i.exec(tail);
+  if(cut&&cut.index>=0)return c.slice(0,start+cut.index).trim();
+  return c;
+}
+var CW_FOUNDATION_CASE_GUARDED_ALIASES={
+  ally:1,ghost:1,hope:1,faith:1,grace:1,justice:1,chance:1,hunter:1,angel:1,storm:1,raven:1,sage:1,dawn:1,sky:1,ash:1,echo:1,deep:1,summer:1,rose:1
+};
+function CW_foundationAliasAllowed(clause,aliasKey,canonical,spec) {
+  const a=String(aliasKey||"").trim(); if(!a)return false;
+  const text=String(clause||""),display=String(canonical||"").trim();
+  if(!display)return false;
+  var guarded=a.indexOf(" ")<0&&CW_FOUNDATION_CASE_GUARDED_ALIASES[a];
+  var pattern=guarded?display:a;
+  const esc=String(pattern).replace(/[.*+?^${}()|[\]\\]/g,"\\$&");
+  const flags=guarded?"g":"gi";
+  const re=new RegExp("(^|[^A-Za-z0-9_])("+esc+")(?=[^A-Za-z0-9_]|$)",flags);
+  var m,found=false;
+  while((m=re.exec(text))!==null){
+    var tokenStart=m.index+String(m[1]||"").length,tokenEnd=tokenStart+String(m[2]||"").length;
+    // If the word is itself the relationship label ("Ally of Val"), it is
+    // grammar, not the Character named Ally. A later non-overlapping Ally can
+    // still be a legitimate target: "friend of Ally".
+    var overlaps=guarded&&spec&&tokenStart<Number(spec.matchEnd||0)&&tokenEnd>Number(spec.matchIndex||0);
+    if(!overlaps){found=true;break;}
+    if(re.lastIndex===m.index)re.lastIndex++;
+  }
+  return found;
+}
+
+function CW_foundationPriors(role, clause) {
+  const p = {trust:0,affection:0,respect:0,loyalty:0,openness:0,attachment:0,attraction:0,jealousy:0,resentment:0,fear:0,tension:3};
+  const r = String(role || "unknown");
+  if (r === "romantic") { p.trust=18; p.affection=24; p.loyalty=18; p.attachment=24; p.respect=12; p.openness=8; }
+  else if (CW_isFamilyRole(r)) { p.trust=12; p.affection=15; p.loyalty=16; p.attachment=14; p.respect=8; }
+  else if (r === "best_friend") { p.trust=24; p.affection=20; p.loyalty=18; p.respect=14; p.openness=12; }
+  else if (r === "friend") { p.trust=16; p.affection=12; p.loyalty=10; p.respect=10; }
+  else if (["ally","teammate","colleague","professional","mentor","student","clinician","patient","attorney","client","handler","asset","captain","crew","superior","subordinate"].includes(r)) { p.trust=8; p.respect=14; p.loyalty=6; }
+  else if (r === "rival") { p.respect=8; p.tension=20; p.resentment=8; }
+  else if (r === "enemy") { p.trust=-28; p.affection=-18; p.resentment=25; p.tension=28; }
+  else if (r === "ex") { p.trust=0; p.affection=4; p.attachment=8; p.tension=8; }
+  const c = String(clause || "");
+  if (/\bdeeply\s+trusted|\btrusted\s+by\b/i.test(c)) p.trust += 18;
+  else if (/\btrusted\b/i.test(c)) p.trust += 10;
+  if (/\bclose\b|\baffectionate\b/i.test(c)) { p.affection += 8; p.attachment += 6; }
+  if (/\bestranged\b/i.test(c)) { p.trust -= 12; p.affection -= 8; p.tension += 12; }
+  if (/\bprotective\b/i.test(c)) p.loyalty += 8;
+  Object.keys(p).forEach(function(k){ p[k]=CW_clampMetric(k,p[k]); });
+  return p;
+}
+
+function CW_foundationFamiliarity(role) {
+  if (role === "romantic" || role === "ex") return 90;
+  if (CW_isFamilyRole(role)) return 88;
+  if (["best_friend","friend"].includes(role)) return 76;
+  if (["enemy","rival"].includes(role)) return 68;
+  return 60;
+}
+
+function CW_foundationAdd(target, from, to, role, clause, sourceTitle, flags) {
+  let fromName = String(from || ""), toName = String(to || "");
+  let r = String(role || "unknown").toLowerCase();
+  if (!fromName || !toName || !CW_ROLE_CODES.includes(r)) return;
+  // The player has no script-owned directional feelings. Invert a player-card
+  // relationship so only the NPC -> YOU direction is represented.
+  if (CW_isPlayerName(fromName) || CW_key(fromName) === "you") {
+    if (CW_isPlayerName(toName) || CW_key(toName) === "you") return;
+    const inv = CW_ROLE_INVERSE[r] || r;
+    CW_foundationAdd(target, toName, "YOU", inv, clause, sourceTitle, flags);
+    return;
+  }
+  if (CW_isPlayerName(toName)) toName = "YOU";
+  if (CW_key(fromName) === CW_key(toName)) return;
+  if (toName !== "YOU" && !CW_config().enableNpcNpc) return;
+  const key = CW_key(fromName) + "->" + (toName === "YOU" ? "you" : CW_key(toName));
+  const incoming = {
+    from:fromName,to:toName,role:r,explicit:true,source:"Story Card Relationships",
+    facts:[CW_clipText(clause,220)],sourceTitles:[String(sourceTitle||"")],
+    flags:Object.assign({},flags||{}),priors:CW_foundationPriors(r,clause),familiarity:CW_foundationFamiliarity(r)
+  };
+  const old = target[key];
+  if (!old) target[key] = incoming;
+  else {
+    if (CW_rolePriority(r) > CW_rolePriority(old.role)) old.role = r;
+    old.facts = Array.from(new Set((old.facts||[]).concat(incoming.facts))).slice(-4);
+    old.sourceTitles = Array.from(new Set((old.sourceTitles||[]).concat(incoming.sourceTitles))).slice(-4);
+    old.flags = Object.assign({},old.flags||{},incoming.flags||{});
+    const pri = old.priors || {};
+    Object.keys(incoming.priors).forEach(function(k){
+      const a=Number(pri[k]||0),b=Number(incoming.priors[k]||0);
+      pri[k]=Math.abs(b)>Math.abs(a)?b:a;
+    });
+    old.priors=pri; old.familiarity=Math.max(Number(old.familiarity||0),Number(incoming.familiarity||0));
+  }
+  if (toName !== "YOU") {
+    const inv = CW_ROLE_INVERSE[r];
+    if (inv && CW_ROLE_CODES.includes(inv)) {
+      const revKey = CW_key(toName) + "->" + CW_key(fromName);
+      if (!target[revKey] || CW_rolePriority(inv) > CW_rolePriority(target[revKey].role)) {
+        target[revKey] = {
+          from:toName,to:fromName,role:inv,explicit:true,source:"Story Card Relationships",
+          facts:[CW_clipText(clause,220)],sourceTitles:[String(sourceTitle||"")],
+          flags:Object.assign({},flags||{}),priors:CW_foundationPriors(inv,clause),familiarity:CW_foundationFamiliarity(inv)
+        };
+      }
+    }
+  }
+}
+
+function CW_relationshipField(entry) {
+  const text = String(entry || "");
+  const lines = text.split(/\r?\n/);
+  const fields=[];
+  for (const line of lines) {
+    const m = /^\s*(?:Relationships?|Relationship\s+Status)\s*:\s*(.+)$/i.exec(line);
+    if (m && m[1]) fields.push(m[1].trim());
+  }
+  return fields.join("; ");
+}
+
+function CW_storyCardCharacterIndex() {
+  const chars=[],aliasOwners={},raw=[];
+  if (typeof storyCards === "undefined" || !Array.isArray(storyCards)) return {chars:chars, aliases:{}};
+  for (const card of storyCards) {
+    if (!card || !/^(?:character|npc)$/i.test(String(card.type||""))) continue;
+    const title=CW_cleanName(card.title||card.name||""); if(!title)continue;
+    const entry=CW_cardEntryText(card), aliases=[title], explicitAliases=[];
+    const nm=/^\s*Name\s*:\s*([^\n\r]+)/im.exec(entry);
+    let nameField="";
+    if(nm){nameField=CW_cleanName(String(nm[1]||"").replace(/^(?:Professor|Prof\.?|Doctor|Dr\.?|Mr\.?|Mrs\.?|Ms\.?|Captain|Commander|Senator)\s+/i,""));if(nameField)aliases.push(nameField);}
+    const arx=/^\s*Alias(?:es)?\s*:\s*([^\n\r]+)/img;let am;
+    while((am=arx.exec(entry))!==null){String(am[1]||"").split(/[,;/]/).forEach(function(x){const a=CW_cleanName(x);if(a){aliases.push(a);explicitAliases.push(a);}});}
+    CW_cardKeysText(card).split(/[,;]/).forEach(function(x){const a=CW_cleanName(x);if(a)aliases.push(a);});
+    const unique=aliases.filter(function(x,i,a){return a.findIndex(function(y){return CW_key(y)===CW_key(x);})===i;}).slice(0,12);
+    raw.push({card:card,title:title,entry:entry,nameField:nameField,explicitAliases:explicitAliases,aliases:unique,relationship:CW_relationshipField(entry),canonical:title});
+  }
+  // Merge only explicit alias duplicate cards. Equal Name: values alone are not
+  // enough: crossovers can legitimately contain two different people with the
+  // same civilian name. Mateo/Velocity is safe because Mateo explicitly lists
+  // Velocity as an alias and both cards identify the same Name: Mateo Cruz.
+  for(let i=0;i<raw.length;i++)for(let j=i+1;j<raw.length;j++){
+    const a=raw[i],b=raw[j]; if(!a.nameField||!b.nameField||CW_key(a.nameField)!==CW_key(b.nameField))continue;
+    const aPoints=(a.explicitAliases||[]).some(function(x){return CW_key(x)===CW_key(b.title);});
+    const bPoints=(b.explicitAliases||[]).some(function(x){return CW_key(x)===CW_key(a.title);});
+    if(!aPoints&&!bPoints)continue;
+    const canonical=aPoints&&!bPoints?a.title:(bPoints&&!aPoints?b.title:((/historical.*alias|card\s+purpose\s*:\s*historical/i.test(a.entry)&&!/historical.*alias|card\s+purpose\s*:\s*historical/i.test(b.entry))?b.title:a.title));
+    a.canonical=canonical;b.canonical=canonical;
+  }
+  raw.forEach(function(rec){
+    const canonical=rec.canonical||rec.title;
+    chars.push({card:rec.card,title:canonical,sourceTitle:rec.title,entry:rec.entry,aliases:rec.aliases,relationship:rec.relationship});
+    rec.aliases.forEach(function(a){const k=CW_key(a);if(!aliasOwners[k])aliasOwners[k]=[];aliasOwners[k].push(canonical);});
+    aliasOwners[CW_key(rec.title)]=aliasOwners[CW_key(rec.title)]||[];aliasOwners[CW_key(rec.title)].push(canonical);
+  });
+  const aliases={};
+  Object.keys(aliasOwners).forEach(function(k){const owners=Array.from(new Set(aliasOwners[k]));if(owners.length===1)aliases[k]=owners[0];});
+  CW_playerNames().forEach(function(k){if(k&&k!=="you")aliases[k]="YOU";});
+  return {chars:chars,aliases:aliases};
+}
+function CW_storyCardFoundationSignature() {
+  if (typeof storyCards === "undefined" || !Array.isArray(storyCards)) return "";
+  const parts=[];
+  for(const card of storyCards){
+    if(!card||!/^(?:character|npc)$/i.test(String(card.type||"")))continue;
+    const title=CW_cleanName(card.title||card.name||""); if(!title)continue;
+    parts.push(CW_key(title)+"|"+CW_relationshipField(CW_cardEntryText(card)));
+  }
+  const players=(typeof info!=="undefined"&&Array.isArray(info.characterNames)?info.characterNames:[]).map(CW_key).sort().join(",");
+  return players+"\n"+parts.sort().join("\n");
+}
+
+function CW_rebuildStoryCardFoundations(turn) {
+  if (typeof storyCards === "undefined" || !Array.isArray(storyCards)) return false;
+  const cw=state.crossedWires, now=Number(turn)||0;
+  if (cw.foundationCheckedTurn===now && cw.foundations && typeof cw.foundations==="object") return false;
+  cw.foundationCheckedTurn=now;
+  const signature=CW_storyCardFoundationSignature();
+  if (cw.foundationSignature===signature && cw.foundations && typeof cw.foundations==="object") return false;
+  const index=CW_storyCardCharacterIndex();
+  const next={};
+  const aliasEntries=Object.keys(index.aliases).sort(function(a,b){return b.length-a.length;});
+  for (const rec of index.chars) {
+    const rel=String(rec.relationship||"").trim();
+    if(!rel) continue;
+    const subject = CW_isPlayerName(rec.title) ? "YOU" : rec.title;
+    const clauses=rel.split(/\s*;\s*/).map(function(x){return x.trim();}).filter(Boolean);
+    for (const clause of clauses) {
+      if (/\b(?:no\s+(?:specific\s+|established\s+|current\s+)?(?:personal\s+)?(?:history|relationship)|relationship\s+(?:is|remains)\s+unknown|unknown\s+relationship|no\s+known\s+relationship)\b/i.test(clause)) continue;
+      const spec=CW_foundationRoleSpec(clause);
+      if(!spec) continue;
+      const scopedClause=CW_foundationScopedClause(clause,spec);
+      const targets=[],seen={};
+      for(const aliasKey of aliasEntries){
+        if(!CW_wordPresent(scopedClause,aliasKey)) continue;
+        const canonical=index.aliases[aliasKey];
+        if(!CW_foundationAliasAllowed(scopedClause,aliasKey,canonical,spec)) continue;
+        if(!canonical || canonical===subject || (subject!=="YOU" && CW_key(canonical)===CW_key(subject))) continue;
+        // A Story Card that says "future Kyle", "alternate Kyle", etc. is
+        // describing a distinct continuity identity. Do not silently attach
+        // that relationship to primary YOU just because the base name matches.
+        if(canonical==="YOU" && CW_aliasIsVariantQualifiedInClause(scopedClause,aliasKey)) continue;
+        const ck=canonical==="YOU"?"you":CW_key(canonical);
+        if(seen[ck])continue; seen[ck]=true; targets.push(canonical);
+      }
+      for(const targetName of targets) CW_foundationAdd(next,subject,targetName,spec.role,clause,rec.sourceTitle||rec.title,spec.flags||{});
+    }
+  }
+  cw.foundations=next;
+  cw.foundationSignature=signature;
+  cw.foundationRebuiltTurn=Number(turn)||0;
+  CW_RUNTIME_LINK_CACHE=null;
+  CW_RUNTIME_PAIR_KEYS=null;
+  CW_RUNTIME_PAIR_INDEX=null;
+  return true;
 }
 
 function CW_rebuildRoles() {
@@ -11001,6 +11403,7 @@ function CW_touchKnownNpcs(text, turn) {
 
 function CW_seedFromCharacterCards(turn) {
   if (typeof storyCards === "undefined" || !Array.isArray(storyCards)) return;
+  CW_rebuildStoryCardFoundations(turn);
   const recent = CW_recentHistoryText();
   for (const card of storyCards) {
     if (!card) continue;
@@ -11020,7 +11423,7 @@ function CW_seedFromCharacterCards(turn) {
     const canonical = candidates[0];
     const mentioned = candidates.some(function (candidate) { return CW_wordPresent(recent, candidate); });
     if (!mentioned) continue;
-    CW_registerNpc(canonical, turn, CW_detectAdultFromEntry(String(card.entry || "") + "\n" + (typeof CE_publicStoryCardNotes === "function" ? CE_publicStoryCardNotes(card) : String(card.description || card.notes || ""))));
+    CW_registerNpc(canonical, turn, CW_detectAdultFromEntry(CW_cardEntryText(card) + "\n" + (typeof CE_publicStoryCardNotes === "function" ? CE_publicStoryCardNotes(card) : String(card.description || card.notes || ""))));
     for (const alias of candidates.slice(1, 8)) CW_registerAlias(alias, canonical);
   }
 }
@@ -11276,6 +11679,9 @@ function CW_relationshipFlags(events) {
 
 function CW_invalidateEventIndex() {
   CW_RUNTIME_EVENT_INDEX = null;
+  CW_RUNTIME_PAIR_KEYS = null;
+  CW_RUNTIME_PAIR_INDEX = null;
+  CW_RUNTIME_LINK_CACHE = null;
 }
 
 function CW_eventIndex() {
@@ -11425,130 +11831,123 @@ function CW_needContextText(link, maxCount) {
 function CW_computeLink(from, to, turn) {
   const cfg = CW_config();
   const resolvedFrom = CW_resolveNpcName(from) || from;
-  const resolvedTo = CW_key(to) === "you" ? "YOU" : (CW_resolveNpcName(to) || to);
+  const resolvedTo = (CW_key(to) === "you" || CW_isPlayerName(to)) ? "YOU" : (CW_resolveNpcName(to) || to);
   if (!CW_RUNTIME_LINK_CACHE) CW_RUNTIME_LINK_CACHE = {};
   const cacheKey = CW_key(resolvedFrom) + "=>" + CW_key(resolvedTo) + "@" + Number(turn || 0);
   if (Object.prototype.hasOwnProperty.call(CW_RUNTIME_LINK_CACHE, cacheKey)) return CW_RUNTIME_LINK_CACHE[cacheKey];
   const events = CW_eventsForPair(resolvedFrom, resolvedTo, turn);
-  if (!events.length) { CW_RUNTIME_LINK_CACHE[cacheKey] = null; return null; }
+  const foundation = CW_foundationForPair(resolvedFrom, resolvedTo);
+  if (!events.length && !foundation) { CW_RUNTIME_LINK_CACHE[cacheKey] = null; return null; }
 
   const scores = {
     trust: 0, affection: 0, respect: 0, loyalty: 0, openness: 0,
     attachment: 0, attraction: 0, jealousy: 0, resentment: 0, fear: 0, tension: 3
   };
+  if (foundation && foundation.priors) {
+    for (const metric of CW_METRICS) if (Number.isFinite(Number(foundation.priors[metric]))) scores[metric]=CW_clampMetric(metric,Number(foundation.priors[metric]));
+  }
 
-  const matureAt = Math.max(CW_matureAtForName(resolvedFrom), CW_matureAtForName(resolvedTo));
-  let betrayalScars = 0;
-  let abandonmentScars = 0;
-  let boundaryScars = 0;
-  let lastTurn = events[0].turn;
-  const recentGroupTurn = {};
-  const recentKindTurn = {};
+  // Explicit Story Card canon is already established. New/provisional NPC gates
+  // still apply to relationships that exist only because of fresh turn events.
+  const matureAt = foundation ? 0 : Math.max(CW_matureAtForName(resolvedFrom), CW_matureAtForName(resolvedTo));
+  let betrayalScars = 0, abandonmentScars = 0, boundaryScars = 0;
+  let lastTurn = events.length ? events[0].turn : Number(turn || 0);
+  const recentGroupTurn = {}, recentKindTurn = {};
   const paceUp = cfg.relationshipPace === "FAST" ? 1.22 : (cfg.relationshipPace === "BALANCED" ? 1.0 : 0.78);
   const paceDown = cfg.relationshipPace === "FAST" ? 1.06 : (cfg.relationshipPace === "BALANCED" ? 1.0 : 0.92);
 
   for (const e of events) {
-    CW_applyPassiveDecay(scores, e.turn - lastTurn);
-    lastTurn = e.turn;
-
+    CW_applyPassiveDecay(scores, e.turn - lastTurn); lastTurn = e.turn;
     const effect = CW_EVENT_EFFECTS[e.kind] || {};
     const severityMultiplier = e.severity === 1 ? 0.65 : (e.severity === 2 ? 1.0 : 1.65);
-    const incubationMultiplier = e.turn < matureAt ? 0.38 : 1.0;
+    const incubationMultiplier = foundation ? 1.0 : (e.turn < matureAt ? 0.38 : 1.0);
     let noveltyMultiplier = 1.0;
     if (cfg.repetitionDamping) {
-      const group = CW_eventGroup(e.kind);
-      const lastGroup = recentGroupTurn[group];
-      const lastKind = recentKindTurn[e.kind];
-      if (lastGroup != null) {
-        const gap = Math.max(0, Number(e.turn) - Number(lastGroup));
-        if (gap <= 1) noveltyMultiplier *= 0.50;
-        else if (gap <= 3) noveltyMultiplier *= 0.70;
-        else if (gap <= 6) noveltyMultiplier *= 0.86;
-      }
-      if (lastKind != null && Number(e.turn) - Number(lastKind) <= 3) noveltyMultiplier *= 0.88;
-      if (e.severity >= 3 || CW_ARCHIVE_EVENT_KINDS.includes(e.kind)) noveltyMultiplier = Math.max(0.88, noveltyMultiplier);
-      recentGroupTurn[group] = e.turn;
-      recentKindTurn[e.kind] = e.turn;
+      const group = CW_eventGroup(e.kind), lastGroup = recentGroupTurn[group], lastKind = recentKindTurn[e.kind];
+      if (lastGroup != null) { const gap=Math.max(0,Number(e.turn)-Number(lastGroup)); if(gap<=1)noveltyMultiplier*=0.50; else if(gap<=3)noveltyMultiplier*=0.70; else if(gap<=6)noveltyMultiplier*=0.86; }
+      if (lastKind != null && Number(e.turn)-Number(lastKind)<=3) noveltyMultiplier*=0.88;
+      if (e.severity>=3 || CW_ARCHIVE_EVENT_KINDS.includes(e.kind)) noveltyMultiplier=Math.max(0.88,noveltyMultiplier);
+      recentGroupTurn[group]=e.turn; recentKindTurn[e.kind]=e.turn;
     }
-
     for (const metric in effect) {
-      let delta = effect[metric] * severityMultiplier * incubationMultiplier * noveltyMultiplier;
-      delta *= delta >= 0 ? paceUp : paceDown;
-      const current = scores[metric] || 0;
-
-      // Damage leaves inertia. Apologies can lower heat, but trust and closeness
-      // recover primarily through repeated story-supported behavior.
-      if (delta > 0 && metric === "trust" && (betrayalScars + boundaryScars) > 0) {
-        delta *= Math.max(0.25, 1 - betrayalScars * 0.2 - boundaryScars * 0.16);
-      }
-      if (delta > 0 && metric === "attachment" && abandonmentScars > 0) {
-        delta *= Math.max(0.42, 1 - abandonmentScars * 0.18);
-      }
-      if (delta > 0 && metric === "openness" && boundaryScars > 0) {
-        delta *= Math.max(0.45, 1 - boundaryScars * 0.18);
-      }
-
-      // Diminishing returns prevent a handful of repeated tags from maxing a stat.
-      if ((delta > 0 && current > 45) || (delta < 0 && current < -45)) delta *= 0.72;
-      if ((delta > 0 && current > 75) || (delta < 0 && current < -75)) delta *= 0.58;
-      if (delta > 0 && ["attachment", "attraction", "jealousy", "resentment", "fear", "tension"].includes(metric) && current > 75) delta *= 0.58;
-
-      scores[metric] = CW_clampMetric(metric, current + delta);
+      let delta=effect[metric]*severityMultiplier*incubationMultiplier*noveltyMultiplier;
+      delta*=delta>=0?paceUp:paceDown;
+      const current=scores[metric]||0;
+      if(delta>0&&metric==="trust"&&(betrayalScars+boundaryScars)>0)delta*=Math.max(0.25,1-betrayalScars*0.2-boundaryScars*0.16);
+      if(delta>0&&metric==="attachment"&&abandonmentScars>0)delta*=Math.max(0.42,1-abandonmentScars*0.18);
+      if(delta>0&&metric==="openness"&&boundaryScars>0)delta*=Math.max(0.45,1-boundaryScars*0.18);
+      if((delta>0&&current>45)||(delta<0&&current<-45))delta*=0.72;
+      if((delta>0&&current>75)||(delta<0&&current<-75))delta*=0.58;
+      if(delta>0&&["attachment","attraction","jealousy","resentment","fear","tension"].includes(metric)&&current>75)delta*=0.58;
+      scores[metric]=CW_clampMetric(metric,current+delta);
     }
-
-    if ((e.kind === "betrayal" || e.kind === "infidelity") && e.severity >= 2) betrayalScars += (e.kind === "infidelity" ? 2 : 1);
-    if (e.kind === "abandonment" && e.severity >= 2) abandonmentScars++;
-    if (["boundary_violated", "coercive_pressure"].includes(e.kind) && e.severity >= 2) boundaryScars++;
-    if (e.kind === "trust_repair" && e.severity >= 2) betrayalScars = Math.max(0, betrayalScars - 1);
-    if (e.kind === "boundary_repair" && e.severity >= 2) boundaryScars = Math.max(0, boundaryScars - 1);
-    if (e.kind === "abandonment_repair" && e.severity >= 2) abandonmentScars = Math.max(0, abandonmentScars - 1);
+    if((e.kind==="betrayal"||e.kind==="infidelity")&&e.severity>=2)betrayalScars+=(e.kind==="infidelity"?2:1);
+    if(e.kind==="abandonment"&&e.severity>=2)abandonmentScars++;
+    if(["boundary_violated","coercive_pressure"].includes(e.kind)&&e.severity>=2)boundaryScars++;
+    if(e.kind==="trust_repair"&&e.severity>=2)betrayalScars=Math.max(0,betrayalScars-1);
+    if(e.kind==="boundary_repair"&&e.severity>=2)boundaryScars=Math.max(0,boundaryScars-1);
+    if(e.kind==="abandonment_repair"&&e.severity>=2)abandonmentScars=Math.max(0,abandonmentScars-1);
   }
 
-  CW_applyPassiveDecay(scores, turn - lastTurn);
-  const memories = events.slice(-cfg.maxRecentMemories);
-  const fromNpc = state.crossedWires.npcs[CW_key(resolvedFrom)];
-  const toNpc = resolvedTo === "YOU" ? null : state.crossedWires.npcs[CW_key(resolvedTo)];
-  const appearanceWeight = ((fromNpc && fromNpc.mentions) || 1) + ((toNpc && toNpc.mentions) || (resolvedTo === "YOU" ? 2 : 1));
-  const familiarity = Math.min(100, events.length * 6 + Math.min(25, appearanceWeight * 2) + Math.min(15, Math.max(0, turn - events[0].turn)));
-  const flags = CW_relationshipFlags(events);
-  flags.betrayalScars = betrayalScars;
-  flags.abandonmentScars = abandonmentScars;
-  flags.boundaryScars = boundaryScars;
+  if(events.length) CW_applyPassiveDecay(scores, turn-lastTurn);
+  const memories=events.slice(-cfg.maxRecentMemories);
+  const fromNpc=state.crossedWires.npcs[CW_key(resolvedFrom)], toNpc=resolvedTo==="YOU"?null:state.crossedWires.npcs[CW_key(resolvedTo)];
+  const appearanceWeight=((fromNpc&&fromNpc.mentions)||1)+((toNpc&&toNpc.mentions)||(resolvedTo==="YOU"?2:1));
+  const eventFamiliarity=events.length ? Math.min(100,events.length*6+Math.min(25,appearanceWeight*2)+Math.min(15,Math.max(0,turn-events[0].turn))) : 0;
+  const familiarity=Math.max(eventFamiliarity,foundation?Number(foundation.familiarity||0):0);
+  const flags=CW_relationshipFlags(events);
+  if(foundation&&foundation.flags){ Object.keys(foundation.flags).forEach(function(k){ if(typeof foundation.flags[k]==="boolean"&&foundation.flags[k])flags[k]=true; }); }
+  flags.betrayalScars=betrayalScars; flags.abandonmentScars=abandonmentScars; flags.boundaryScars=boundaryScars;
 
-  const trajectory = CW_trajectory(events);
-  const role = CW_getRole(resolvedFrom, resolvedTo);
-  const arc = CW_relationshipArc(scores, flags, events, role, trajectory);
-  const needs = CW_relationshipNeeds(scores, flags, events, role, trajectory);
-  const result = {
-    from: events[events.length - 1].from,
-    to: events[events.length - 1].to,
-    scores: scores,
-    familiarity: familiarity,
-    eventCount: events.length,
-    lastChanged: events[events.length - 1].turn,
-    memories: memories,
-    flags: flags,
-    trajectory: trajectory,
-    arc: arc,
-    needs: needs,
-    unresolved: CW_unresolvedThread(scores, flags, events),
-    mature: Number.isFinite(matureAt) && turn >= matureAt,
-    matureAt: matureAt
+  const trajectory=events.length?CW_trajectory(events):(foundation?"established":"forming");
+  const role=CW_getRole(resolvedFrom,resolvedTo);
+  let arc=CW_relationshipArc(scores,flags,events,role,trajectory);
+  if(foundation&&events.length===0) arc=flags.married?"established marriage":("established "+CW_roleDisplay(role)+" bond");
+  const needs=CW_relationshipNeeds(scores,flags,events,role,trajectory);
+  const result={
+    from:events.length?events[events.length-1].from:foundation.from,
+    to:events.length?events[events.length-1].to:foundation.to,
+    scores:scores,familiarity:familiarity,eventCount:events.length,
+    lastChanged:events.length?events[events.length-1].turn:-1,memories:memories,flags:flags,
+    trajectory:trajectory,arc:arc,needs:needs,unresolved:CW_unresolvedThread(scores,flags,events),
+    mature:foundation?true:(Number.isFinite(matureAt)&&turn>=matureAt),matureAt:matureAt,
+    foundation:foundation||null,establishedByStoryCard:!!foundation
   };
-  CW_RUNTIME_LINK_CACHE[cacheKey] = result;
-  return result;
+  CW_RUNTIME_LINK_CACHE[cacheKey]=result; return result;
 }
 
 function CW_pairKeys() {
-  const seen = {};
-  const pairs = [];
+  if (CW_RUNTIME_PAIR_KEYS) return CW_RUNTIME_PAIR_KEYS;
+  const seen = {}, pairs = [];
+  const foundations = state.crossedWires.foundations || {};
+  for (const fk in foundations) {
+    const f=foundations[fk]; if(!f)continue;
+    const key=CW_key(f.from)+"=>"+(CW_key(f.to)==="you"?"you":CW_key(f.to));
+    if(!seen[key]){seen[key]=true;pairs.push({from:f.from,to:f.to});}
+  }
   const combined = (state.crossedWires.archivedAnchors || []).concat(state.crossedWires.ledger || []);
   for (const e of combined) {
     if (!e) continue;
     const key = CW_key(e.from) + "=>" + CW_key(e.to);
     if (!seen[key]) { seen[key] = true; pairs.push({ from: e.from, to: e.to }); }
   }
+  CW_RUNTIME_PAIR_KEYS=pairs;
   return pairs;
+}
+
+function CW_pairsForName(name) {
+  if (!CW_RUNTIME_PAIR_INDEX) {
+    const map={};
+    for (const p of CW_pairKeys()) {
+      if(!p)continue;
+      const fk=CW_key(CW_resolveNpcName(p.from)||p.from), tk=(CW_key(p.to)==="you"||CW_isPlayerName(p.to))?"you":CW_key(CW_resolveNpcName(p.to)||p.to);
+      if(!map[fk])map[fk]=[]; map[fk].push(p);
+      if(tk!=="you"){if(!map[tk])map[tk]=[]; map[tk].push(p);}
+    }
+    CW_RUNTIME_PAIR_INDEX=map;
+  }
+  const k=(CW_key(name)==="you"||CW_isPlayerName(name))?"you":CW_key(CW_resolveNpcName(name)||name);
+  return (CW_RUNTIME_PAIR_INDEX[k]||[]).slice();
 }
 
 function CW_intensity(v, signed) {
@@ -11621,6 +12020,15 @@ function CW_roleAwareLabel(link) {
   if (!link) return "developing relationship";
   const role = CW_getRole(link.from, link.to);
   const s = link.scores, f = link.flags;
+  if (link.foundation && link.eventCount === 0) {
+    if (f.married) return "established marriage";
+    if (role === "ex") return "established former relationship";
+    if (CW_isFamilyRole(role)) return CW_foundationRoleLabel(role);
+    if (role === "best_friend") return "established best-friend bond";
+    if (role === "friend") return "established friendship";
+    if (role === "ally") return "established alliance";
+    if (CW_PROFESSIONAL_ROLES.includes(role) || role === "political") return "established " + CW_roleDisplay(role) + " relationship";
+  }
   if (role === "unknown" || role === "stranger" || role === "acquaintance" || ["romantic","ex"].includes(role)) return CW_label(s, link.familiarity, f);
   const name = CW_roleDisplay(role);
   if (s.trust <= -45 || s.resentment >= 55) return "strained " + name + " bond";
@@ -11707,24 +12115,67 @@ function CW_provisionalSceneLine(turn) {
 function CW_relevantLinks(turn) {
   const cfg = CW_config();
   const sceneScores = CW_sceneNameScores();
-  const links = [];
+  const candidates = [], foundationPairs = {};
+  const eventMap = CW_eventIndex();
+  const maxTurn=Number(turn)||0;
+
+  // Rank cheaply first. Large established ensembles can contain hundreds of
+  // directional foundations, but Context can only show a handful. Rebuilding
+  // every score vector before knowing whether the bond can fit was the main
+  // relationship-performance cost in long adventures.
   for (const pair of CW_pairKeys()) {
-    // Reject off-screen pairs before reconstructing their scores. This matters
-    // in long ensemble adventures with hundreds of historical relationships.
-    const fromKey = CW_resolveNpcKey(pair.from) || CW_key(pair.from);
-    const toKey = CW_key(pair.to) === "you" ? "you" : (CW_resolveNpcKey(pair.to) || CW_key(pair.to));
+    // Pair records are stored canonically when they enter the foundation/event
+    // stores, so the hot selector does not need the expensive alias resolver.
+    const fromKey = CW_key(pair.from);
+    const toKey = CW_key(pair.to) === "you" ? "you" : CW_key(pair.to);
     const relevance = Math.max(sceneScores[fromKey] || 0, toKey === "you" ? 0 : (sceneScores[toKey] || 0));
     if (relevance <= 0) continue;
 
-    const link = CW_computeLink(pair.from, pair.to, turn);
-    if (!link || !link.mature) continue;
-    link.sceneRelevance = relevance;
-    links.push(link);
+    const foundation=(state.crossedWires.foundations||{})[fromKey+"->"+toKey]||null;
+    const eventKey=fromKey+"=>"+toKey;
+    const list=eventMap[eventKey]||[];
+    let lastChanged=-1,hasEvents=false;
+    for(let i=list.length-1;i>=0;i--){const e=list[i];if(e&&Number(e.turn||0)<=maxTurn){hasEvents=true;lastChanged=Number(e.turn)||0;break;}}
+
+    // Reciprocal foundation-only bonds are one piece of canon. Collapse them
+    // before expensive score reconstruction; directional asymmetry returns as
+    // soon as either side has real story events.
+    if (foundation && !hasEvents && toKey !== "you") {
+      const unordered=[CW_key(pair.from),CW_key(pair.to)].sort().join("<->");
+      if (foundationPairs[unordered]) continue;
+      foundationPairs[unordered]=true;
+    }
+    const roleRec=(state.crossedWires.roles||{})[fromKey+"->"+toKey];
+    const dynRole=roleRec&&CW_ROLE_CODES.includes(roleRec.role)?roleRec.role:"unknown";
+    const foundationRole=foundation&&CW_ROLE_CODES.includes(foundation.role)?foundation.role:"unknown";
+    let role=foundationRole!=="unknown"?foundationRole:dynRole;
+    if(CW_isFamilyRole(foundationRole))role=foundationRole;
+    else if(dynRole==="ex"&&foundationRole==="romantic")role="ex";
+    else if(CW_rolePriority(dynRole)>CW_rolePriority(foundationRole))role=dynRole;
+    const pairPresence=toKey==="you"?relevance:Math.min(sceneScores[fromKey]||0,sceneScores[toKey]||0);
+    candidates.push({pair:pair,relevance:relevance,pairPresence:pairPresence,playerFacing:toKey==="you",rolePriority:(foundation&&foundation.flags&&foundation.flags.married?140:0)+CW_rolePriority(role),lastChanged:lastChanged});
   }
-  links.sort(function (a, b) {
-    return (b.sceneRelevance - a.sceneRelevance) || (b.lastChanged - a.lastChanged);
+
+  candidates.sort(function(a,b){
+    return (b.relevance-a.relevance) ||
+      (Number(b.pairPresence||0)-Number(a.pairPresence||0)) ||
+      (Number(b.rolePriority||0)-Number(a.rolePriority||0)) ||
+      (Number(b.playerFacing)-Number(a.playerFacing)) ||
+      (b.lastChanged-a.lastChanged);
   });
-  return links.slice(0, cfg.maxContextRelationships);
+
+  const links=[];
+  for(const c of candidates){
+    const link=CW_computeLink(c.pair.from,c.pair.to,turn);
+    if(!link||!link.mature)continue;
+    link.sceneRelevance=c.relevance;
+    link.playerFacing=c.playerFacing;
+    link.pairPresence=c.pairPresence;
+    link.rolePriority=c.rolePriority;
+    links.push(link);
+    if(links.length>=cfg.maxContextRelationships)break;
+  }
+  return links;
 }
 
 function CW_groupDynamicsLine(links) {
@@ -12090,28 +12541,71 @@ function CW_anchorText(link, cfg) {
   return bits.length ? bits.join(" / ") : "";
 }
 
+function CW_foundationContextPhrase(link) {
+  if (!link || !link.foundation) return "";
+  const role=CW_getRole(link.from,link.to), f=link.flags||{};
+  if(f.married) return link.from+" and "+link.to+": established marriage";
+  if(role==="ex") return link.from+" and "+link.to+": established former relationship";
+  return link.from+" → "+link.to+": established "+CW_roleDisplay(role)+" relationship";
+}
+
+
+function CW_foundationRoleLabel(role) {
+  const r=String(role||"unknown").toLowerCase();
+  if(r==="parent") return "established parent-child bond";
+  if(r==="child") return "established child-parent bond";
+  if(r==="sibling") return "established sibling bond";
+  if(r==="relative") return "established extended-family bond";
+  if(r==="family") return "established family bond";
+  return "established "+CW_roleDisplay(r)+" relationship";
+}
+
+function CW_foundationBehaviorHint(link) {
+  if(!link||!link.foundation)return "";
+  const role=CW_getRole(link.from,link.to), f=link.flags||{}, toPlayer=CW_key(link.to)==="you";
+  let hint="";
+  if(f.married) hint="Use lived-in familiarity, spouse shorthand, shared history and ordinary expectations when relevant; spouses must not behave like newly introduced coworkers. Disagreement is not a relationship reset; do not force affection or drama every turn.";
+  else if(role==="parent") hint="Let this established parent role shape protective responsibility, boundaries and familiarity without making the other person helpless.";
+  else if(role==="child") hint="Let this established child-to-parent history shape familiarity, trust, independence and family shorthand without making the character childlike unless their age actually is.";
+  else if(role==="sibling") hint="Use sibling familiarity, shared history and the right to disagree bluntly without treating ordinary friction as estrangement.";
+  else if(role==="relative"||role==="family") hint="Treat them as established family with shared history and obligations; do not make them behave like new acquaintances.";
+  else if(role==="best_friend"||role==="friend") hint="Use established ease, remembered history and earned familiarity; friendship does not require constant agreement or emotional disclosure.";
+  else if(role==="ally"||role==="teammate") hint="Use established trust/cooperation where supported while preserving separate goals, loyalties and judgments.";
+  else if(role==="colleague"||role==="professional") hint="Use established professional shorthand, competence expectations and boundaries rather than introductory formality.";
+  else if(role==="mentor"||role==="student") hint="Let prior teaching/guidance shape how advice, challenge and autonomy are handled without turning the bond into obedience.";
+  else if(role==="rival") hint="Let established competition sharpen interpretation and challenge without inventing hatred.";
+  else if(role==="enemy") hint="Preserve established hostility/distrust without assuming either side knows facts they have not learned.";
+  else if(role==="ex") hint="Preserve past intimacy/history and any established boundaries; do not silently resume the relationship or erase the breakup.";
+  else if(role==="acquaintance") hint="Preserve established familiarity/trust exactly to the degree stated by canon without upgrading it into friendship or romance.";
+  if(toPlayer) hint+=(hint?" ":"")+"This is objective relationship history only; never invent YOU's feelings, consent, promises or choices.";
+  return hint;
+}
+
 function CW_relationshipContextLine(link, turn) {
   const cfg = CW_config();
   const last = link.memories.length ? link.memories[link.memories.length - 1] : null;
   const role = CW_getRole(link.from, link.to);
-  let line = "- " + link.from + " → " + link.to + (role !== "unknown" ? " [" + CW_roleDisplay(role) + "]" : "") + ": " + CW_roleAwareLabel(link) +
-    "; " + CW_pressureText(link.scores) + "; trajectory " + link.trajectory + ".";
-  if (cfg.arcGuidance && link.arc) line += " Arc: " + link.arc + ".";
-  if (cfg.needGuidance) {
-    const needs = CW_needContextText(link, 2);
-    if (needs) line += " Pressure-points: " + needs + ".";
+  let line;
+  if(link.foundation){
+    line="- Established Story Card canon: "+CW_foundationContextPhrase(link)+". Treat this as an existing relationship, not a new/developing bond.";
+    const foundationHint=CW_foundationBehaviorHint(link); if(foundationHint) line+=" "+foundationHint;
+    if(link.eventCount>0) line+=" Current dynamic: "+CW_roleAwareLabel(link)+"; "+CW_pressureText(link.scores)+"; trajectory "+link.trajectory+".";
+  } else {
+    line = "- " + link.from + " → " + link.to + (role !== "unknown" ? " [" + CW_roleDisplay(role) + "]" : "") + ": " + CW_roleAwareLabel(link) +
+      "; " + CW_pressureText(link.scores) + "; trajectory " + link.trajectory + ".";
+  }
+  if (cfg.arcGuidance && link.arc && (!link.foundation || link.eventCount>0)) line += " Arc: " + link.arc + ".";
+  if (cfg.needGuidance && (!link.foundation || link.eventCount>0)) {
+    const needs = CW_needContextText(link, 2); if (needs) line += " Pressure-points: " + needs + ".";
   }
   if (link.flags.betrayalScars || link.flags.abandonmentScars || link.flags.boundaryScars) line += " Durable relationship damage remains and requires earned repair.";
   if (link.unresolved) line += " Unresolved: " + link.unresolved + ".";
-  const anchor = CW_anchorText(link, cfg);
-  if (anchor) line += " Turning point: " + anchor + ".";
+  const anchor = CW_anchorText(link, cfg); if (anchor) line += " Turning point: " + anchor + ".";
   if (last && last.note) line += " Recent: " + CW_clipText(last.note, 105) + ".";
   if (CW_key(link.to) !== "you") {
-    const reverse = CW_computeLink(link.to, link.from, turn);
-    const mutual = CW_mutualPattern(link, reverse);
-    if (mutual) line += " Pair pattern: " + mutual + ".";
+    const reverse = CW_computeLink(link.to, link.from, turn), mutual = CW_mutualPattern(link, reverse); if (mutual) line += " Pair pattern: " + mutual + ".";
   }
-  return CW_clipText(line, 470);
+  return CW_clipText(line, 520);
 }
 
 function CW_contextEventCodes(cfg, profile, links, compact) {
@@ -12212,7 +12706,20 @@ function CW_contextBlock(turn, hardBudget, baseContext) {
 
   let relationshipLines = [];
   if (links.length) {
-    relationshipLines = ["Active relationship state:"].concat(links.map(function (l) { return CW_relationshipContextLine(l, turn); }));
+    relationshipLines = ["Active relationship state:"];
+    const foundationOnly=links.filter(function(l){return l&&l.foundation&&l.eventCount===0;});
+    const dynamic=links.filter(function(l){return !(l&&l.foundation&&l.eventCount===0);});
+    if(foundationOnly.length){
+      const bits=foundationOnly.slice(0,6).map(function(l){
+        const role=CW_getRole(l.from,l.to);
+        if(l.flags&&l.flags.married)return l.from+"↔"+l.to+" married";
+        return l.from+"→"+l.to+" "+CW_roleDisplay(role);
+      });
+      relationshipLines.push("- Established Story Card canon in this scene: "+bits.join("; ")+". These are existing bonds, not new relationships; preserve them unless later story evidence changes them. Show them through lived-in familiarity, shorthand, concern, obligations and boundaries when relevant; spouses/family/friends must not behave like newly introduced coworkers. Do not force affection or drama every turn.");
+      foundationOnly.slice(0,Math.min(2,foundationOnly.length)).forEach(function(l){relationshipLines.push(CW_relationshipContextLine(l,turn));});
+      relationshipLines.push("- Relationship behavior: let established bonds show through lived-in familiarity, shorthand, concern, obligations, boundaries, irritation, comfort and shared history when relevant. Spouses/family/friends must not behave like newly introduced coworkers. Do not force affection or drama every turn; preserve individual personalities and disagreement.");
+    }
+    dynamic.forEach(function(l){relationshipLines.push(CW_relationshipContextLine(l,turn));});
     const groupLine = CW_groupDynamicsLine(links);
     if (groupLine) relationshipLines.push(groupLine);
   } else relationshipLines = [CW_provisionalSceneLine(turn) || "No established scene-relevant bond yet; observe recurring named NPCs before assigning strong dynamics."];
@@ -13102,7 +13609,7 @@ const ECHO_VEIL = (() => {
     { type: "threat",    re: /\b(threaten|threatened|kill you|hurt you|make you pay|you(?:'|’)ll regret|or else|revenge|vengeance)\b/i, heat: 2.8 },
     { type: "secret",    re: /\b(secret|don't tell|do not tell|keep this between|nobody knows|no one knows|hidden truth|conceal|cover[- ]?up)\b/i, heat: 2.1 },
     { type: "mystery",   re: /\b(clue|investigat|mysterious|mystery|unknown|missing|disappear|who did|what happened|why did|where is|where are|unsolved)\b/i, heat: 1.8 },
-    { type: "goal",      re: /\b(need to|must find|must reach|must stop|have to find|have to reach|plan to|intend to|rescue|escape from|save\b|hunt down|track down)\b/i, heat: 1.7 },
+    { type: "goal",      re: /\b(needs? to|must find|must reach|must stop|has? to find|has? to reach|plans? to|intends? to|rescue|escape from|save\b|hunt down|track down)\b/i, heat: 1.7 },
     { type: "wound",     re: /\b(wounded|injured|bleeding|broken (?:arm|leg|rib|bone)|poisoned|burned|shot|stabbed|concuss|infection)\b/i, heat: 2.2 },
     { type: "evidence",  re: /\b(evidence|proof|fingerprint|bloodstain|footprint|recording|photograph|photo|letter|document|file|diary|journal|keycard|key)\b/i, heat: 1.35 }
   ];
@@ -13838,6 +14345,27 @@ const ECHO_VEIL = (() => {
       });
       s.relations = migrated;
       s.meta.directedRelationMigration = true;
+    }
+
+    // One-time semantic cleanup for false threads/motives produced by older
+    // builds. This matters when users replace the script inside a live adventure:
+    // state persists even though the detectors are now fixed.
+    if (!s.meta.semanticCleanupV7) {
+      s.threads = (s.threads || []).filter(function(t){
+        if(!t)return false;
+        const raw=String(t.rawEvidence||t.summary||"");
+        if(t.type==="goal" && /\b(?:doesn['’]?t|does not|didn['’]?t|did not|don['’]?t|do not|no)\s+(?:really\s+)?need\s+to\b|\bno\s+need\s+to\b/i.test(raw)) return false;
+        if(t.type==="mystery" && /\b(?:doesn['’]?t|does not|didn['’]?t|did not)\s+disappear\b/i.test(raw)) return false;
+        if(t.type==="mystery" && /\b(?:field sweep|i want you|look for|check the fringes|reports? of missing personnel)\b/i.test(raw) && /["“”]/.test(raw)) return false;
+        if(["mystery","secret"].includes(t.type) && /\bprobably\b.{0,90}\bbeneath (?:him|her|them)\b/i.test(raw)) return false;
+        if(t.type==="evidence" && /\b(?:looking|look) for a ghost\b/i.test(raw) && (t.actors||[]).some(function(a){return String(a).toLowerCase()==="ghost";})) return false;
+        return true;
+      });
+      Object.keys(s.entities||{}).forEach(function(k){
+        const e=s.entities[k]; if(!e||!Array.isArray(e.motives))return;
+        e.motives=e.motives.filter(function(x){return !/\b(?:doesn['’]?t|does not|didn['’]?t|did not|don['’]?t|do not|no)\s+(?:really\s+)?need\s+to\b|\bno\s+need\s+to\b/i.test(String(x||""));});
+      });
+      s.meta.semanticCleanupV7=true;
     }
 
     // Upgrade entities created by older versions without losing their history.
@@ -14768,6 +15296,10 @@ const ECHO_VEIL = (() => {
       for (const sp of literalSpans(source, alias)) {
         const canon = idx.aliases[alias];
         const profile = idx.profiles && idx.profiles[String(canon).toLowerCase()];
+        const rawMention=source.slice(sp.start,sp.end), before=source.slice(Math.max(0,sp.start-10),sp.start);
+        // A one-word codename may also be an ordinary noun. Preserve proper
+        // "Ghost" but do not turn "a ghost" / "an echo" into that character.
+        if(!/\s/.test(rawMention) && rawMention===rawMention.toLowerCase() && /(?:^|\s)(?:a|an)\s*$/i.test(before)) continue;
         add(canon, sp.start, sp.end, 0.99, "story-card", profile && profile.kind || "person");
       }
     });
@@ -15007,6 +15539,7 @@ const ECHO_VEIL = (() => {
       if (!e) continue;
       e.motives=Array.isArray(e.motives)?e.motives:[];
       const hint=safeEvidence(clause,155);
+      if (/\b(?:doesn['’]?t|does not|didn['’]?t|did not|don['’]?t|do not|no)\s+(?:really\s+)?need\s+to\b/i.test(hint) || /\bno\s+need\s+to\b/i.test(hint)) continue;
       // Operational group plans are scene tactics, not durable private motives.
       // Quoted "we need to secure the house" / "we should prepare" /
       // conditional coordination must not become a character's secret Want.
@@ -16354,7 +16887,8 @@ const ECHO_VEIL = (() => {
     const t=String(text||"");
     if (/\b(?:future self|future version|warning from the future|message from the future)\b/i.test(t)) return "Future-warning divergence";
     if (/\b(?:timeline|worldline).{0,70}(?:branch|diverg|split|changed?)\b/i.test(t)) return "Timeline branch divergence";
-    if (/\b(?:multiverse|multiversal|alternate universe|parallel universe|variant|counterpart|incursion)\b/i.test(t)) return "Multiversal continuity";
+    if (/\b(?:temporal|chronal|time[- ]travel|time loop|paradox)\b/i.test(t) && !/\b(?:multiverse|multiversal|alternate universe|parallel universe|alternate reality|parallel reality|variant|counterpart|dimensional incursion|multiversal incursion|reality incursion)\b/i.test(t)) return "Temporal continuity";
+    if (/\b(?:multiverse|multiversal|alternate universe|parallel universe|alternate reality|parallel reality|variant|counterpart|dimensional incursion|multiversal incursion|reality incursion)\b/i.test(t)) return "Multiversal continuity";
     if (/\b(?:biological|biometric|resonance|power) signature\b/i.test(t)) return "Biological signature targeting";
     if (/\b(?:power|ability).{0,55}(?:suppressed|dampened|disabled|blocked)\b|\b(?:suppressed|dampened|disabled|blocked).{0,55}(?:power|ability)\b/i.test(t)) return "Power suppression";
     if (/\b(?:project|program|programme|prototype|facility|machine|device|array|weapon).{0,80}(?:build|built|building|develop|hidden|unknown)\b|\b(?:building|developing).{0,80}(?:project|machine|device|array|weapon)\b/i.test(t)) return "Unknown project development";
@@ -16501,10 +17035,17 @@ const ECHO_VEIL = (() => {
         const m=p.re.exec(clause);
         if (!m) continue;
         const guard=eventGuard(clause,m.index);
-        if (guard.negated && !["mystery","goal"].includes(p.type)) continue;
+        if (guard.negated) continue;
         if (guard.hypothetical && !["goal","mystery"].includes(p.type)) continue;
         if (guard.imagined || guard.nonCurrent) continue;
         if (guard.uncertain && !["mystery","secret"].includes(p.type)) continue;
+        // An operational assignment is already represented by assignment memory;
+        // duplicating "look for/check the fringes" as a personal mystery on
+        // every named team member creates noisy Story Card threads.
+        if (p.type === "mystery" && guard.quoted && /\b(?:i want you|you(?:'|’)re|you are|check(?:ing)?|look for|search for|field sweep|dig into)\b/i.test(clause)) continue;
+        // Epistemic narration about what is *probably not* relevant is not an
+        // unresolved secret/mystery that should mature into plot pressure.
+        if (["mystery","secret"].includes(p.type) && guard.uncertain && /\b(?:beneath (?:him|her|them)|unlikely|probably not|not involved|doesn['’]?t look like|does not look like)\b/i.test(clause)) continue;
         // Reported speech can create a mystery/secret thread but should not turn
         // an alleged wound/debt into an established obligation.
         if (guard.reported && ["wound","debt","evidence"].includes(p.type)) continue;
@@ -16854,7 +17395,7 @@ const ECHO_VEIL = (() => {
       debt:{re:/\b(?:repays?|repaid|pays? back|paid back|settles?|settled)\b[^.!?]{0,55}\b(?:debt|favor|favour|owe|owed)\b|\bdebt\b[^.!?]{0,40}\b(?:paid|settled|cleared)\b/i,minOverlap:0.12},
       secret:{re:/\b(?:secret|hidden truth|identity|cover[- ]?up)\b[^.!?]{0,55}\b(?:revealed|exposed|confessed|discovered|comes? out)\b|\b(?:reveals?|confesses?|admits?)\b[^.!?]{0,55}\b(?:secret|truth|identity|cover[- ]?up)\b/i,minOverlap:0.18},
       mystery:{re:/\b(?:mystery|case|question)\b[^.!?]{0,55}\b(?:solved|closed|answered)\b|\b(?:discovers?|learns?|uncovers?)\b[^.!?]{0,45}\b(?:the )?truth\b|\bcase closed\b/i,minOverlap:0.20},
-      goal:{re:/\b(?:succeeds?|succeeded|completes?|completed|achieves?|achieved|reaches?|reached|finds?|found|rescues?|rescued|escapes?|escaped|fails?|failed)\b/i,minOverlap:0.30},
+      goal:{re:/\b(?:succeeds|succeeded|completes|completed|achieves|achieved|reaches|reached|finds|found|rescues|rescued|escapes|escaped|fails|failed)\b/i,minOverlap:0.30},
       wound:{re:/\b(?:heals?|healed|recovers?|recovered|cures?|cured|stabiliz(?:es|ed)|fully healed|regains? consciousness)\b/i,minOverlap:0.20},
       evidence:{re:/\b(?:evidence|clue|recording|document|journal|key)\b[^.!?]{0,60}\b(?:examined|decoded|verified|secured|destroyed|explained|identified)\b/i,minOverlap:0.16},
       threat:{re:/\b(?:threat|ultimatum|warning)\b[^.!?]{0,55}\b(?:withdrawn|ends?|carried out|fulfilled)\b|\b(?:withdraws?|backs? down|follows? through)\b[^.!?]{0,55}\b(?:threat|ultimatum|warning)\b/i,minOverlap:0.18}
@@ -17732,10 +18273,31 @@ function CE_unsaidCardSection(name) {
 function CE_crossedCardSection(name) {
   try {
     if(!state.crossedWires)return "Relationship tracking ready; no relationship history yet.";
-    var turn=typeof CW_turn==="function"?CW_turn():0, combined=(state.crossedWires.archivedAnchors||[]).concat(state.crossedWires.ledger||[]), dirs={}, recent=[];
-    for(var i=combined.length-1;i>=0&&recent.length<24;i--){var e=combined[i];if(!e)continue;if(!CE_sameName(e.from,name)&&!CE_sameName(e.to,name))continue;var k=String(e.from)+"=>"+String(e.to);if(!dirs[k]){dirs[k]={from:e.from,to:e.to};recent.push(dirs[k]);}}
+    if(typeof CW_rebuildStoryCardFoundations==="function")CW_rebuildStoryCardFoundations(typeof CW_turn==="function"?CW_turn():0);
+    var turn=typeof CW_turn==="function"?CW_turn():0,pairs=typeof CW_pairsForName==="function"?CW_pairsForName(name):(typeof CW_pairKeys==="function"?CW_pairKeys():[]),recent=[],cw=state.crossedWires||{},foundations=cw.foundations||{},eventMap=typeof CW_eventIndex==="function"?CW_eventIndex():{};
+    for(var i=0;i<pairs.length;i++){
+      var p=pairs[i];if(!p)continue;if(!CE_sameName(p.from,name)&&!CE_sameName(p.to,name))continue;
+      var fk=typeof CW_key==="function"?CW_key(p.from):String(p.from||"").toLowerCase(),tk=(String(p.to||"").toUpperCase()==="YOU")?"you":(typeof CW_key==="function"?CW_key(p.to):String(p.to||"").toLowerCase()),foundation=foundations[fk+"->"+tk]||null,events=eventMap[fk+"=>"+tk]||[];
+      var hasEvents=events.some(function(e){return e&&Number(e.turn||0)<=turn;});
+      if(foundation&&!hasEvents){
+        recent.push({from:foundation.from,to:foundation.to,foundation:foundation,eventCount:0,flags:Object.assign({},foundation.flags||{}),lastChanged:-1,_foundationRole:foundation.role,_foundationOnly:true});
+        continue;
+      }
+      var link=typeof CW_computeLink==="function"?CW_computeLink(p.from,p.to,turn):null;if(!link||link.mature===false)continue;recent.push(link);
+    }
+    var roleOf=function(link){return link&&link._foundationRole?link._foundationRole:(typeof CW_getRole==="function"?CW_getRole(link.from,link.to):"unknown");};
+    var score=function(link){var role=roleOf(link),s=0;if(CE_sameName(link.from,name))s+=180;if(String(link.to||"").toUpperCase()==="YOU")s+=900;if(link.foundation&&link.foundation.flags&&link.foundation.flags.married)s+=700;if(typeof CW_rolePriority==="function")s+=Number(CW_rolePriority(role)||0)*3;if(link.foundation)s+=120;s+=Math.max(-100,Number(link.lastChanged||-1));return s;};
+    recent.sort(function(a,b){return score(b)-score(a);});
+    var dedup={},kept=[];for(var r=0;r<recent.length;r++){var l=recent[r],foundationOnly=!!(l.foundation&&Number(l.eventCount||0)===0);if(foundationOnly){var a=String(l.from||"").toLowerCase(),b=String(l.to||"").toLowerCase(),key=[a,b].sort().join("<->");if(dedup[key])continue;dedup[key]=true;}kept.push(l);}
     var lines=[];
-    for(var j=0;j<recent.length&&lines.length<4;j++){var d=recent[j],link=typeof CW_computeLink==="function"?CW_computeLink(d.from,d.to,turn):null;if(!link||link.mature===false)continue;var role=typeof CW_getRole==="function"?CW_getRole(link.from,link.to):"unknown",label=typeof CW_roleAwareLabel==="function"?CW_roleAwareLabel(link):"developing relationship",pressure=typeof CW_pressureText==="function"?CW_pressureText(link.scores||{}):"tracked",prefix=link.from+" → "+link.to+(role&&role!=="unknown"&&typeof CW_roleDisplay==="function"?" ["+CW_roleDisplay(role)+"]":""),extra=link.unresolved?"; unresolved: "+link.unresolved:"";lines.push(CE_noteClip(prefix+": "+label+"; "+pressure+"; trajectory "+(link.trajectory||"forming")+extra,360));}
+    for(var j=0;j<kept.length&&lines.length<5;j++){
+      var link=kept[j],role=roleOf(link),prefix=link.from+" → "+link.to+(role&&role!=="unknown"&&typeof CW_roleDisplay==="function"?" ["+CW_roleDisplay(role)+"]":"");
+      if(link.foundation){
+        var label=(link.flags&&link.flags.married)?"established marriage":(role==="ex"?"established former relationship":(typeof CW_isFamilyRole==="function"&&CW_isFamilyRole(role)?(typeof CW_foundationRoleLabel==="function"?CW_foundationRoleLabel(role):"established family bond"):"established "+(typeof CW_roleDisplay==="function"?CW_roleDisplay(role):role)+" relationship"));
+        lines.push(CE_noteClip(prefix+": "+label+". Foundation: explicit current Story Card relationship canon; later events may deepen, strain, repair or end it without resetting its history.",390));continue;
+      }
+      var label=typeof CW_roleAwareLabel==="function"?CW_roleAwareLabel(link):"developing relationship",pressure=typeof CW_pressureText==="function"?CW_pressureText(link.scores||{}):"tracked",extra=link.unresolved?"; unresolved: "+link.unresolved:"";lines.push(CE_noteClip(prefix+": "+label+"; "+pressure+"; trajectory "+(link.trajectory||"forming")+extra,360));
+    }
     return lines.length?lines.join("\n"):"Relationship tracking ready; no mature directional bond is established yet.";
   } catch(_){return "Relationship tracking available.";}
 }
@@ -17829,7 +18391,36 @@ function CE_twistsCardSection(name){
 function CE_bridgeCardSection(name){try{var u=state.unifiedNarrative||{},lines=[],f=typeof UN_crossSystemFocus==="function"?UN_crossSystemFocus():u.focus;if(f&&f.entity&&CE_sameName(f.entity,name))lines.push("Convergent focus: active ("+(Array.isArray(f.sources)?f.sources.join(" + "):"multi-system")+").");var typed=typeof UN_entityFocus==="function"?UN_entityFocus():u.entityFocus;if(typed&&typed.entity&&CE_sameName(typed.entity,name))lines.push("Typed shared focus: "+(typed.kind||"entity")+" ("+(typed.sources||[]).join(" + ")+"). Priority only; this does not add facts.");var intent=typeof UN_playerIntentSnapshot==="function"?UN_playerIntentSnapshot():u.playerIntent;if(intent&&intent.target&&CE_sameName(intent.target,name))lines.push("Player intent: "+intent.mode+" targets this entity. Scheduling priority only; success and canon still come from the story.");var pair=typeof UN_pairFocus==="function"?UN_pairFocus():u.pairFocus;if(pair&&pair.from&&(CE_sameName(pair.from,name)||CE_sameName(pair.to,name)))lines.push("Convergent pair: "+pair.from+" ↔ "+pair.to+" ("+(pair.sources||[]).join(" + ")+").");var pace=typeof UN_pacingSnapshot==="function"?UN_pacingSnapshot():u.pacing;if(pace&&((f&&f.entity&&CE_sameName(f.entity,name))||(typed&&typed.entity&&CE_sameName(typed.entity,name))))lines.push("Shared pacing: "+pace.mode+" ("+pace.intensity+"/10).");var callback=typeof UN_longArcCallback==="function"?UN_longArcCallback():null;if(callback){var involved=(callback.names||[]).concat(callback.locations||[],callback.items||[],callback.factions||[]).some(function(n){return CE_sameName(n,name);});if(involved)lines.push("Long-arc callback salience: "+CE_noteClip(callback.summary,150)+". Reminder only; do not replay or invent the old event.");}var recent=(u.aftermath||[]).filter(function(a){return a&&((a.names||[]).some(function(n){return CE_sameName(n,name);})||CE_sameName(a.entity,name)||CE_sameName(a.from,name)||CE_sameName(a.to,name));}).slice(-2);if(recent.length){lines.push("Recent cross-system aftermath:");recent.forEach(function(a,i){lines.push("  "+(i+1)+". "+CE_noteClip(a.evidence||a.summary||a.kind,150));});}return lines.length?lines.join("\n"):"Coordinator: no special cross-system focus currently attached to this entity.";}catch(_){return "Coordinator available.";}}
 function CE_codexCardSection(name,card){try{var codex=state.unsaid&&state.unsaid.codex;if(!codex)return "Codex: card is available for evidence-backed refreshes.";var meta=null;if(typeof codexManagedCardKey==="function"){var mk=codexManagedCardKey(name,card);meta=codex.cardMeta&&codex.cardMeta[mk];}var lines=[];if(meta){lines.push("Managed by Codex: yes"+(meta.manualEditProtected?" — manual Entry edit protected":""));lines.push("Last generated/refresh turn: "+(meta.lastRefreshTurn!=null?meta.lastRefreshTurn:meta.lastGeneratedTurn));if(Number(meta.updateCount||0)>0)lines.push("Automatic refreshes: "+meta.updateCount);}else lines.push("Managed by Codex: no (manual card or not yet adopted).");var evidence=typeof codexEvidenceSentences==="function"?codexEvidenceSentences(name,"").slice(-2):[];if(evidence&&evidence.length){lines.push("Recent evidence:");evidence.forEach(function(x,i){lines.push("  "+(i+1)+". "+CE_noteClip(x,190));});}return lines.join("\n");}catch(_){return "Codex status unavailable this turn.";}}
 function CE_renderManagedEntityNotes(name,card,kind){var common=["Auto-managed diagnostics. This section is NOT treated as public story evidence.","Public canon belongs in Entry; retrieval names belong in Triggers."];if(kind==="character")return common.concat(["","🧠 UNSPOKEN TURNS / UNSAID",CE_unsaidCardSection(name),"","❤️ CROSSED WIRES",CE_crossedCardSection(name),"","🌘 ECHO VEIL",CE_echoCardSection(name),"","🌀 TWISTS AND TURNS",CE_twistsCardSection(name),"","🔗 CROSSED ECHOES",CE_bridgeCardSection(name),"","📚 CODEX",CE_codexCardSection(name,card)]).join("\n");return common.concat(["","🌘 ECHO VEIL",CE_echoCardSection(name),"","🌀 TWISTS AND TURNS",CE_twistsCardSection(name),"","🔗 CROSSED ECHOES",CE_bridgeCardSection(name),"","📚 CODEX",CE_codexCardSection(name,card)]).join("\n");}
-function CE_syncEntityCard(name){try{if(!name||typeof storyCards==="undefined"||!Array.isArray(storyCards))return false;var card=storyCards.find(function(c){return c && !(typeof isOwnCard==="function"&&isOwnCard(c.title)) && CE_sameName(c.title,name);}) || (typeof findStoryCardForEntity==="function"?findStoryCardForEntity(name):null);if(!card||(typeof isOwnCard==="function"&&isOwnCard(card.title)))return false;var kind=typeof codexKindFromExistingCard==="function"?codexKindFromExistingCard(card,name):String(card.type||"").toLowerCase();if(!["character","location","item","faction"].includes(kind)){var raw=String(card.type||"").toLowerCase();if(/character|npc|person/.test(raw))kind="character";else if(/location|place/.test(raw))kind="location";else if(/item|object/.test(raw))kind="item";else if(/faction|group|organization|organisation/.test(raw))kind="faction";else return false;}var base=CE_publicStoryCardNotes(card),managed=CE_renderManagedEntityNotes(name,card,kind),next=(base?base+"\n\n":"")+CE_CARD_NOTES_START+"\n"+managed;if(String(card.description||card.notes||"")!==next){card.description=next;card.notes=next;}return true;}catch(_){return false;}}
+function CE_findWritableEntityCard(name){
+  try{
+    if(!name||typeof storyCards==="undefined"||!Array.isArray(storyCards))return null;
+    var wanted=String(name||"").trim().toLowerCase(),card=storyCards.find(function(c){return c&&!(typeof isOwnCard==="function"&&isOwnCard(c.title))&&String(c.title||c.name||"").trim().toLowerCase()===wanted;})||null;
+    if(!card&&typeof findStoryCardForEntity==="function")card=findStoryCardForEntity(name);
+    return card&&!(typeof isOwnCard==="function"&&isOwnCard(card.title))?card:null;
+  }catch(_){return null;}
+}
+function CE_syncEntityCard(name){try{
+  var card=CE_findWritableEntityCard(name);if(!card)return false;
+  var kind=typeof codexKindFromExistingCard==="function"?codexKindFromExistingCard(card,name):String(card.type||"").toLowerCase();
+  if(!["character","location","item","faction"].includes(kind)){var raw=String(card.type||"").toLowerCase();if(/character|npc|person/.test(raw))kind="character";else if(/location|place/.test(raw))kind="location";else if(/item|object/.test(raw))kind="item";else if(/faction|group|organization|organisation/.test(raw))kind="faction";else return false;}
+  var displayName=String(card.title||card.name||name).trim()||name;
+  var base=CE_publicStoryCardNotes(card),managed=CE_renderManagedEntityNotes(displayName,card,kind),next=(base?base+"\n\n":"")+CE_CARD_NOTES_START+"\n"+managed;
+  if(String(card.description||card.notes||"")!==next){card.description=next;card.notes=next;}return true;
+}catch(_){return false;}}
+function CE_syncCrossedWiresCardSection(name){
+  try{
+    var card=CE_findWritableEntityCard(name);if(!card||!/^(?:character|npc)$/i.test(String(card.type||"")))return false;
+    var raw=String(card.description||card.notes||""),display=String(card.title||card.name||name).trim()||name,nextSection="❤️ CROSSED WIRES\n"+CE_crossedCardSection(display);
+    // Fast path for existing managed Character cards. Relationship migrations
+    // should not recompute ECHO/TWISTS/UNSAID/CODEX diagnostics just to replace
+    // one stale Crossed Wires paragraph.
+    if(raw.indexOf(CE_CARD_NOTES_START)>=0&&/❤️ CROSSED WIRES\n/.test(raw)){
+      var next=raw.replace(/❤️ CROSSED WIRES\n[\s\S]*?(?=\n\n🌘 ECHO VEIL)/,nextSection);
+      if(next!==raw){card.description=next;card.notes=next;}return true;
+    }
+    return CE_syncEntityCard(display);
+  }catch(_){return false;}
+}
 function CE_syncCharacterCard(name){return CE_syncEntityCard(name);}
 function CE_echoTwistCategory(t){
   if(!t)return null;var text=String(t.title||"")+" "+String(t.summary||"")+" "+String(t.rawEvidence||"");
@@ -17871,7 +18462,71 @@ function CE_bridgeEchoThreadsToTwists(){
   }catch(_){}return null;
 }
 
-function CE_syncStoryCardPresentation(){try{var names=[],add=function(n){n=String(n||"").trim();if(n&&!names.some(function(x){return CE_sameName(x,n);}))names.push(n);};var u=state.unsaid||{};(u.lastActiveCast||[]).slice(0,8).forEach(add);var cw=state.crossedWires||{},now=typeof CW_turn==="function"?CW_turn():0;Object.keys(cw.npcs||{}).forEach(function(k){var n=cw.npcs[k];if(n&&Number(n.lastMentionTurn||n.lastSeen||-999)>=now-1)add(n.name||k);});var ev=state.echoVeil||{};Object.keys((ev.scene&&ev.scene.cast)||{}).forEach(function(k){var c=ev.scene.cast[k];if(c&&Number(c.turn||-999)>=now-1)add(c.name||k);});if(state.unifiedNarrative&&state.unifiedNarrative.focus)add(state.unifiedNarrative.focus.entity);var codex=u.codex||{};Object.keys(codex.cardMeta||{}).slice(-12).forEach(function(k){var m=codex.cardMeta[k];if(m&&m.name)add(m.name);});names.slice(0,14).forEach(CE_syncEntityCard);}catch(_){}}
+function CE_relationshipPresentationQueue(cw){
+  try{
+    cw=cw||state.crossedWires||{};
+    var sig=String(cw.foundationSignature||"");
+    if(cw.foundationPresentationTargetSignature===sig&&Array.isArray(cw.foundationPresentationQueue))return cw.foundationPresentationQueue;
+    var participants={},found=cw.foundations||{};
+    Object.keys(found).forEach(function(k){var f=found[k];if(!f)return;participants[String(f.from||"").toLowerCase()]=true;if(String(f.to||"").toUpperCase()!=="YOU")participants[String(f.to||"").toLowerCase()]=true;});
+    var queue=[],recent="";try{recent=typeof CW_recentHistoryText==="function"?CW_recentHistoryText():"";}catch(_){}
+    if(typeof storyCards!=="undefined"&&Array.isArray(storyCards))storyCards.forEach(function(card,idx){
+      if(!card||!/^(?:character|npc)$/i.test(String(card.type||"")))return;
+      var title=String(card.title||card.name||"").trim();if(!title)return;
+      var rel="";try{rel=typeof CW_relationshipField==="function"?CW_relationshipField(typeof CW_cardEntryText==="function"?CW_cardEntryText(card):String(card.entry||card.value||"")):"";}catch(_){}
+      var stale=/Relationship tracking ready; no mature directional bond is established yet\.|Relationship tracking ready; no relationship history yet\./i.test(String(card.description||card.notes||""));
+      if(!(rel||participants[title.toLowerCase()]))return;
+      var mentioned=false;try{mentioned=typeof CW_wordPresent==="function"&&CW_wordPresent(recent,title);if(!mentioned&&typeof CW_cardKeysText==="function")mentioned=CW_cardKeysText(card).split(/[,;]/).some(function(a){return a&&CW_wordPresent(recent,String(a).trim());});}catch(_){}
+      queue.push({name:title,priority:(mentioned?1000:0)+(stale?300:0)+(participants[title.toLowerCase()]?150:0)+(rel?50:0),index:idx});
+    });
+    queue.sort(function(a,b){return Number(b.priority||0)-Number(a.priority||0)||Number(a.index||0)-Number(b.index||0);});
+    queue=queue.map(function(x){return x.name;});
+    // De-duplicate while preserving priority order. Active cast is injected
+    // ahead of this queue by CE_syncStoryCardPresentation.
+    var seen={};queue=queue.filter(function(n){var k=String(n).toLowerCase();if(seen[k])return false;seen[k]=true;return true;});
+    cw.foundationPresentationQueue=queue;
+    cw.foundationPresentationTargetSignature=sig;
+    return queue;
+  }catch(_){return [];}
+}
+function CE_syncStoryCardPresentation(){try{
+  var names=[],add=function(n){n=String(n||"").trim();if(n&&!names.some(function(x){return CE_sameName(x,n);}))names.push(n);};
+  var u=state.unsaid||{},cw=state.crossedWires||{},now=typeof CW_turn==="function"?CW_turn():0;
+  if(typeof CW_rebuildStoryCardFoundations==="function")CW_rebuildStoryCardFoundations(now);
+
+  // Relationship-relevant current-scene names come first so established bonds
+  // and changed dynamics refresh before older cast insertion order can consume
+  // the bounded Story Card presentation budget.
+  if(typeof CW_relevantLinks==="function")try{(CW_relevantLinks(now)||[]).forEach(function(l){if(l){add(l.from);if(CW_key(l.to)!=="you")add(l.to);}});}catch(_){}
+  if(state.unifiedNarrative&&state.unifiedNarrative.focus)add(state.unifiedNarrative.focus.entity);
+
+  var ev=state.echoVeil||{},castRows=[];
+  Object.keys((ev.scene&&ev.scene.cast)||{}).forEach(function(k){var c=ev.scene.cast[k];if(c)castRows.push(c);});
+  castRows.sort(function(a,b){return Number(b.turn||-999)-Number(a.turn||-999);});
+  castRows.forEach(function(c){if(Number(c.turn||-999)>=now-1)add(c.name||"");});
+
+  var npcRows=[];
+  Object.keys(cw.npcs||{}).forEach(function(k){var n=cw.npcs[k];if(n)npcRows.push(n);});
+  npcRows.sort(function(a,b){return Number(b.lastMentionTurn||b.lastSeen||-999)-Number(a.lastMentionTurn||a.lastSeen||-999);});
+  npcRows.forEach(function(n){if(Number(n.lastMentionTurn||n.lastSeen||-999)>=now-1)add(n.name||"");});
+  (u.lastActiveCast||[]).slice(0,10).forEach(add);
+  var codex=u.codex||{};Object.keys(codex.cardMeta||{}).slice(-12).forEach(function(k){var m=codex.cardMeta[k];if(m&&m.name)add(m.name);});
+
+  // Refresh active cards first, then drain a bounded migration queue so an
+  // upgraded long-running adventure replaces stale pre-foundation diagnostics
+  // without rewriting every Story Card on one hook.
+  var active=names.slice(0,20),synced={};
+  active.forEach(function(n){CE_syncEntityCard(n);synced[String(n).toLowerCase()]=true;});
+  var q=CE_relationshipPresentationQueue(cw),remain=[],budget=12;
+  for(var qi=0;qi<q.length;qi++){
+    var qn=q[qi],qk=String(qn||"").toLowerCase();
+    if(synced[qk])continue;
+    if(budget>0){CE_syncCrossedWiresCardSection(qn);synced[qk]=true;budget--;}
+    else remain.push(qn);
+  }
+  cw.foundationPresentationQueue=remain;
+  if(!remain.length)cw.foundationPresentationSignature=String(cw.foundationSignature||"");
+}catch(_){}}
 
 // ============================================================================
 // CROSSED ECHOES — THE UNSPOKEN VEIL

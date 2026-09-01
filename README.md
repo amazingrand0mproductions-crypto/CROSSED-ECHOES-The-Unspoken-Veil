@@ -58,6 +58,14 @@ Relationships are directional. One character can trust another far more than the
 
 Healthy relationships matter too. Strong loyalty, friendship, trust or affection can become narratively important without the script needing to turn everything into conflict.
 
+#### Story Card Relationship Foundations
+
+Crossed Wires now **bootstraps established relationship canon directly from Character Story Cards** instead of waiting for new-turn events to rediscover it. A card that says `Married to Julian`, `daughter of Kyle/Ravati`, `Ezra’s father`, `trusted by Jordan`, `close with Katara`, `former partner of Sera`, or similar supported wording becomes persistent directional relationship state at scenario start.
+
+These are **foundations, not fake events**. A five-year marriage is not recorded as if the wedding happened on turn one. Later story events can deepen, strain, repair or end the bond without erasing its established history. Family roles outrank accidental romantic inference, alternate/future variants are isolated from the primary character, explicit aliases are merged, and common-word codenames such as `Ghost` or `Ally` are protected from ordinary-noun/role collisions.
+
+When a founded bond is scene-relevant, the Context layer tells the model to express it naturally through lived-in familiarity, shorthand, concern, obligations, boundaries, irritation, comfort and shared history **without forcing affection or relationship drama every turn**. Managed Character-card Notes are also migrated so an established spouse/parent/sibling/friend no longer displays the stale `no mature directional bond` message.
+
 ---
 
 ### 🌀 Twists are seeded instead of thrown in randomly
@@ -669,6 +677,8 @@ high_concept_stress_test.js
 codex_noise_stress_test.js
 world_engine_long_stress_test.js
 fluidity_stress_test.js
+node relationship_foundation_stress_test.js
+CE_CACHE_STRESS=1 node relationship_foundation_stress_test.js
 ```
 
 They cover the integration between the three engines, Story Card generation, entity detection, knowledge boundaries, Retry handling, context budgeting, output cleanup and both Standard and Optimized Context behavior.
@@ -688,9 +698,11 @@ node world_engine_long_stress_test.js
 CE_CACHE_STRESS=1 node world_engine_long_stress_test.js
 node fluidity_stress_test.js
 CE_CACHE_STRESS=1 node fluidity_stress_test.js
+node relationship_foundation_stress_test.js
+CE_CACHE_STRESS=1 node relationship_foundation_stress_test.js
 ```
 
-Current verification: **125/125 legacy integration/regression tests pass** and **31/31 WORLD ENGINE + fluidity tests pass**. WORLD ENGINE's matrix covers **30 supported scenario families, 12 hybrid combinations, genre-neutral handling and 20 scene modes**. Standard and Optimized large-library, high-concept, CODEX anti-junk, rotating-world and fluid camera-flow stress suites all pass; Optimized Context preserves the exact host prefix.
+Current verification: **145/145 core integration/regression tests pass** and **31/31 WORLD ENGINE + fluidity tests pass**. The real supplied 313-card SECOND DAWN export also passes the dedicated relationship-foundation stress in Standard and Optimized Context: **197 cleaned directional foundations remain stable, relationship canon is injected on all 24/24 tested turns, and Ravati→YOU, Sasha↔Julian, Liam↔Cassia and Ezra→Sera are verified directly from the supplied cards.** WORLD ENGINE's matrix covers **30 supported scenario families, 12 hybrid combinations, genre-neutral handling and 20 scene modes**. Standard and Optimized large-library, high-concept, CODEX anti-junk, rotating-world and fluid camera-flow stress suites all pass; Optimized Context preserves the exact host prefix.
 
 
 ---
