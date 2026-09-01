@@ -1,6 +1,6 @@
 # 🌒 CROSSED ECHOES — The Unspoken Veil
 
-**A living narrative engine for AI Dungeon combining UNSPOKEN TURNS, Crossed Wires and ECHO VEIL.**
+**A persistent narrative simulation engine for AI Dungeon combining UNSPOKEN TURNS, Crossed Wires, ECHO VEIL, TWISTS, CODEX and WORLD ENGINE.**
 
 CROSSED ECHOES is built for long-running stories where characters, relationships, secrets and consequences are meant to carry forward instead of resetting from scene to scene.
 
@@ -14,7 +14,7 @@ It combines three separate systems into one four-tab AI Dungeon script:
 
 **CODEX** handles automatic Story Card detection, creation and maintenance.
 
-The systems keep their own jobs, but they share enough information to follow the same story instead of acting like three separate scripts.
+The systems keep their own jobs. **WORLD ENGINE** sits above them as a bounded orchestration/simulation layer so psychology, relationships, plot, canon, factions, powers, variants and consequences can follow the same long-running world without becoming one undifferentiated prompt.
 
 ---
 
@@ -100,6 +100,38 @@ High-concept non-character entities are understood directly: named timelines/rea
 For high-confidence introductions, CODEX now creates a **direct evidence scaffold** itself instead of depending on the model to return a hidden `[CARD]` block. The first card contains only story-supported evidence, is marked provisional internally, and can enrich itself after later evidence appears. This closes the failure mode where CODEX detected an entity but no Story Card ever appeared.
 
 The anti-junk layer combines more than **1,700 explicit stop words**, **750+ generic common nouns**, **220+ hard generic entity roots**, morphology rejection, diagnostic-heading rejection, sentence grammar, semantic typing and partial-name shadow protection. `Timeline Omega` can be a real Location while bare `Timeline` is rejected; `Project Nightglass` can be a Faction while bare `Project` is not allowed to age into a junk card.
+
+### 🌍 WORLD ENGINE — persistent simulation above the whole script
+
+WORLD ENGINE sits above **CODEX, TWISTS AND TURNS, ECHO VEIL, Crossed Wires and UNSPOKEN TURNS**. It does not replace their evidence rules. It decides what deserves attention this turn and keeps a bounded simulation model of the parts of the world that matter.
+
+It includes:
+
+- **Narrative Attention** — limits each turn to a small primary/supporting focus set instead of dragging every tracked NPC and arc into the scene.
+- **Scene Director** — recognises combat, stealth, investigation, horror, romance, legal, medical, political, military, survival, school, sports, espionage, workplace, family, adventure, travel, recovery, slice-of-life and social beats.
+- **Knowledge Matrix** — mirrors established knows/unknown/contested boundaries without turning model-level context into NPC knowledge.
+- **Causal Web** — carries ECHO's established cause/consequence state forward so follow-up developments prefer earned causes over coincidence.
+- **Faction Simulation** — tracks established faction goals, resources and pressures without inventing new capabilities.
+- **Power Ecology** — separates permanent powers from gained, manifested, copied, borrowed, stolen, suppressed, lost, restored and evolved states.
+- **Variant Graph** — future, past, alternate-timeline and multiversal counterparts remain separate identities linked to a base person.
+- **Emergent Arcs** — independent pressure from multiple systems can converge into one developing arc instead of creating duplicate threads.
+- **Off-Screen World Pulse** — absent NPCs/factions with established goals can receive a plausible development *candidate*. Candidates are not canon until the story actually narrates them.
+
+WORLD ENGINE currently recognises **30 scenario families**: fantasy, sci-fi, cyberpunk, contemporary, historical, western, horror, mystery, crime/noir, romance, slice-of-life, school/campus, workplace, family, adventure, espionage, superhero, time travel, multiverse, reality-warping, post-apocalyptic, survival, military/war, political/intrigue, medical, legal, sports, music/celebrity, pirate/nautical and comedy. Hybrid stories keep multiple live tags instead of being flattened into one genre.
+
+The base-world profile and the **live scene/world profile are separate**. That matters for portals, time jumps, holodecks, alternate universes, dream worlds and reality changes: entering a different world can change the active rules without deleting the original setting.
+
+Useful commands:
+
+```text
+/world
+/world doctor
+/world pulse
+```
+
+`/world pulse` forces one off-screen candidate for inspection/testing. It still does not declare that event canon.
+
+---
 
 ### 🌘 The world remembers consequences
 
@@ -612,15 +644,31 @@ These rules matter more than making the script fire as often as possible.
 
 ---
 
+
+## 🌊 Smooth & Fluid orchestration
+
+The WORLD layer is deliberately **sticky where continuity benefits from stability and immediate where danger demands a switch**. Scene hysteresis prevents weak keywords from jerking the camera around; strong combat/horror/survival signals can still take control instantly. Retrospective or negated action (for example, discussing an earlier fight or saying there is not another attack) no longer hijacks the present scene.
+
+Attention uses near-tie hysteresis so active focus does not ping-pong between equally relevant people. Director ownership also keeps the engines from talking over one another: when TWISTS or Crossed Wires owns the current beat, WORLD ENGINE supplies continuity support instead of opening an unrelated off-screen development.
+
+Emergent arcs now advance on **novel development**, not repeated reads. The same clue can keep an arc alive but cannot inflate its maturity across Input/Context/Output. A distinct clue, changed state, independent source or meaningful consequence can advance it. Background goals use cooldown/rotation, stale arcs decay once per turn, and the WORLD packet filters unrelated consequences away from the active camera.
+
+A dedicated 48-turn camera-flow torture test repeatedly cycles social → investigation → combat → recovery. The release holds the intended mode through each phase, records only 12 legitimate scene switches, has zero focus ping-pong, prevents automatic background pulses from entering high-motion scenes, and preserves structurally complete WORLD packets in Standard and Optimized Context.
+
+---
+
 ## 🧪 Testing
 
 The package includes:
 
 ```text
 run_tests.js
+world_engine_tests.js
 stress_test.js
 high_concept_stress_test.js
 codex_noise_stress_test.js
+world_engine_long_stress_test.js
+fluidity_stress_test.js
 ```
 
 They cover the integration between the three engines, Story Card generation, entity detection, knowledge boundaries, Retry handling, context budgeting, output cleanup and both Standard and Optimized Context behavior.
@@ -633,10 +681,16 @@ node stress_test.js
 CE_CACHE_STRESS=1 node stress_test.js
 node high_concept_stress_test.js
 CE_CACHE_STRESS=1 node high_concept_stress_test.js
-codex_noise_stress_test.js
+node codex_noise_stress_test.js
+CE_CACHE_STRESS=1 node codex_noise_stress_test.js
+node world_engine_tests.js
+node world_engine_long_stress_test.js
+CE_CACHE_STRESS=1 node world_engine_long_stress_test.js
+node fluidity_stress_test.js
+CE_CACHE_STRESS=1 node fluidity_stress_test.js
 ```
 
-Current verification: **125/125 integration/regression tests pass**. Both 60-turn / 180-hook large-library stress runs pass, both dedicated time-travel/multiverse/superpower stress runs pass, and both CODEX anti-junk stress modes reject all 36 deliberately forbidden generic candidates while still creating the four intended high-concept cards.
+Current verification: **125/125 legacy integration/regression tests pass** and **31/31 WORLD ENGINE + fluidity tests pass**. WORLD ENGINE's matrix covers **30 supported scenario families, 12 hybrid combinations, genre-neutral handling and 20 scene modes**. Standard and Optimized large-library, high-concept, CODEX anti-junk, rotating-world and fluid camera-flow stress suites all pass; Optimized Context preserves the exact host prefix.
 
 
 ---
@@ -649,4 +703,4 @@ Current verification: **125/125 integration/regression tests pass**. Both 60-tur
 - **Crossed Wires**
 - **ECHO VEIL**
 
-They still have distinct responsibilities under the hood. CROSSED ECHOES is the layer that lets those responsibilities feed the same long-running story without flattening psychology, relationships, plot and world continuity into the same thing.
+They still have distinct responsibilities under the hood. CROSSED ECHOES coordinates them, and WORLD ENGINE is the persistent simulation/orchestration layer above that coordination. Evidence authority remains with the story, Story Cards and the specialist systems; WORLD ENGINE decides relevance and continuity pressure rather than inventing truth.

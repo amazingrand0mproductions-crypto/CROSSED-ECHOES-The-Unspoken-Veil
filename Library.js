@@ -305,9 +305,13 @@ var CP_SCENARIO_SIGNALS = [
   { tag: "romance", rx: /\b(romance|romantic|dating|crush|kiss|lover|boyfriend|girlfriend|fianc|wedding|marriage|heartbreak|attraction)\w*/gi, weight: 2 },
   { tag: "slice-of-life", rx: /\b(slice of life|roommate|school day|classmate|coworker|neighbor|family dinner|homework|shift at|day off|weekend|caf[eé]|friend group)\w*/gi, weight: 2 },
   { tag: "school/campus", rx: /\b(high school|academy|college|university|campus|student|teacher|professor|classroom|dorm|semester|club meeting|prom)\w*/gi, weight: 2 },
+  { tag: "workplace", rx: /\b(workplace|coworker|co-worker|manager|supervisor|employee|office meeting|staff meeting|work shift|department|promotion|performance review|human resources|HR meeting|boardroom|work project|deadline)\w*/gi, weight: 2 },
+  { tag: "family", rx: /\b(family|parent|mother|father|mom|mum|dad|daughter|son|sister|brother|sibling|grandparent|grandmother|grandfather|aunt|uncle|cousin|household|family home|family argument|family reunion)\w*/gi, weight: 2 },
+  { tag: "adventure", rx: /\b(adventure|quest|expedition|exploration|treasure hunt|ruins expedition|lost temple|ancient map|artifact hunt|journey into|uncharted|explorer)\w*/gi, weight: 2 },
+  { tag: "espionage", rx: /\b(espionage|spy|spies|intelligence agency|intelligence officer|secret agent|operative|handler|dead drop|classified file|covert operation|counterintelligence|surveillance|wiretap|mole|double agent|safehouse|exfiltration)\w*/gi, weight: 3 },
   { tag: "superhero", rx: /\b(superhero|supervillain|masked hero|secret identity|superpower|superpowers|metahuman|vigilante|cape|powered individual|powered people|power absorption|teleportation|telekinesis|energy projection|regeneration|reality warping|reality-warping)\w*/gi, weight: 3 },
   { tag: "time-travel", rx: /\b(time travel|time[- ]travell?er|timeline|timelines|chronal|temporal|time loop|time-loop|future self|past self|future version|past version|paradox|causal loop|causality|branch(?:ed|ing)? timeline|alternate future|alternate past|time displacement|temporal displacement|anchor point)\w*/gi, weight: 4 },
-  { tag: "multiverse", rx: /\b(multiverse|multiversal|alternate universe|parallel universe|parallel world|alternate reality|parallel reality|other universe|other reality|variant|variants|incursion|nexus|dimension|dimensional|reality branch|universe[- ]hopping|worldline|world line)\w*/gi, weight: 4 },
+  { tag: "multiverse", rx: /\b(multiverse|multiversal|alternate[- ]universe|parallel[- ]universe|parallel[- ]world|alternate[- ]reality|parallel[- ]reality|other[- ]universe|other[- ]reality|variant|variants|incursion|nexus|dimension|dimensional|reality[- ]branch|universe[- ]hopping|worldline|world[- ]line)\w*/gi, weight: 4 },
   { tag: "reality-warping", rx: /\b(reality warp|reality[- ]warping|rewrite reality|rewrites? reality|reality alteration|reality manipulation|reality anchor|reality leak|existence erasure|erased from existence|continuity rewrite|timeline rewrite)\w*/gi, weight: 4 },
   { tag: "post-apocalyptic", rx: /\b(post[- ]apocal|wasteland|fallout|ruins|survivors?|bunker|radiation|collapse|infected|zombie|scaveng|supply run)\w*/gi, weight: 2 },
   { tag: "survival", rx: /\b(survival|stranded|shipwreck|shelter|rations|forage|dehydration|hypothermia|wilderness|supplies|rescue signal)\w*/gi, weight: 2 },
@@ -1630,7 +1634,7 @@ var Library = (() => {
     // immediately normalized to `/`; every visible help/config uses slash only.
     const t = String(raw).replace(/\r/g, "").trim();
     if (!t) return null;
-    const owned = "(?:crossedechoesstatus|crossedechoes|cestatus|ce|threadboundstatus|threadbound|tbstatus|unifiedstatus|unified|unsaid|pe(?:e|a)k|card|alias|unalias|twistcategories|twisttypes|twistlog|twisthelp|twist|plant|mature|scenario|synergy|link|intensity|threads|rescan|twists|wiremerge|wireforget|wireprofile|wirestatus|wiretwists|wirehelp|wirerole|wireage|wires|wire|spark)";
+    const owned = "(?:crossedechoesstatus|crossedechoes|cestatus|ce|threadboundstatus|threadbound|tbstatus|unifiedstatus|unified|worldengine|world|unsaid|pe(?:e|a)k|card|alias|unalias|twistcategories|twisttypes|twistlog|twisthelp|twist|plant|mature|scenario|synergy|link|intensity|threads|rescan|twists|wiremerge|wireforget|wireprofile|wirestatus|wiretwists|wirehelp|wirerole|wireage|wires|wire|spark)";
     const prefixedAtStart = new RegExp(`^[!/:]${owned}\\b`, "i");
     const prefixedAnywhere = new RegExp(`[!/:]${owned}\\b`, "i");
     const canonicalAtStart = new RegExp(`^/${owned}\\b`, "i");
@@ -1763,7 +1767,7 @@ var Library = (() => {
 
     const speculativeTags = new Set(["fantasy","sci-fi","cyberpunk","superhero","time-travel","multiverse","reality-warping","post-apocalyptic"]);
     const speculativeScore = tags.reduce((n, tag) => n + (speculativeTags.has(tag) ? (scores[tag] || 0) : 0), 0);
-    const groundedScore = ["contemporary","historical","slice-of-life","crime/noir","medical","legal","sports","school/campus"]
+    const groundedScore = ["contemporary","historical","slice-of-life","crime/noir","medical","legal","sports","school/campus","workplace","family","espionage"]
       .reduce((n, tag) => n + (scores[tag] || 0), 0);
     const reality = speculativeScore >= Math.max(4, groundedScore)
       ? "speculative"
@@ -1776,9 +1780,9 @@ var Library = (() => {
     else if ((scores.contemporary || 0) >= 2) era = "contemporary";
 
     const intimateScore = (scores.romance || 0) + (scores["slice-of-life"] || 0) +
-      (scores["school/campus"] || 0) + (scores.medical || 0) + (scores.sports || 0);
+      (scores["school/campus"] || 0) + (scores.workplace || 0) + (scores.family || 0) + (scores.medical || 0) + (scores.sports || 0);
     const largeScaleScore = (scores["military/war"] || 0) + (scores["post-apocalyptic"] || 0) +
-      (scores.superhero || 0) + (scores["political/intrigue"] || 0);
+      (scores.superhero || 0) + (scores["political/intrigue"] || 0) + (scores.adventure || 0) + (scores.espionage || 0);
     const scale = intimateScore > largeScaleScore + 3 ? "intimate/local"
       : (largeScaleScore > intimateScore + 3 ? "large-scale" : "flexible");
 
@@ -17873,7 +17877,7 @@ function CE_syncStoryCardPresentation(){try{var names=[],add=function(n){n=Strin
 // CROSSED ECHOES — THE UNSPOKEN VEIL
 // Coordination bridge for UNSPOKEN TURNS + CROSSED WIRES + ECHO VEIL
 // ============================================================================
-var UNIFIED_NARRATIVE_BUILD = "2026-08-30-crossed-echoes-ceiling-director";
+var UNIFIED_NARRATIVE_BUILD = "2026-09-01-crossed-echoes-world-engine";
 var UN_DEFAULTS = {
   enabled: true,
   sharedScenario: true,
@@ -17896,6 +17900,25 @@ var UN_DEFAULTS = {
   entityLattice: true,
   longArcMemory: true,
   adaptiveContext: true,
+  // WORLD ENGINE — simulation/orchestration layer. These switches change
+  // scheduling and state modeling only; evidence/canon remains owned by the
+  // story plus the underlying ECHO/TWISTS/CODEX systems.
+  worldEngine: true,
+  narrativeAttention: true,
+  sceneDirector: true,
+  knowledgeMatrix: true,
+  causalWeb: true,
+  factionSimulation: true,
+  powerEcology: true,
+  variantGraph: true,
+  emergentArcs: true,
+  offscreenSimulation: true,
+  worldPulse: true,
+  worldPulseInterval: 2,
+  worldContextChars: 1200,
+  worldEntityCap: 160,
+  worldArcCap: 48,
+  worldSimulationStrength: "balanced",
   fusionStrength: "balanced",
   contextChars: 1400,
   aftermathWindow: 4,
@@ -18002,6 +18025,22 @@ function UN_renderConfig(cfg) {
     "entityLattice=" + cfg.entityLattice,
     "longArcMemory=" + cfg.longArcMemory,
     "adaptiveContext=" + cfg.adaptiveContext,
+    "worldEngine=" + cfg.worldEngine,
+    "narrativeAttention=" + cfg.narrativeAttention,
+    "sceneDirector=" + cfg.sceneDirector,
+    "knowledgeMatrix=" + cfg.knowledgeMatrix,
+    "causalWeb=" + cfg.causalWeb,
+    "factionSimulation=" + cfg.factionSimulation,
+    "powerEcology=" + cfg.powerEcology,
+    "variantGraph=" + cfg.variantGraph,
+    "emergentArcs=" + cfg.emergentArcs,
+    "offscreenSimulation=" + cfg.offscreenSimulation,
+    "worldPulse=" + cfg.worldPulse,
+    "worldPulseInterval=" + cfg.worldPulseInterval,
+    "worldContextChars=" + cfg.worldContextChars,
+    "worldEntityCap=" + cfg.worldEntityCap,
+    "worldArcCap=" + cfg.worldArcCap,
+    "worldSimulationStrength=" + cfg.worldSimulationStrength,
     "fusionStrength=" + cfg.fusionStrength,
     "contextChars=" + cfg.contextChars,
     "aftermathWindow=" + cfg.aftermathWindow,
@@ -18034,6 +18073,25 @@ function UN_configNotes() {
     "entityLattice — Builds one type-aware shared focus map for Characters, Locations, Items and Factions using CODEX, ECHO VEIL, Crossed Wires, Story Cards and current intent. Conflicting strong type evidence causes the bridge to abstain instead of forcing the wrong entity type.",
     "longArcMemory — Stores a small bounded set of major cross-system milestones and lets them regain callback salience when the involved person, place, item or faction genuinely returns. Milestones cool when absent and never stay permanently hot.",
     "adaptiveContext — Scales reserved private-context headroom to current dramatic complexity. Quiet turns use less; dense convergent/crisis/payoff turns may reserve modestly more. Hard maxChars and cache-compatible prefix rules still win.",
+    "",
+    "WORLD ENGINE",
+    "worldEngine — Master switch for the persistent WORLD ENGINE simulation/orchestration layer. It coordinates existing systems; it does not replace their evidence rules.",
+    "narrativeAttention — Gives the current turn a bounded attention budget so only the most relevant people, places, objects, factions and arcs receive context priority.",
+    "sceneDirector — Classifies the current scene (social, investigation, combat, recovery, romance, horror, legal, medical, political, military, survival, school, sports, travel, stealth, slice-of-life, etc.) and tells supporting systems what kind of beat should dominate.",
+    "knowledgeMatrix — Mirrors established ECHO beliefs and explicit knowledge boundaries into a per-entity knows/suspects/unknown/contested matrix. It never turns model access into character knowledge.",
+    "causalWeb — Maintains a compact cross-system cause/consequence view using ECHO's causal links and delayed consequences so later developments prefer earned causes over coincidence.",
+    "factionSimulation — Tracks typed factions and gives established faction goals/pressures off-screen agency opportunities. It never invents new resources, powers or knowledge for them.",
+    "powerEcology — Tracks explicit power-state transitions separately from permanent identity: gained, manifested, copied, borrowed, stolen, suppressed, lost, restored and evolved. Speculation is not accepted as a state change.",
+    "variantGraph — Keeps future, past, alternate-timeline and multiversal counterparts as separate identities linked to a base person. Death, injury, knowledge, relationships and powers do not silently bleed across variants.",
+    "emergentArcs — Detects multi-system pressure that is already forming in play and tracks it as an emerging arc instead of injecting a random storyline. An arc needs independent supporting signals before it receives meaningful attention.",
+    "offscreenSimulation — Lets established NPC/faction goals continue to compete for attention while absent. The engine proposes an off-screen development candidate; it is not canon until the story actually narrates it.",
+    "worldPulse — Enables the bounded off-screen pulse scheduler.",
+    "worldPulseInterval [1-12] — Minimum normal turns between automatic off-screen development candidates. Default 2.",
+    "worldContextChars [400-1800] — Maximum WORLD ENGINE private packet size. The packet is sentence-safe and yields entirely when Optimized Context has insufficient headroom.",
+    "worldEntityCap [40-300] — Hard cap for WORLD ENGINE entity mirrors. Least-relevant dormant mirrors are compacted first; canonical Story Cards remain untouched.",
+    "worldArcCap [12-96] — Hard cap for emergent-arc records. Resolved/cold records compact before active arcs.",
+    "worldSimulationStrength [light|balanced|strong] — Controls off-screen candidate frequency/salience, not truth thresholds. Balanced is recommended.",
+    "",
     "fusionStrength [light|balanced|strong] — Controls how strongly independent systems influence each other's PRIORITY. Light is subtle, balanced is recommended, strong makes convergent signals more noticeable. It never changes evidence thresholds.",
     "contextChars — Maximum size of the reconciliation packet. Range 300-1400. Default 1400. The bridge compacts lower-priority detail before dropping cross-system pacing/focus cues.",
     "aftermathWindow — Turns (2-8) used for aftermath continuity, convergent focus and repetition protection. Default 4.",
@@ -18051,7 +18109,8 @@ function UN_configNotes() {
     "4) Crossed Wires may supply a relationship twist only when no plot beat already owns the generation.",
     "5) UNSAID automatic thought/Codex work yields to a structured twist owner; ordinary behavioral continuity can still run on calm turns.",
     "6) After a confirmed major beat, recoveryGuard favors reaction/consequence before another automatic major beat.",
-    "7) signalBus/pairFocus then align WHICH established character or bond the quieter systems should care about, while pacingGovernor aligns WHAT dramatic function the next beat should serve.", "",
+    "7) WORLD ENGINE computes the bounded scene/attention/causal/knowledge/off-screen simulation packet from already-established state.",
+    "8) signalBus/pairFocus then align WHICH established character or bond the quieter systems should care about, while pacingGovernor aligns WHAT dramatic function the next beat should serve.", "",
     "HOW THE THREE ENGINES NOW BOUNCE",
     "• UNSPOKEN TURNS → Crossed Wires: fresh private tension can raise attention on an already-established bond, but cannot create feelings/events that were never shown. Old private-state salience cools automatically unless refreshed by the story.",
     "• Crossed Wires → UNSPOKEN TURNS: strong established bond salience (positive or strained) can make an NPC more likely to receive private/behavioral continuity, without exposing the other character's private state.",
@@ -18101,6 +18160,22 @@ function UN_readConfig() {
       else if (k === "entitylattice") cfg.entityLattice=UN_bool(v,cfg.entityLattice);
       else if (k === "longarcmemory") cfg.longArcMemory=UN_bool(v,cfg.longArcMemory);
       else if (k === "adaptivecontext") cfg.adaptiveContext=UN_bool(v,cfg.adaptiveContext);
+      else if (k === "worldengine") cfg.worldEngine=UN_bool(v,cfg.worldEngine);
+      else if (k === "narrativeattention") cfg.narrativeAttention=UN_bool(v,cfg.narrativeAttention);
+      else if (k === "scenedirector") cfg.sceneDirector=UN_bool(v,cfg.sceneDirector);
+      else if (k === "knowledgematrix") cfg.knowledgeMatrix=UN_bool(v,cfg.knowledgeMatrix);
+      else if (k === "causalweb") cfg.causalWeb=UN_bool(v,cfg.causalWeb);
+      else if (k === "factionsimulation") cfg.factionSimulation=UN_bool(v,cfg.factionSimulation);
+      else if (k === "powerecology") cfg.powerEcology=UN_bool(v,cfg.powerEcology);
+      else if (k === "variantgraph") cfg.variantGraph=UN_bool(v,cfg.variantGraph);
+      else if (k === "emergentarcs") cfg.emergentArcs=UN_bool(v,cfg.emergentArcs);
+      else if (k === "offscreensimulation") cfg.offscreenSimulation=UN_bool(v,cfg.offscreenSimulation);
+      else if (k === "worldpulse") cfg.worldPulse=UN_bool(v,cfg.worldPulse);
+      else if (k === "worldpulseinterval") { var wpi=Number(v); if(isFinite(wpi)) cfg.worldPulseInterval=Math.max(1,Math.min(12,Math.round(wpi))); }
+      else if (k === "worldcontextchars") { var wcc=Number(v); if(isFinite(wcc)) cfg.worldContextChars=Math.max(400,Math.min(1800,Math.round(wcc))); }
+      else if (k === "worldentitycap") { var wec=Number(v); if(isFinite(wec)) cfg.worldEntityCap=Math.max(40,Math.min(300,Math.round(wec))); }
+      else if (k === "worldarccap") { var wac=Number(v); if(isFinite(wac)) cfg.worldArcCap=Math.max(12,Math.min(96,Math.round(wac))); }
+      else if (k === "worldsimulationstrength") { var wss=String(v||"").trim().toLowerCase(); if(["light","balanced","strong"].indexOf(wss)>=0) cfg.worldSimulationStrength=wss; }
       else if (k === "fusionstrength") { var fs=String(v||"").trim().toLowerCase(); if(["light","balanced","strong"].indexOf(fs)>=0) cfg.fusionStrength=fs; }
       else if (k === "debug") cfg.debug=UN_bool(v,cfg.debug);
       else if (k === "contextchars") { var n=Number(v); if (isFinite(n)) cfg.contextChars=Math.max(300,Math.min(1400,Math.round(n))); }
@@ -18221,6 +18296,7 @@ function UN_shouldSuppressPlotTwist() {
     if(cfg.playerIntentAnchor&&it&&UN_intentIsHighMotion(it)&&!["investigate"].includes(it.mode)&&!UN_intentAlignedPlot())return true;
     if(cfg.playerIntentAnchor&&it&&["travel","stealth","rest","use-item"].indexOf(it.mode)>=0&&!UN_intentAlignedPlot())return true;
     if(UN_beatFatigue("payoff")>=3&&!UN_intentAlignedPlot())return true;
+    try{var wm=state.crossedEchoesWorld&&state.crossedEchoesWorld.scene&&state.crossedEchoesWorld.scene.mode;if(["combat","horror","survival","stealth"].indexOf(String(wm||""))>=0&&!UN_intentAlignedPlot())return true;}catch(_){}
     return false;
   } catch(e){ return false; }
 }
@@ -18232,6 +18308,7 @@ function UN_shouldSuppressCrossedTwist() {
     if (cfg.recoveryGuard && UN_recoveryActive()) return true;
     var it=UN_playerIntentSnapshot();
     if(cfg.playerIntentAnchor&&it&&["combat","protect","escape","stealth","travel","investigate","use-item"].indexOf(it.mode)>=0&&!(["social"].indexOf(it.mode)>=0))return true;
+    try{var wm=state.crossedEchoesWorld&&state.crossedEchoesWorld.scene&&state.crossedEchoesWorld.scene.mode;if(["combat","horror","survival","stealth"].indexOf(String(wm||""))>=0)return true;}catch(_){}
     return !!(cfg.singleStructuredBeat&&s&&s.director&&s.director.turn===UN_turn()&&s.director.owner&&s.director.owner!=="crossed_wires");
   } catch(e){ return false; }
 }
@@ -18426,20 +18503,23 @@ function UN_capturePlayerIntent(text) {
   var cfg=UN_readConfig(),s=UN_init();if(!s||!cfg.enabled||!cfg.playerIntentAnchor)return null;
   var raw=UN_cleanActionText(text);if(!raw||/^\//.test(raw))return null;
   var low=raw.toLowerCase(),mode="",confidence=.58;
+  var combatNegated=/\b(?:not|isn't|is not|wasn't|was not|no)\s+(?:another\s+|a\s+|the\s+)?(?:fight|battle|attack|ambush|combat)\b/i.test(raw);
+  var combatRetrospective=/\b(?:earlier|previous|last|after|aftermath of|talk(?:ing)? about|discuss(?:ing)?|remember(?:ing)?)\b[^.!?]{0,80}\b(?:fight|battle|attack|ambush|shooting|war)\b/i.test(raw);
+  var suppressCombatIntent=combatNegated||combatRetrospective;
   var rules=[
-    ["combat",/\b(?:attack|fight|shoot|fire\s+at|strike|punch|kick|stab|slash|battle|charge|tackle)\b/i,.9],
-    ["protect",/\b(?:protect|defend|guard|shield|save|rescue|cover\s+for|keep\s+.+\s+safe)\b/i,.88],
-    ["escape",/\b(?:escape|flee|run\s+away|get\s+out|evade|break\s+free|retreat)\b/i,.9],
-    ["stealth",/\b(?:sneak|hide|creep|infiltrat|slip\s+past|move\s+quietly|stay\s+hidden)\w*/i,.86],
-    ["investigate",/\b(?:investigat|inspect|examin|search|look\s+into|study|analy[sz]|research|trace|track\s+down|check\s+for|look\s+for)\w*/i,.84],
-    ["travel",/\b(?:head|travel|go|walk|drive|fly|ride|return|enter|leave\s+for|make\s+(?:my|your)\s+way|set\s+out)\b/i,.76],
+    ["combat",/\b(?:attack(?:s|ed|ing)?|fight(?:s|ing)?|fought|shoot(?:s|ing)?|shot|fire(?:s|d|ing)?\s+at|strike(?:s|ing)?|struck|punch(?:es|ed|ing)?|kick(?:s|ed|ing)?|stab(?:s|bed|bing)?|slash(?:es|ed|ing)?|battle(?:s|d|ing)?|charge(?:s|d|ing)?|tackle(?:s|d|ing)?)\b/i,.9],
+    ["protect",/\b(?:protect(?:s|ed|ing)?|defend(?:s|ed|ing)?|guard(?:s|ed|ing)?|shield(?:s|ed|ing)?|save(?:s|d|ing)?|rescue(?:s|d|ing)?|cover(?:s|ed|ing)?\s+for|keep(?:s|ing)?\s+.+\s+safe)\b/i,.88],
+    ["escape",/\b(?:escape(?:s|d|ing)?|flee(?:s|ing)?|fled|run(?:s|ning)?\s+away|get(?:s|ting)?\s+out|evade(?:s|d|ing)?|break(?:s|ing)?\s+free|retreat(?:s|ed|ing)?)\b/i,.9],
+    ["stealth",/\b(?:sneak(?:s|ed|ing)?|hide(?:s|d|ing)?|hid|creep(?:s|ing)?|crept|infiltrat|slip(?:s|ped|ping)?\s+past|move(?:s|d|ing)?\s+quietly|stay(?:s|ed|ing)?\s+hidden)\w*/i,.86],
+    ["investigate",/\b(?:investigat|inspect|examin|search|look\s+into|study|studies|studied|studying|analy[sz]|research|trace|track\s+down|check\s+for|look\s+for)\w*/i,.84],
+    ["travel",/\b(?:head(?:s|ed|ing)?|travel(?:s|ed|ing)?|go(?:es|ing)?|went|walk(?:s|ed|ing)?|drive(?:s|d|ing)?|drove|fly|flies|flew|flying|ride(?:s|d|ing)?|rode|return(?:s|ed|ing)?|enter(?:s|ed|ing)?|leave(?:s|ing)?\s+for|left\s+for|make(?:s|ing)?\s+(?:my|your|their|his|her)\s+way|set(?:s|ting)?\s+out)\b/i,.76],
     ["social",/\b(?:talk|ask|tell|speak|confront|apologi[sz]|comfort|reassure|kiss|hug|flirt|confess|argue|negotiate|question)\w*/i,.76],
-    ["use-item",/\b(?:use|draw|wield|activate|equip|wear|unlock|open\s+with|read|drink|take\s+out|pick\s+up)\b/i,.72],
-    ["observe",/\b(?:watch|listen|observe|wait|scan|survey|look\s+around)\b/i,.66],
-    ["plan",/\b(?:plan|prepare|consider|decide|think\s+through|strategi[sz])\w*/i,.66],
-    ["rest",/\b(?:rest|sleep|relax|recover|take\s+a\s+break|sit\s+down)\b/i,.7]
+    ["use-item",/\b(?:use(?:s|d|ing)?|draw(?:s|ing)?|drew|wield(?:s|ed|ing)?|activate(?:s|d|ing)?|equip(?:s|ped|ping)?|wear(?:s|ing)?|wore|unlock(?:s|ed|ing)?|open(?:s|ed|ing)?\s+with|read(?:s|ing)?|drink(?:s|ing)?|drank|take(?:s|n|ing)?\s+out|pick(?:s|ed|ing)?\s+up)\b/i,.72],
+    ["observe",/\b(?:watch(?:es|ed|ing)?|listen(?:s|ed|ing)?|observe(?:s|d|ing)?|wait(?:s|ed|ing)?|scan(?:s|ned|ning)?|survey(?:s|ed|ing)?|look(?:s|ed|ing)?\s+around)\b/i,.66],
+    ["plan",/\b(?:plan(?:s|ned|ning)?|prepare(?:s|d|ing)?|consider(?:s|ed|ing)?|decide(?:s|d|ing)?|think(?:s|ing)?\s+through|strategi[sz])\w*/i,.66],
+    ["rest",/\b(?:rest(?:s|ed|ing)?|sleep(?:s|ing)?|slept|relax(?:es|ed|ing)?|recover(?:s|ed|ing)?|take(?:s|n|ing)?\s+a\s+break|sit(?:s|ting)?\s+down|sat\s+down)\b/i,.7]
   ];
-  for(var i=0;i<rules.length;i++)if(rules[i][1].test(low)){mode=rules[i][0];confidence=rules[i][2];break;}
+  for(var i=0;i<rules.length;i++){if(i===0&&suppressCombatIntent)continue;if(rules[i][1].test(low)){mode=rules[i][0];confidence=rules[i][2];break;}}
   if(!mode){s.playerIntent={turn:UN_turn(),mode:"",target:"",targetType:"",confidence:0,text:UN_clip(raw,180)};return s.playerIntent;}
   var target=UN_extractIntentTarget(raw),type=target?UN_entityTypeEvidence(target):{kind:""};
   s.playerIntent={turn:UN_turn(),mode:mode,target:target,targetType:type.kind||"",confidence:confidence,text:UN_clip(raw,220)};
@@ -18805,8 +18885,11 @@ function UN_pacingSnapshot() {
   var sig=UN_signalSnapshot(),top=sig.entities&&sig.entities[0]||{},ready=0;try{ready=(state.contingency&&state.contingency.threads||[]).filter(function(t){return t&&t.status==="ready";}).length;}catch(e){}
   var recentMajor=false;try{recentMajor=(state.crossedWires&&state.crossedWires.ledger||[]).some(function(e){return e&&Number(e.turn)>=UN_turn()-2&&Number(e.severity)>=3;});}catch(e){}
   var mode="steady",reasons=[],owner=s&&s.director&&s.director.turn===UN_turn()?s.director.owner:"",pair=UN_pairFocus(),intent=UN_playerIntentSnapshot();
+  var worldMode="";try{worldMode=String(state.crossedEchoesWorld&&state.crossedEchoesWorld.scene&&state.crossedEchoesWorld.scene.mode||"");}catch(_){}
   if(UN_recoveryActive()){mode="aftermath";reasons.push("major beat just landed");}
   else if(intent&&["combat","protect","escape"].indexOf(intent.mode)>=0){mode="crisis";reasons.push("player intent: "+intent.mode);}
+  else if(["combat","horror","survival"].indexOf(worldMode)>=0){mode="crisis";reasons.push("WORLD scene: "+worldMode);}
+  else if(worldMode==="recovery"&&danger<5){mode="breathe";reasons.push("WORLD scene: recovery");}
   else if(danger>=7||urgency>=7){mode="crisis";reasons.push("high danger/urgency");}
   else if(owner==="twists"||ready>0&&danger<6.2){mode="payoff";reasons.push(owner==="twists"?"plot beat owns this generation":ready+" supported plot thread"+(ready===1?" is":"s are")+" ready");}
   else if(owner==="crossed_wires"||owner==="crossed_forced"||(((top.rel||0)+(top.psych||0)>=5.5||social>=6||intimacy>=6||(pair&&pair.from&&pair.score>=4.5))&&danger<5.5)){mode="social-pressure";reasons.push(owner&&/^crossed/.test(owner)?"relationship beat owns this generation":"relationship + psychology pressure");}
@@ -18857,7 +18940,7 @@ function UN_crossSystemFocus() {
 
 function UN_profileKey(v) {
   var s=String(v||"").toLowerCase().replace(/[_ ]+/g,"-");
-  var map={"sci-fi":"science-fiction","scifi":"science-fiction","slice-of-life":"slice-of-life","post-apocalyptic":"post-apocalyptic","postapocalyptic":"post-apocalyptic","school":"school/campus","campus":"school/campus","political":"political/intrigue","intrigue":"political/intrigue","crime":"crime/noir","noir":"crime/noir","medical":"medical","legal":"legal","superhero":"superhero","fantasy":"fantasy","horror":"horror","mystery":"mystery","romance":"romance","historical":"historical","western":"western","survival":"survival","military":"military/war","war":"military/war","cyberpunk":"cyberpunk","comedy":"comedy","adventure":"adventure","family":"family","workplace":"workplace","sports":"sports","celebrity":"music/celebrity","nautical":"pirate/nautical","universal":"general","adaptive":"general","general":"general"};
+  var map={"sci-fi":"science-fiction","scifi":"science-fiction","slice-of-life":"slice-of-life","post-apocalyptic":"post-apocalyptic","postapocalyptic":"post-apocalyptic","school":"school/campus","campus":"school/campus","political":"political/intrigue","intrigue":"political/intrigue","crime":"crime/noir","noir":"crime/noir","medical":"medical","legal":"legal","superhero":"superhero","fantasy":"fantasy","horror":"horror","mystery":"mystery","romance":"romance","historical":"historical","western":"western","survival":"survival","military":"military/war","war":"military/war","cyberpunk":"cyberpunk","comedy":"comedy","adventure":"adventure","family":"family","workplace":"workplace","espionage":"espionage","spy":"espionage","sports":"sports","celebrity":"music/celebrity","nautical":"pirate/nautical","universal":"general","adaptive":"general","general":"general"};
   return map[s]||s||"general";
 }
 function UN_profileConsensus() {
@@ -19080,7 +19163,439 @@ function UN_statusText() {
     "Convergent pair: "+((function(){var p=UN_pairFocus();return p&&p.from?p.from+" ↔ "+p.to+(p.streak>1?" (stable x"+p.streak+")":""):"none";})()),
     "Signal bus: "+(cfg.signalBus?"ON":"OFF")+" | fusion strength: "+cfg.fusionStrength+" | active pulses: "+(s&&s.pulses?s.pulses.length:0)+" | milestones: "+(s&&s.milestones?s.milestones.length:0),
     "Adaptive context: "+(cfg.adaptiveContext?"ON":"OFF")+" | complexity: "+UN_contextComplexityScore().toFixed(1)+"/10",
+    "WORLD ENGINE: "+(cfg.worldEngine?"ON":"OFF")+((typeof CEW_statusLine==="function")?" | "+CEW_statusLine():""),
     "Recorded bridge aftermath beats: "+(s&&s.aftermath?s.aftermath.length:0),
     "Cross-system boosts: plot="+(s.stats.plotTwists||0)+", relationshipTwists="+(s.stats.relationshipTwists||0)+", relationshipEvents="+(s.stats.relationshipEvents||0)+", echoSalience="+(s.stats.echoBoosts||0)+", psychologyPulses="+(s.stats.psychologyPulses||0)+", worldPulses="+(s.stats.worldPulses||0)
   ].join("\n");
 }
+
+
+// ============================================================================
+// CROSSED ECHOES — WORLD ENGINE
+// Persistent simulation/orchestration above ECHO VEIL, TWISTS AND TURNS,
+// CROSSED WIRES, UNSPOKEN TURNS and CODEX.
+//
+// DESIGN CONTRACT
+// • Story / Story Cards / confirmed engine evidence remain canon authority.
+// • WORLD ENGINE may schedule and propose, but an off-screen proposal is NOT
+//   canon until narrated/confirmed by the story.
+// • ECHO VEIL remains the low-level causality/knowledge/continuity authority;
+//   WORLD ENGINE mirrors and coordinates it instead of creating a rival truth.
+// • All stores are bounded. Attention is sparse by design.
+// ============================================================================
+var CEW_VERSION = "1.1-fluid-world-engine";
+var CEW_SCHEMA = 2;
+var CEW_RUNTIME = { turn:-1, packet:null, scenario:null, attention:null, scene:null, before:null };
+
+var CEW_SCENE_RULES = [
+  ["combat", /\b(?:attack|fight|battle|shoot|gunfire|punch|kick|stab|slash|blast|duel|brawl|ambush|combat|charges?|strikes?)\b/i],
+  ["stealth", /\b(?:sneak|stealth|infiltrat|hide|creep|silent(?:ly)?|undetected|disguise|tail(?:ing)?|shadow(?:ing)?)\w*/i],
+  ["investigation", /\b(?:investigat|clue|evidence|analy[sz]|trace|forensic|interrogat|question(?:ing)?|search(?:ing)?|mystery|case|suspect|deduc|inspect)\w*/i],
+  ["horror", /\b(?:horror|haunt|demon|ghost|possess|curse|ritual|monster|eldritch|terrifying|bloodcurdling|supernatural threat)\w*/i],
+  ["romance", /\b(?:date|kiss|flirt|romantic|attraction|confess(?:ion)?|relationship|love|intimate|anniversary|proposal|wedding)\b/i],
+  ["legal", /\b(?:court|courtroom|judge|jury|attorney|lawyer|lawsuit|hearing|injunction|warrant|testimony|trial|legal|prosecut|defen[cs]e counsel)\w*/i],
+  ["medical", /\b(?:hospital|clinic|doctor|nurse|surgery|patient|diagnos|treatment|medical|blood test|scan|laboratory result|triage)\w*/i],
+  ["political", /\b(?:senator|president|minister|parliament|congress|committee|election|campaign|diplomat|government|policy|legislation|political|cabinet|council)\w*/i],
+  ["military", /\b(?:army|military|soldier|general|colonel|battalion|regiment|fleet|war|front line|mission briefing|command post|invasion|siege)\w*/i],
+  ["survival", /\b(?:surviv|shelter|ration|scarce|wasteland|apocalypse|infected|zombie|hunger|thirst|storm shelter|stranded|resource)\w*/i],
+  ["school", /\b(?:school|campus|classroom|teacher|student|professor|university|college|lecture|homework|exam|academy|dorm)\b/i],
+  ["sports", /\b(?:match|game|tournament|league|coach|team|stadium|arena|training|score|goal|race|championship|season)\b/i],
+  ["espionage", /\b(?:espionage|spy|secret agent|operative|handler|dead drop|classified|counterintelligence|wiretap|mole|double agent|safehouse|exfiltrat|covert operation)\w*/i],
+  ["workplace", /\b(?:workplace|coworker|co-worker|manager|supervisor|employee|staff meeting|office meeting|work shift|department|performance review|human resources|boardroom|deadline)\w*/i],
+  ["family", /\b(?:family argument|family meeting|family reunion|parenting|household|mother|father|mom|mum|dad|daughter|son|sister|brother|sibling|grandparent)\w*/i],
+  ["adventure", /\b(?:adventure|quest|expedition|exploration|treasure hunt|lost temple|uncharted|artifact hunt|ancient map)\w*/i],
+  ["travel", /\b(?:travel|journey|drive|flight|train|ship|road|arrive|depart|head(?:ing)? to|make(?:s)? .* way|route|destination|voyage|sail)\w*/i],
+  ["recovery", /\b(?:recover|rest|heal|aftermath|grieve|funeral|therapy|rehab|convalesc|catch .* breath|quiet after)\w*/i],
+  ["slice-of-life", /\b(?:breakfast|lunch|dinner|coffee|shopping|chores|homework|babysit|family dinner|movie night|work shift|day off|weekend|cook(?:ing)?|clean(?:ing)?)\b/i],
+  ["social", /\b(?:talk|conversation|ask|tell|argue|apologi[sz]|comfort|reassure|negotiate|meeting|discussion|confide|explain)\w*/i]
+];
+
+var CEW_POWER_TRANSITIONS = [
+  ["gained", /\b(?:gains?|gained|acquires?|acquired|receives?|received)\s+(?:the\s+)?(?:power|ability|gift|mutation|blessing)\s+(?:of\s+|to\s+)?([^.!?;]{2,70})/i],
+  ["manifested", /\b(?:manifests?|manifested|awakens?|awakened|develops?|developed)\s+(?:a\s+|the\s+)?(?:new\s+)?(?:power|ability)\s*(?::|of|to)?\s*([^.!?;]{2,70})/i],
+  ["copied", /\b(?:copies?|copied|mimics?|mimicked|replicates?|replicated)\s+(?:the\s+)?(?:power|ability|powers|abilities)\s+(?:of\s+)?([^.!?;]{2,70})/i],
+  ["borrowed", /\b(?:borrows?|borrowed|temporarily receives?)\s+(?:the\s+)?(?:power|ability|powers|abilities)\s+(?:of\s+)?([^.!?;]{2,70})/i],
+  ["stolen", /\b(?:steals?|stole|stolen|drains?|drained|takes?)\s+(?:the\s+)?(?:power|ability|powers|abilities)\s+(?:from\s+|of\s+)?([^.!?;]{2,70})/i],
+  ["suppressed", /\b(?:power|ability|powers|abilities)\s+(?:is|are|was|were|become|became)\s+(?:suppressed|disabled|sealed|blocked|dormant|nullified)\b/i],
+  ["lost", /\b(?:loses?|lost|no longer has|is stripped of|was stripped of)\s+(?:the\s+)?(?:power|ability|powers|abilities)?\s*([^.!?;]{0,70})/i],
+  ["restored", /\b(?:power|ability|powers|abilities)\s+(?:is|are|was|were)\s+(?:restored|returned|reactivated|unsealed)\b/i],
+  ["evolved", /\b(?:power|ability|powers|abilities)\s+(?:evolves?|evolved|changes?|changed|mutates?|mutated|upgrades?|upgraded)\b/i]
+];
+
+function CEW_now(){ try{return UN_turn();}catch(_){return 0;} }
+function CEW_cfg(){ try{return UN_readConfig();}catch(_){return UN_DEFAULTS||{};} }
+function CEW_clip(v,n){ try{return CE_noteClip(String(v||""),n||180);}catch(_){var x=String(v||"").replace(/\s+/g," ").trim();return x.length>(n||180)?x.slice(0,(n||180)-1).replace(/\s+\S*$/,"")+"…":x;} }
+function CEW_key(v){return String(v||"").trim().toLowerCase();}
+function CEW_same(a,b){try{return UN_nameMatch(a,b);}catch(_){return CEW_key(a)===CEW_key(b);}}
+function CEW_safeArray(v){return Array.isArray(v)?v:[];}
+function CEW_strengthMult(){var v=String(CEW_cfg().worldSimulationStrength||"balanced").toLowerCase();return v==="light"?.72:(v==="strong"?1.28:1);}
+
+function CEW_init(){
+  if(typeof state==="undefined"||!state)return null;
+  if(!state.crossedEchoesWorld||typeof state.crossedEchoesWorld!=="object") state.crossedEchoesWorld={
+    schema:CEW_SCHEMA,build:CEW_VERSION,turn:0,
+    scenario:{turn:-1,tags:["general"],primary:"general",secondary:"",era:"unspecified",reality:"unspecified",scale:"flexible",scores:{}},
+    scene:{turn:-1,mode:"general",confidence:0,location:"",present:[],objects:[]},
+    attention:{turn:-1,budget:3,primary:null,supporting:[],suppressed:[]},
+    entities:{},variants:{},powers:{},knowledge:{},factions:{},causal:{links:[],consequences:[]},
+    arcs:[],offscreen:{lastPulseTurn:-999,candidates:[],history:[],lastCandidateId:""},
+    flow:{lastSceneSwitchTurn:-999,sceneHistory:[],focusHistory:[],lastPrimary:"",lastPrimaryTurn:-999,pulseOwners:{},lastInputText:"",lastOutputText:""},
+    stats:{inputs:0,contexts:0,outputs:0,pulses:0,arcsCreated:0,arcsMatured:0,powerTransitions:0,knowledgeRecords:0,variantLinks:0,compactions:0,sceneSwitches:0,focusSwitches:0,duplicateArcSignals:0},
+    lastError:null
+  };
+  var w=state.crossedEchoesWorld;w.schema=CEW_SCHEMA;w.build=CEW_VERSION;
+  if(!w.scenario||typeof w.scenario!=="object")w.scenario={turn:-1,tags:["general"],primary:"general",secondary:"",era:"unspecified",reality:"unspecified",scale:"flexible",scores:{}};
+  if(!w.scene||typeof w.scene!=="object")w.scene={turn:-1,mode:"general",confidence:0,location:"",present:[],objects:[]};
+  if(!w.attention||typeof w.attention!=="object")w.attention={turn:-1,budget:3,primary:null,supporting:[],suppressed:[]};
+  ["entities","variants","powers","knowledge","factions"].forEach(function(k){if(!w[k]||typeof w[k]!=="object"||Array.isArray(w[k]))w[k]={};});
+  if(!w.causal||typeof w.causal!=="object")w.causal={links:[],consequences:[]};
+  w.causal.links=CEW_safeArray(w.causal.links);w.causal.consequences=CEW_safeArray(w.causal.consequences);
+  w.arcs=CEW_safeArray(w.arcs);
+  if(!w.offscreen||typeof w.offscreen!=="object")w.offscreen={lastPulseTurn:-999,candidates:[],history:[],lastCandidateId:""};
+  w.offscreen.candidates=CEW_safeArray(w.offscreen.candidates);w.offscreen.history=CEW_safeArray(w.offscreen.history);
+  if(!w.flow||typeof w.flow!=="object")w.flow={lastSceneSwitchTurn:-999,sceneHistory:[],focusHistory:[],lastPrimary:"",lastPrimaryTurn:-999,pulseOwners:{},lastInputText:"",lastOutputText:""};
+  w.flow.sceneHistory=CEW_safeArray(w.flow.sceneHistory);w.flow.focusHistory=CEW_safeArray(w.flow.focusHistory);if(!w.flow.pulseOwners||typeof w.flow.pulseOwners!=="object")w.flow.pulseOwners={};
+  if(!w.stats||typeof w.stats!=="object")w.stats={};["inputs","contexts","outputs","pulses","arcsCreated","arcsMatured","powerTransitions","knowledgeRecords","variantLinks","compactions","sceneSwitches","focusSwitches","duplicateArcSignals"].forEach(function(k){if(!Number.isFinite(Number(w.stats[k])))w.stats[k]=0;});
+  w.turn=CEW_now();return w;
+}
+
+function CEW_cardType(card){
+  // WORLD ENGINE runs on every hook, so card typing must stay cheap.  The
+  // full CODEX semantic classifier is intentionally NOT called here: on a
+  // large lore library that turns one mirror pass into hundreds of deep
+  // classifications. CODEX remains the authority for card creation; WORLD
+  // ENGINE only needs a conservative structural mirror.
+  if(!card)return "";var t=String(card.type||card.category||"").toLowerCase();
+  if(/(?:^|\b)(?:character|person|npc)(?:\b|$)/.test(t))return "character";
+  if(/(?:^|\b)(?:location|place)(?:\b|$)/.test(t))return "location";
+  if(/(?:^|\b)(?:item|object|vehicle|artifact)(?:\b|$)/.test(t))return "item";
+  if(/(?:^|\b)(?:faction|organization|organisation|group|company|government|institution)(?:\b|$)/.test(t))return "faction";
+  // A small structural fallback supports imported/custom Story Cards without
+  // re-running CODEX.  It deliberately requires distinctive field labels.
+  if(t&&/(?:lore|world|event|history|concept|custom)/.test(t)===false)return "";
+  var src=String(card.entry||"").slice(0,1400);
+  if(/(?:^|\n)\s*(?:Personality|Relationships?|Birthday|Age|Pronouns?|Powers?|Abilities?)\s*:/i.test(src)&&/(?:^|\n)\s*(?:Name|Role|Arc Role)\s*:/i.test(src))return "character";
+  if(/(?:^|\n)\s*(?:Members?|Leader|Leadership|Agenda|Objectives?|Resources?)\s*:/i.test(src)&&/(?:^|\n)\s*(?:Name|Type|Faction)\s*:/i.test(src))return "faction";
+  if(/(?:^|\n)\s*(?:Location|Region|Population|Geography|Climate|Coordinates)\s*:/i.test(src)&&/(?:^|\n)\s*(?:Name|Type|Status)\s*:/i.test(src))return "location";
+  if(/(?:^|\n)\s*(?:Function|Owner|Capabilities|Properties|Material|Manufacturer)\s*:/i.test(src)&&/(?:^|\n)\s*(?:Name|Type|Status)\s*:/i.test(src))return "item";
+  return "";
+}
+function CEW_cardFor(name){try{var list=storyCards||[];for(var i=0;i<list.length;i++){var c=list[i];if(c&&CEW_same(c.title||c.name,name))return c;}}catch(_){}return null;}
+function CEW_canonicalName(raw){var name=String(raw||"").trim();if(!name)return name;try{var list=storyCards||[];for(var i=0;i<list.length;i++){var c=list[i];if(!c||!c.title)continue;if(CEW_same(c.title,name)||CEW_same(c.name,name))return String(c.title||c.name);var keys=Array.isArray(c.keys)?c.keys:String(c.keys||"").split(",");for(var j=0;j<keys.length;j++)if(CEW_key(keys[j])===CEW_key(name))return String(c.title||c.name);}}catch(_){}try{var r=resolveUnsaidCanonicalName(name);if(r&&r!==name)return r;}catch(_){}return name;}
+function CEW_publicCardText(card){if(!card)return "";var notes="";try{notes=typeof CE_publicStoryCardNotes==="function"?CE_publicStoryCardNotes(card):String(card.description||"");}catch(_){notes=String(card.description||"");}return [card.entry,notes].filter(Boolean).join("\n");}
+function CEW_extractField(text,labels){var src=String(text||"");for(var i=0;i<labels.length;i++){var rx=new RegExp("(?:^|\\n)\\s*"+labels[i]+"\\s*:\\s*([^\\n]{2,260})","i"),m=src.match(rx);if(m)return CEW_clip(m[1],220);}return "";}
+
+function CEW_upsertEntity(name,type,opts){
+  var w=CEW_init();if(!w||!name)return null;name=String(name).trim();if(!name||/^(?:you|player)$/i.test(name))return null;
+  var key=CEW_key(name),e=w.entities[key]||(w.entities[key]={name:name,type:type||"",firstSeen:CEW_now(),lastSeen:-999,lastMention:-999,presence:"unknown",locations:[],goals:[],statuses:[],affiliations:[],variantOf:"",variantQualifier:"",importance:0,source:[]});
+  if(type&&!e.type)e.type=type;e.name=e.name||name;opts=opts||{};if(opts.seen)e.lastSeen=CEW_now();if(opts.mentioned)e.lastMention=CEW_now();if(opts.presence)e.presence=opts.presence;if(opts.location&&e.locations.indexOf(opts.location)<0)e.locations.push(opts.location);if(e.locations.length>6)e.locations=e.locations.slice(-6);
+  if(opts.goal&&e.goals.indexOf(opts.goal)<0)e.goals.push(CEW_clip(opts.goal,180));if(e.goals.length>6)e.goals=e.goals.slice(-6);
+  if(opts.status&&e.statuses.indexOf(opts.status)<0)e.statuses.push(CEW_clip(opts.status,180));if(e.statuses.length>6)e.statuses=e.statuses.slice(-6);
+  if(opts.source&&e.source.indexOf(opts.source)<0)e.source.push(opts.source);if(e.source.length>8)e.source=e.source.slice(-8);
+  e.importance=Math.max(Number(e.importance)||0,Number(opts.importance)||0);
+  return e;
+}
+
+function CEW_syncScenario(text){
+  var w=CEW_init(),cfg=CEW_cfg();if(!w||!cfg.worldEngine)return null;var stable=null,live=null,src=String(text||"");
+  // The shared TWISTS profile is deliberately stable across a long story.
+  // WORLD ENGINE also needs a live profile so a portal, time jump, holodeck,
+  // dream, genre-bending chapter or multiversal world change can be noticed
+  // immediately without destroying the established base scenario.
+  try{stable=Library.currentScenarioProfile(src,state.contingencyConfig||{});}catch(_){}
+  try{live=Library.detectScenarioProfile(src,state.contingencyConfig||{});}catch(_){}
+  var p=stable||live||{tags:["general"],era:"unspecified",reality:"unspecified",scale:"flexible",scores:{}},tags=[];
+  function addTags(list){CEW_safeArray(list).forEach(function(t){t=String(t||"");if(!t||t==="general"||tags.indexOf(t)>=0)return;tags.push(t);});}
+  // Current explicit scene evidence gets first position; stable world tags stay
+  // behind it as continuity context. This is advisory metadata, never canon.
+  if(live&&CEW_safeArray(live.tags).some(function(t){return t&&t!=="general";}))addTags(live.tags);
+  if(stable)addTags(stable.tags);
+  if(!tags.length)tags=["general"];
+  // Preserve high-concept layers briefly through quiet paragraphs so a future
+  // variant does not stop being temporal merely because the next beat is dinner.
+  try{var old=CEW_safeArray(w.scenario.tags);["time-travel","multiverse","reality-warping","superhero","fantasy","sci-fi","cyberpunk","post-apocalyptic"].forEach(function(t){if(old.indexOf(t)>=0&&tags.indexOf(t)<0&&(Number(w.scenario.turn)||-999)>=CEW_now()-4)tags.push(t);});}catch(_){}
+  var active=(live&&CEW_safeArray(live.tags).some(function(t){return t&&t!=="general";}))?live:p;
+  w.scenario={turn:CEW_now(),tags:tags.slice(0,6),primary:tags[0]||"general",secondary:tags[1]||"",era:active.era||p.era||"unspecified",reality:active.reality||p.reality||"unspecified",scale:active.scale||p.scale||"flexible",scores:Object.assign({},(stable&&stable.scores)||{},(live&&live.scores)||{})};CEW_RUNTIME.scenario=w.scenario;return w.scenario;
+}
+
+function CEW_sceneMode(text,phase){
+  var cfg=CEW_cfg(),w=CEW_init(),src=String(text||"");phase=String(phase||"context");if(!w)return {mode:"general",confidence:0};
+  var scores={},matches={};CEW_SCENE_RULES.forEach(function(r){var m=src.match(r[1]);if(m){scores[r[0]]=(scores[r[0]]||0)+2;matches[r[0]]=m[0];}});
+  var lexicalModes=Object.keys(scores),combatNegated=/\b(?:not|isn't|is not|wasn't|was not|no)\s+(?:another\s+|a\s+|the\s+)?(?:fight|battle|attack|ambush|combat)\b/i.test(src),currentCombatNow=/\b(?:attacks?|shoots?|fires?|charges?|strikes?|lunges?|tackles?|grapples?|stabs?|slashes?|blasts?|gunfire erupts|fight begins|battle erupts|ambushes?)\b/i.test(src)&&!combatNegated,explicitNonCombat=lexicalModes.some(function(k){return k!=="combat";});
+  try{var it=phase!=="output"?UN_playerIntentSnapshot():null;if(it&&it.mode){var map={combat:"combat",protect:"combat",escape:"survival",stealth:"stealth",investigate:"investigation",travel:"travel",social:"social",rest:"recovery"};var x=map[it.mode];if(x)scores[x]=(scores[x]||0)+1.25;}}catch(_){}
+  // ECHO metrics are useful continuity hints, but they can lag one beat behind.
+  // Let explicit current-scene language outrank stale danger/social/intimacy.
+  try{var m=state.echoVeil&&state.echoVeil.metrics||{};if(Number(m.danger)>=7&&(!explicitNonCombat||currentCombatNow))scores.combat=(scores.combat||0)+2;if(Number(m.intimacy)>=7&&(lexicalModes.length===0||lexicalModes.indexOf("romance")>=0))scores.romance=(scores.romance||0)+1.6;if(Number(m.social)>=7&&(lexicalModes.length===0||lexicalModes.indexOf("social")>=0||lexicalModes.indexOf("romance")>=0))scores.social=(scores.social||0)+1.4;}catch(_){}
+  if(/\b(?:aftermath|recover|recovery|rest|heal|grieve|therapy|rehab|quiet after)\w*/i.test(src))scores.recovery=(scores.recovery||0)+1.4;
+  // Current-scene classification must not confuse discussion/aftermath of old
+  // violence with violence happening now. This reduces false combat pivots in
+  // debriefs, investigations, therapy, recovery and ordinary conversations.
+  if(/\b(?:earlier|previous|last|after|aftermath of|talk(?:ing)? about|discuss(?:ing)?|remember(?:ing)?)\b[^.!?]{0,70}\b(?:fight|battle|attack|ambush|shooting|war)\b/i.test(src))scores.combat=Math.max(0,(scores.combat||0)-1.8);
+  if(/\b(?:not|isn't|is not|wasn't|was not|no)\s+(?:another\s+|a\s+|the\s+)?(?:fight|battle|attack|ambush|combat)\b/i.test(src))scores.combat=Math.max(0,(scores.combat||0)-2.4);
+  if((scores.recovery||0)>0&&/\b(?:after|aftermath|recover|recovery|rest|heal)\w*[^.!?]{0,80}\b(?:fight|battle|attack|injur|crisis)\w*/i.test(src))scores.recovery=(scores.recovery||0)+1.1;
+  Object.keys(scores).forEach(function(k){if(scores[k]<=0)delete scores[k];});
+  var ranked=Object.keys(scores).sort(function(a,b){return scores[b]-scores[a];}),mode=ranked[0]||"general",top=scores[mode]||0,second=ranked[1]?(scores[ranked[1]]||0):0,confidence=top?Math.min(1,.48+Math.max(0,top-second)*.12+top*.05):.25;
+  if(cfg.sceneDirector===false)mode="general";
+  return {mode:mode,confidence:Math.round(confidence*100)/100,scores:scores};
+}
+
+
+// WORLD ENGINE FLUIDITY LAYER
+// Scene labels, attention focus and background pulses should behave like a
+// camera/director, not a slot machine. These helpers add conservative
+// hysteresis so near-ties hold the current beat while genuinely stronger or
+// urgent evidence still switches immediately.
+function CEW_commitScene(candidate,phase){
+  var w=CEW_init(),cfg=CEW_cfg();if(!w)return candidate||{mode:"general",confidence:0};
+  candidate=candidate||{mode:"general",confidence:0};phase=String(phase||"context");
+  if(cfg.sceneDirector===false){candidate.mode="general";candidate.confidence=0;}
+  var now=CEW_now(),prevMode=String(w.scene&&w.scene.mode||"general"),prevConf=Number(w.scene&&w.scene.confidence)||0,newMode=String(candidate.mode||"general"),newConf=Number(candidate.confidence)||0;
+  var urgent={combat:1,horror:1,survival:1},same=newMode===prevMode,keep=false;
+  var recentSwitch=Number(w.flow.lastSceneSwitchTurn||-999)>=now-1;
+  var sameTurn=Number(w.scene&&w.scene.turn)===now;
+  if(!same&&prevMode!=="general"&&newMode==="general"&&(sameTurn||recentSwitch||prevConf>=.58))keep=true;
+  if(!same&&prevMode!=="general"&&newMode!=="general"){
+    // Context should normally preserve the Input camera. Output may establish
+    // a new next-turn mode, but only on materially stronger evidence.
+    if(sameTurn&&phase==="context"&&newConf<prevConf+.24)keep=true;
+    else if(recentSwitch&&newConf<=prevConf+.16)keep=true;
+    else if(newConf<Math.max(.58,prevConf-.04)&&!urgent[newMode])keep=true;
+    if(urgent[newMode]&&newConf>=.62)keep=false;
+  }
+  if(keep){newMode=prevMode;newConf=Math.max(prevConf*.94,newConf*.82);}
+  if(newMode!==prevMode){w.flow.lastSceneSwitchTurn=now;w.stats.sceneSwitches++;}
+  w.scene.turn=now;w.scene.mode=newMode;w.scene.confidence=Math.round(Math.max(0,Math.min(1,newConf))*100)/100;
+  w.flow.sceneHistory.push({turn:now,phase:phase,mode:newMode,confidence:w.scene.confidence});w.flow.sceneHistory=w.flow.sceneHistory.slice(-12);
+  CEW_RUNTIME.scene={mode:newMode,confidence:w.scene.confidence,scores:candidate.scores||{}};
+  return CEW_RUNTIME.scene;
+}
+function CEW_activeAttentionNames(att){
+  att=att||CEW_init().attention||{};var out=[];function add(n){n=String(n||"").trim();if(n&&!out.some(function(x){return CEW_same(x,n);}))out.push(n);}if(att.primary)add(att.primary.name);CEW_safeArray(att.supporting).forEach(function(x){add(x&&x.name);});CEW_safeArray(CEW_init().scene.present).forEach(add);return out.slice(0,10);
+}
+function CEW_textMentionsAny(text,names){var src=String(text||"").toLowerCase();return CEW_safeArray(names).some(function(n){n=String(n||"").trim().toLowerCase();return n&&src.indexOf(n)>=0;});}
+function CEW_lineNovel(base,line,threshold){
+  var a=String(base||""),b=String(line||"");if(!b)return false;if(a.indexOf(b)>=0)return false;
+  try{if(typeof UN_textOverlap==="function"&&UN_textOverlap(a.slice(-7000),b)>=Number(threshold||.78))return false;}catch(_){}
+  return true;
+}
+function CEW_structuredOwner(){try{var u=state.unifiedNarrative||{};return u.director&&Number(u.director.turn)===CEW_now()?String(u.director.owner||""):"";}catch(_){return "";}}
+
+function CEW_syncEntities(text){
+  var w=CEW_init(),cfg=CEW_cfg();if(!w||!cfg.worldEngine)return;var now=CEW_now(),src=String(text||"");
+  var present=[],objects=[],loc="";
+  try{var ev=state.echoVeil||{},scene=ev.scene||{};loc=String(scene.location||"");if(loc)CEW_upsertEntity(loc,"location",{seen:true,mentioned:true,presence:"present",importance:4,source:"echo-scene"});Object.keys(scene.cast||{}).forEach(function(k){var c=scene.cast[k]||{},n=c.name||k;present.push(n);CEW_upsertEntity(n,"character",{seen:true,mentioned:true,presence:"present",location:loc,importance:5,source:"echo-cast"});});Object.keys(scene.objects||{}).forEach(function(k){var o=scene.objects[k]||{},n=o.name||k;objects.push(n);CEW_upsertEntity(n,"item",{seen:true,mentioned:true,presence:"present",location:loc,importance:3,source:"echo-object"});});Object.keys(ev.entities||{}).forEach(function(k){var x=ev.entities[k]||{},n=x.name||k;if(!n)return;var type=String(x.kind||"").toLowerCase()==="group"?"faction":"character";var recent=Number(x.lastSeen||-999)>=now-2;CEW_upsertEntity(n,type,{seen:recent,mentioned:recent,presence:recent?"recent":"unknown",importance:recent?2:0,source:"echo-entity"});});}catch(_){}
+  // Story Cards supply typed durable entities and safe established goals/status.
+  try{(storyCards||[]).forEach(function(card){if(!card||/^CROSSED ECHOES|^Twists and Turns|^UNSAID/i.test(String(card.title||"")))return;var name=String(card.title||card.name||"").trim(),type=CEW_cardType(card);if(!name||!type)return;var mentioned=false;try{mentioned=new RegExp("(^|[^\\p{L}\\p{N}])"+name.replace(/[.*+?^${}()|[\]\\]/g,"\\$&")+"(?=$|[^\\p{L}\\p{N}])","iu").test(src);}catch(_){mentioned=src.toLowerCase().indexOf(name.toLowerCase())>=0;}var pub=CEW_publicCardText(card),goal=CEW_extractField(pub,["Goal","Goals","Objective","Objectives","Current Goal","Current Objective","Motive","Motives"]),status=CEW_extractField(pub,["CURRENT","Current","Status","CURRENT STATUS","Current Status"]);if(!mentioned&&type!=="faction"&&!(cfg.offscreenSimulation!==false&&type==="character"&&(goal||status)))return;var e=CEW_upsertEntity(name,type,{mentioned:mentioned,presence:present.some(function(x){return CEW_same(x,name);})?"present":(mentioned?"recent":"offscreen"),goal:goal,status:status,importance:mentioned?3:((goal||status)?1:0),source:"story-card"});if(type==="faction"&&e)CEW_syncFactionFromEntity(e,card);});}catch(_){}
+  // Anything previously present but absent from a known current cast becomes
+  // off-screen rather than being silently teleported back by a name-drop.
+  if(present.length){Object.keys(w.entities).forEach(function(k){var e=w.entities[k];if(e.type==="character"&&e.presence==="present"&&!present.some(function(n){return CEW_same(n,e.name);})&&Number(e.lastSeen)<now)e.presence="offscreen";});}
+  w.scene.location=loc||w.scene.location||"";w.scene.present=present.slice(0,20);w.scene.objects=objects.slice(0,20);
+  CEW_compactEntities();
+}
+
+function CEW_compactEntities(){
+  var w=CEW_init(),cap=Math.max(40,Number(CEW_cfg().worldEntityCap)||160),keys=Object.keys(w.entities||{});if(keys.length<=cap)return;
+  keys.sort(function(a,b){var x=w.entities[a],y=w.entities[b];function score(e){return (e.presence==="present"?100:0)+(Number(e.importance)||0)*4+Math.max(Number(e.lastSeen)||-999,Number(e.lastMention)||-999)*.03;}return score(y)-score(x);});
+  keys.slice(cap).forEach(function(k){delete w.entities[k];});w.stats.compactions++;
+}
+
+function CEW_variantRecord(name,variantOf,qualifier,source){
+  var w=CEW_init(),cfg=CEW_cfg();if(!w||cfg.variantGraph===false||!name||!variantOf)return null;
+  var canonBase=CEW_canonicalName(String(variantOf||"").trim());try{var resolved=resolveUnsaidCanonicalName(canonBase);if(resolved)canonBase=CEW_canonicalName(resolved);}catch(_){}
+  var q=String(qualifier||"variant").toLowerCase(),label=q.indexOf("past")===0?"Past":q.indexOf("future")===0?"Future":((q.indexOf("alternate")===0||q.indexOf("parallel")===0||q.indexOf("other")===0)?"Alternate":"Variant");
+  if(canonBase&&label!=="Variant")name=label+" "+canonBase;variantOf=canonBase||variantOf;
+  var key=CEW_key(name),v=w.variants[key];if(!v){v=w.variants[key]={name:name,variantOf:variantOf,qualifier:q,firstSeen:CEW_now(),lastSeen:CEW_now(),sources:[]};w.stats.variantLinks++;}v.lastSeen=CEW_now();v.variantOf=variantOf;if(source&&v.sources.indexOf(source)<0)v.sources.push(source);var e=CEW_upsertEntity(name,"character",{seen:true,mentioned:true,importance:5,source:"variant-graph"});if(e){e.variantOf=variantOf;e.variantQualifier=q;}return v;
+}
+function CEW_syncVariants(text){
+  var w=CEW_init(),cfg=CEW_cfg();if(!w||cfg.variantGraph===false)return;
+  try{var ents=state.echoVeil&&state.echoVeil.entities||{};Object.keys(ents).forEach(function(k){var e=ents[k]||{};if(e.variantOf)CEW_variantRecord(e.name||k,e.variantOf,e.variantQualifier||"variant","echo");});}catch(_){}
+  var src=String(text||""),namePart="[A-ZÀ-ÖØ-ÞĀ-ſΑ-ΫА-ЯЁ][\\p{L}\\p{N}'’.-]*(?:\\s+[A-ZÀ-ÖØ-ÞĀ-ſΑ-ΫА-ЯЁ][\\p{L}\\p{N}'’.-]*){0,3}",m;
+  try{var direct=new RegExp("\\b(Future|Past|Alternate|Parallel)\\s+("+namePart+")\\b","gu");while((m=direct.exec(src))){var q=String(m[1]).toLowerCase(),base=String(m[2]).trim(),label=q==="parallel"?"alternate":q,name=(label.charAt(0).toUpperCase()+label.slice(1))+" "+base;CEW_variantRecord(name,base,label,"explicit");if(direct.lastIndex===m.index)direct.lastIndex++;}}catch(_){}
+  try{var phr=new RegExp("\\b(?:a|A|an|An|the|The)?\\s*(future|Future|past|Past|alternate|Alternate|parallel|Parallel|other[- ](?:universe|timeline)|Other[- ](?:Universe|Timeline))\\s+(?:version|Version|variant|Variant|counterpart|Counterpart|self|Self)\\s+of\\s+("+namePart+")","gu");while((m=phr.exec(src))){var q2=String(m[1]).toLowerCase(),base2=String(m[2]).trim(),label2=q2.indexOf("past")===0?"past":q2.indexOf("future")===0?"future":"alternate",name2=label2.charAt(0).toUpperCase()+label2.slice(1)+" "+base2;CEW_variantRecord(name2,base2,label2,"explicit");if(phr.lastIndex===m.index)phr.lastIndex++;}}catch(_){}
+}
+
+function CEW_syncFactionFromEntity(e,card){
+  var w=CEW_init(),cfg=CEW_cfg();if(!w||cfg.factionSimulation===false||!e)return null;var k=CEW_key(e.name),f=w.factions[k]||(w.factions[k]={name:e.name,firstSeen:CEW_now(),lastSeen:-999,goals:[],pressures:[],members:[],resources:[],status:"",activity:0});f.lastSeen=Math.max(Number(f.lastSeen)||-999,Number(e.lastMention)||-999);var pub=CEW_publicCardText(card),goal=CEW_extractField(pub,["Goal","Goals","Objective","Objectives","Current Goal","Current Objective","Agenda"]),status=CEW_extractField(pub,["CURRENT","Current","Status","Current Status"]),resources=CEW_extractField(pub,["Resources","Assets","Capabilities"]);if(goal&&f.goals.indexOf(goal)<0)f.goals.push(goal);if(status)f.status=status;if(resources&&f.resources.indexOf(resources)<0)f.resources.push(resources);f.goals=f.goals.slice(-6);f.resources=f.resources.slice(-4);return f;
+}
+function CEW_syncFactions(){
+  var w=CEW_init(),cfg=CEW_cfg();if(!w||cfg.factionSimulation===false)return;
+  Object.keys(w.entities||{}).forEach(function(k){var e=w.entities[k];if(e&&e.type==="faction")CEW_syncFactionFromEntity(e,CEW_cardFor(e.name));});
+  try{var cons=state.echoVeil&&state.echoVeil.consequences||[];cons.filter(function(c){return c&&!c.resolved;}).slice(-16).forEach(function(c){CEW_safeArray(c.factions).forEach(function(n){var f=w.factions[CEW_key(n)]||(w.factions[CEW_key(n)]={name:n,goals:[],pressures:[],members:[],resources:[],status:"",activity:0,firstSeen:CEW_now(),lastSeen:CEW_now()});var p=CEW_clip(c.summary||c.sourceText||c.source,160);if(p&&!f.pressures.some(function(x){return x===p;}))f.pressures.push(p);f.pressures=f.pressures.slice(-6);f.activity=Math.max(Number(f.activity)||0,Number(c.severity)||1);});});}catch(_){}
+}
+
+function CEW_knowledgePut(owner,summary,status,confidence,source){
+  var w=CEW_init(),cfg=CEW_cfg();if(!w||cfg.knowledgeMatrix===false||!owner||!summary)return null;owner=CEW_canonicalName(String(owner).trim());var key=CEW_key(owner),list=w.knowledge[key];if(!Array.isArray(list))list=w.knowledge[key]=[];summary=CEW_clip(summary,190);var old=list.find(function(x){return x&&x.status===status&&UN_textOverlap(x.summary,summary)>=.66;});if(old){old.turn=CEW_now();old.confidence=Math.max(Number(old.confidence)||0,Number(confidence)||0);if(source&&old.sources.indexOf(source)<0)old.sources.push(source);return old;}var rec={owner:owner,summary:summary,status:status||"knows",confidence:Math.max(0,Math.min(1,Number(confidence)||.7)),turn:CEW_now(),sources:source?[source]:[]};list.push(rec);if(list.length>18)w.knowledge[key]=list.slice(-18);w.stats.knowledgeRecords++;return rec;
+}
+function CEW_syncKnowledge(){
+  var w=CEW_init(),cfg=CEW_cfg();if(!w||cfg.knowledgeMatrix===false)return;
+  try{var ev=state.echoVeil||{};CEW_safeArray(ev.knowledgeGaps).filter(function(g){return g&&!g.cleared;}).slice(-40).forEach(function(g){CEW_knowledgePut(g.owner,g.summary,"unknown",g.confidence||.8,"echo-gap");});CEW_safeArray(ev.beliefs).slice(-60).forEach(function(b){if(!b||!b.owner||!b.summary)return;var st=b.contested?"contested":((Number(b.confidence)||0)>=.84?"knows":"suspects");CEW_knowledgePut(b.owner,b.summary,st,b.confidence||.7,"echo-belief");});}catch(_){}
+}
+
+function CEW_powerOwner(sentence){
+  var names=[];try{names=UN_knownEntityNames().filter(function(n){return UN_entityTypeEvidence(n).kind==="character";}).sort(function(a,b){return b.length-a.length;});}catch(_){}
+  for(var i=0;i<names.length;i++){var n=names[i];try{if(new RegExp("(^|[^\\p{L}\\p{N}])"+n.replace(/[.*+?^${}()|[\]\\]/g,"\\$&")+"(?=$|[^\\p{L}\\p{N}])","iu").test(sentence))return n;}catch(_){}}
+  var m=String(sentence||"").match(/^\s*([A-ZÀ-ÖØ-ÞĀ-ſΑ-ΫА-ЯЁ][\p{L}\p{N}'’.-]*(?:\s+[A-ZÀ-ÖØ-ÞĀ-ſΑ-ΫА-ЯЁ][\p{L}\p{N}'’.-]*){0,3})\b/u);return m?m[1]:"";
+}
+function CEW_powerSpeculative(sentence){return /\b(?:maybe|perhaps|might|could|may|possibly|theory|hypothesis|suspect|apparently|seems?|appears? to|if)\b/i.test(String(sentence||""));}
+function CEW_powerRecord(owner,power,stateName,evidence,source){
+  var w=CEW_init(),cfg=CEW_cfg();if(!w||cfg.powerEcology===false||!owner)return null;owner=CEW_canonicalName(owner);var k=CEW_key(owner),p=w.powers[k]||(w.powers[k]={owner:owner,baseline:[],transitions:[],current:{}});power=CEW_clip(power||"unspecified power state",90).replace(/^[\s:,-]+|[\s:,-]+$/g,"");var sig=stateName+"|"+CEW_key(power)+"|"+CEW_key(evidence);if(p.transitions.some(function(x){return x.sig===sig;}))return null;var rec={sig:sig,turn:CEW_now(),state:stateName,power:power,evidence:CEW_clip(evidence,180),source:source||"story"};p.transitions.push(rec);if(p.transitions.length>24)p.transitions=p.transitions.slice(-24);p.current[CEW_key(power)||"general"]={state:stateName,turn:CEW_now(),evidence:rec.evidence};w.stats.powerTransitions++;return rec;
+}
+function CEW_syncPowerBaselines(){
+  var w=CEW_init(),cfg=CEW_cfg();if(!w||cfg.powerEcology===false)return;Object.keys(w.entities||{}).forEach(function(k){var e=w.entities[k];if(!e||e.type!=="character")return;var card=CEW_cardFor(e.name);if(!card)return;var txt=CEW_publicCardText(card),powers=CEW_extractField(txt,["Powers","Abilities","Power","Ability"]);if(!powers)return;var p=w.powers[k]||(w.powers[k]={owner:e.name,baseline:[],transitions:[],current:{}});if(p.baseline.indexOf(powers)<0)p.baseline.push(powers);if(p.baseline.length>4)p.baseline=p.baseline.slice(-4);});
+}
+function CEW_syncPowerTransitions(text){
+  var cfg=CEW_cfg();if(cfg.powerEcology===false)return;String(text||"").split(/(?<=[.!?])\s+|\n+/).forEach(function(sentence){if(!sentence||CEW_powerSpeculative(sentence))return;var owner=CEW_powerOwner(sentence);if(!owner)return;for(var i=0;i<CEW_POWER_TRANSITIONS.length;i++){var r=CEW_POWER_TRANSITIONS[i],m=sentence.match(r[1]);if(!m)continue;var power=m[1]||CEW_extractField(CEW_publicCardText(CEW_cardFor(owner)),["Powers","Abilities"])||"general power state";CEW_powerRecord(owner,power,r[0],sentence,"story-output");break;}});
+}
+
+function CEW_syncCausal(){
+  var w=CEW_init(),cfg=CEW_cfg();if(!w||cfg.causalWeb===false)return;try{var ev=state.echoVeil||{};w.causal.links=CEW_safeArray(ev.causalLinks).slice(-80).map(function(x){return {from:x.from,to:x.to,kind:x.kind||"causal",confidence:Number(x.confidence)||0,turn:Number(x.lastTurn||x.turn)||0};});w.causal.consequences=CEW_safeArray(ev.consequences).filter(function(c){return c&&!c.resolved;}).slice(-36).map(function(c){return {id:c.id||"",kind:c.kind||c.type||"consequence",summary:CEW_clip(c.summary||c.sourceText||c.source,180),severity:Number(c.severity||c.weight)||1,actors:CEW_safeArray(c.actors).slice(0,4),location:c.location||"",matureTurn:Number(c.matureTurn||c.dueTurn)||0};});}catch(_){}
+}
+
+function CEW_arcKey(kind,subject,question){return CEW_key(kind)+"|"+CEW_key(subject)+"|"+CEW_textFingerprint(question);}
+function CEW_textFingerprint(text){var toks=UN_textTokens(text).slice(0,10);return toks.join("-");}
+function CEW_arcDomain(text){var t=String(text||"").toLowerCase();if(/\b(?:timeline|temporal|chronal|future|past|paradox|time loop|causal loop|worldline)\b/.test(t))return "temporal";if(/\b(?:multiverse|multiversal|alternate universe|parallel universe|alternate reality|variant|counterpart|incursion|dimension|reality branch)\b/.test(t))return "multiversal";if(/\b(?:power|ability|superpower|mutation|teleport|telekin|magic|spell|sorcer|energy|regeneration|suppression|nullification)\b/.test(t))return "power";if(/\b(?:relationship|trust|betray|romance|love|jealous|family|friend|marriage|bond|resent|forgive)\b/.test(t))return "relationship";if(/\b(?:faction|government|committee|guild|army|corporation|company|order|council|agency|empire|kingdom|syndicate)\b/.test(t))return "faction";if(/\b(?:mystery|evidence|clue|unknown|missing|secret|investigat|suspect|identity|project|mechanism)\b/.test(t))return "mystery";return "general";}
+function CEW_arcUpsert(kind,subject,question,source,weight,evidence){
+  var w=CEW_init(),cfg=CEW_cfg();if(!w||cfg.emergentArcs===false||!subject||!question)return null;
+  var domain=CEW_arcDomain(question+" "+String(evidence||"")),key=CEW_arcKey(kind,subject,question),arc=w.arcs.find(function(a){return a.key===key&&!a.resolved;});
+  if(!arc)arc=w.arcs.find(function(a){if(!a||a.resolved||!CEW_same(a.subject,subject))return false;var ad=a.domain||CEW_arcDomain(a.question+" "+CEW_safeArray(a.evidence).join(" "));if(domain!=="general"&&ad===domain)return true;return UN_textOverlap(a.question,question)>=.34||CEW_safeArray(a.evidence).some(function(x){return evidence&&UN_textOverlap(x,evidence)>=.48;});});
+  if(!arc){arc={id:"wa"+(w.arcs.length+1)+"-"+CEW_now(),key:key,kind:kind,domain:domain,subject:subject,question:CEW_clip(question,190),stage:"forming",heat:0,firstTurn:CEW_now(),lastTurn:CEW_now(),lastCheckedTurn:CEW_now(),sources:[],evidence:[],signalKeys:[],resolved:false};w.arcs.push(arc);w.stats.arcsCreated++;}
+  else if(arc.kind!==kind&&arc.kind!=="convergent")arc.kind="convergent";
+  arc.signalKeys=CEW_safeArray(arc.signalKeys);arc.lastCheckedTurn=CEW_now();
+  var cleanEvidence=CEW_clip(evidence||"",180),sourceKey=String(source||"unknown"),fp=CEW_textFingerprint(cleanEvidence||question),signalKey=sourceKey+"|"+domain+"|"+fp;
+  var sourceNew=!!source&&arc.sources.indexOf(source)<0,evidenceNew=!!cleanEvidence&&!arc.evidence.some(function(x){return UN_textOverlap(x,cleanEvidence)>=.72;}),signalNew=arc.signalKeys.indexOf(signalKey)<0&&(sourceNew||evidenceNew||arc.signalKeys.length===0);
+  if(sourceNew)arc.sources.push(source);
+  if(evidenceNew)arc.evidence.push(cleanEvidence);
+  arc.sources=arc.sources.slice(-8);arc.evidence=arc.evidence.slice(-6);
+  if(signalNew){arc.signalKeys.push(signalKey);arc.signalKeys=arc.signalKeys.slice(-18);arc.lastTurn=CEW_now();arc.heat=Math.min(10,(Number(arc.heat)||0)+(Number(weight)||1));}
+  else w.stats.duplicateArcSignals++;
+  // Stale WORLD-level pressure softens instead of remaining permanently hot.
+  // This never deletes TWISTS/ECHO state; it only controls WORLD attention.
+  var idle=Math.max(0,CEW_now()-Number(arc.lastTurn||CEW_now()));if(idle>10&&Number(arc.lastDecayTurn||-999)<CEW_now()){arc.heat=Math.max(0,Number(arc.heat||0)-Math.min(1.2,(idle-10)*.08));arc.lastDecayTurn=CEW_now();}
+  var independent=arc.sources.filter(function(x){return x!=="aftermath";}).length,old=arc.stage;
+  if(independent>=3&&arc.heat>=5.2&&arc.signalKeys.length>=3)arc.stage="maturing";
+  else if(independent>=2&&arc.heat>=3.2&&arc.signalKeys.length>=2)arc.stage="developing";
+  else arc.stage="forming";
+  if(old!=="maturing"&&arc.stage==="maturing")w.stats.arcsMatured++;
+  CEW_compactArcs();return arc;
+}
+function CEW_compactArcs(){var w=CEW_init(),cap=Math.max(12,Number(CEW_cfg().worldArcCap)||48);if(w.arcs.length<=cap)return;w.arcs.sort(function(a,b){function s(x){return (x.resolved?-20:0)+(x.stage==="maturing"?8:x.stage==="developing"?4:0)+(Number(x.heat)||0)+Number(x.lastTurn||0)*.02;}return s(b)-s(a);});w.arcs=w.arcs.slice(0,cap);w.stats.compactions++;}
+function CEW_syncEmergentArcs(){
+  var w=CEW_init(),cfg=CEW_cfg();if(!w||cfg.emergentArcs===false)return;
+  try{CEW_safeArray(state.contingency&&state.contingency.threads).filter(function(t){return t&&t.status!=="resolved";}).slice(-28).forEach(function(t){CEW_arcUpsert("plot",t.entity,"What will the developing "+String(CP_CATEGORY_LABELS[t.category]||t.category||"plot pressure").toLowerCase()+" ultimately mean?","twists",Math.min(2.4,.5+Number(t.seedTouches||0)*.25+Number(t.storyEvidenceTouches||0)*.2),CEW_safeArray(t.evidence).slice(-1)[0]||t.lastDevelopment||"");});}catch(_){}
+  try{CEW_safeArray(state.echoVeil&&state.echoVeil.threads).filter(function(t){return t&&!t.resolved;}).slice(-24).forEach(function(t){var subject=CEW_safeArray(t.actors)[0]||CE_echoTwistEntity(t)||w.scene.location||"World";CEW_arcUpsert("world",subject,t.summary||t.title||"An unresolved world pressure is developing.","echo",Math.min(2.2,.6+Number(t.heat||0)*.22),t.rawEvidence||t.summary||"");});}catch(_){}
+  try{var sig=UN_signalSnapshot();CEW_safeArray(sig.entities).filter(function(x){return x&&x.score>=4.2;}).slice(0,8).forEach(function(x){if((x.sources||[]).filter(function(s){return s!=="aftermath";}).length<2)return;CEW_arcUpsert("character",x.entity,"Several independent pressures are converging around "+x.entity+"; what changes if that pressure continues?","fusion",Math.min(1.6,x.score*.18),(x.sources||[]).join(", ")+" pressure");});}catch(_){}
+  try{Object.keys(w.factions).forEach(function(k){var f=w.factions[k];if(!f||!f.pressures.length||!f.goals.length)return;CEW_arcUpsert("faction",f.name,"How will "+f.name+" pursue its established objective under current pressure?","faction",1.2,f.pressures[f.pressures.length-1]);});}catch(_){}
+}
+
+function CEW_entityAttentionScore(e){
+  if(!e)return 0;var now=CEW_now(),score=Number(e.importance)||0;if(e.presence==="present")score+=7;else if(e.presence==="recent")score+=3;else if(e.presence==="offscreen")score+=.7;
+  var age=Math.max(0,now-Math.max(Number(e.lastSeen)||-999,Number(e.lastMention)||-999));score+=Math.max(0,3-age*.55);
+  try{var x=UN_entitySignal(e.name);if(x)score+=Number(x.score||0)*.72;}catch(_){}
+  try{var it=UN_playerIntentSnapshot();if(it&&it.target&&CEW_same(it.target,e.name))score+=8;}catch(_){}
+  try{CEW_safeArray(state.contingency&&state.contingency.threads).forEach(function(t){if(t&&t.status!=="resolved"&&CEW_same(t.entity,e.name))score+=t.status==="ready"?4.5:1.6;});}catch(_){}
+  CEW_safeArray(CEW_init().arcs).forEach(function(a){if(a&&!a.resolved&&CEW_same(a.subject,e.name))score+=a.stage==="maturing"?3.5:a.stage==="developing"?2:0.7;});
+  return Math.round(score*10)/10;
+}
+function CEW_buildAttention(){
+  var w=CEW_init(),cfg=CEW_cfg();if(!w||cfg.narrativeAttention===false)return w?w.attention:null;
+  var mode=w.scene.mode||"general",rows=Object.keys(w.entities||{}).map(function(k){var e=w.entities[k],score=CEW_entityAttentionScore(e);if(["social","romance","slice-of-life","family","workplace"].indexOf(mode)>=0&&e.type==="character")score+=.6;if(mode==="investigation"&&["location","item"].indexOf(e.type)>=0)score+=.45;if(mode==="political"&&e.type==="faction")score+=.55;return {name:e.name,type:e.type,score:Math.round(score*10)/10,presence:e.presence};}).filter(function(x){return x.score>.4;}).sort(function(a,b){return b.score-a.score;});
+  var budget=["combat","horror","survival"].indexOf(mode)>=0?2:3,top=rows[0]||null,prevName=String(w.flow.lastPrimary||""),prev=rows.find(function(x){return prevName&&CEW_same(x.name,prevName);}),intent=null;
+  try{intent=UN_playerIntentSnapshot();}catch(_){}
+  var explicitTarget=intent&&intent.target?rows.find(function(x){return CEW_same(x.name,intent.target);}):null;
+  if(explicitTarget&&Number(intent.confidence||0)>=.55)top=explicitTarget;
+  else if(top&&prev&&Number(w.flow.lastPrimaryTurn||-999)>=CEW_now()-1){
+    var topPresent=top.presence==="present",prevPresent=prev.presence==="present",competitive=prev.score>=top.score*.84||top.score-prev.score<=1.8;
+    if(competitive&&(!topPresent||prevPresent))top=prev;
+  }
+  if(top&&prevName&&!CEW_same(top.name,prevName))w.stats.focusSwitches++;
+  if(top){w.flow.lastPrimary=top.name;w.flow.lastPrimaryTurn=CEW_now();}
+  var support=[];rows.forEach(function(x){if(!top||CEW_same(x.name,top.name)||support.length>=budget-1)return;support.push(x);});
+  var selected=[top].concat(support).filter(Boolean),suppressed=rows.filter(function(x){return !selected.some(function(y){return CEW_same(x.name,y.name);});}).slice(0,8);
+  w.attention={turn:CEW_now(),budget:budget,primary:top||null,supporting:support,suppressed:suppressed};w.flow.focusHistory.push({turn:CEW_now(),primary:top?top.name:"",mode:mode});w.flow.focusHistory=w.flow.focusHistory.slice(-12);CEW_RUNTIME.attention=w.attention;return w.attention;
+}
+
+function CEW_offscreenBasis(e){
+  if(!e)return null;var out=[];CEW_safeArray(e.goals).slice(-2).forEach(function(x){out.push({kind:"goal",text:x});});
+  try{var m=state.unsaid&&state.unsaid.minds&&Object.keys(state.unsaid.minds).find(function(k){return CEW_same(k,e.name);});if(m){var mm=state.unsaid.minds[m];if(mm&&mm.want)out.push({kind:"established want",text:CEW_clip(mm.want,160)});}}catch(_){}
+  try{CEW_safeArray(state.echoVeil&&state.echoVeil.threads).filter(function(t){return t&&!t.resolved&&CEW_safeArray(t.actors).some(function(n){return CEW_same(n,e.name);});}).slice(-2).forEach(function(t){out.push({kind:"unresolved thread",text:CEW_clip(t.summary,160)});});}catch(_){}
+  try{CEW_safeArray(state.echoVeil&&state.echoVeil.consequences).filter(function(c){return c&&!c.resolved&&CEW_safeArray(c.actors).some(function(n){return CEW_same(n,e.name);});}).slice(-2).forEach(function(c){out.push({kind:"pending consequence",text:CEW_clip(c.summary||c.sourceText||c.source,160)});});}catch(_){}
+  // Prefer the most current grounded pressure (consequence/thread/want) over an
+  // older generic goal when several safe bases exist.
+  return out.length?out[out.length-1]:null;
+}
+function CEW_generateOffscreenCandidate(force){
+  var w=CEW_init(),cfg=CEW_cfg();if(!w||!cfg.worldEngine||cfg.offscreenSimulation===false||cfg.worldPulse===false)return null;var now=CEW_now(),interval=Math.max(1,Number(cfg.worldPulseInterval)||2);
+  if(!force&&now-Number(w.offscreen.lastPulseTurn||-999)<interval)return null;
+  var scene=w.scene.mode||"general",owner=CEW_structuredOwner();
+  // A background simulation should never compete with a beat already owned by
+  // TWISTS/Crossed Wires, or with a high-motion scene. It can try again later.
+  if(!force&&owner)return null;
+  if(!force&&["combat","horror","survival","stealth"].indexOf(scene)>=0)return null;
+  try{var pace=UN_pacingSnapshot();if(!force&&pace&&["crisis","payoff","social-pressure","aftermath"].indexOf(pace.mode)>=0)return null;}catch(_){}
+  var present=CEW_safeArray(w.scene.present),candidates=[],cooldown=Math.max(3,interval*2);Object.keys(w.entities||{}).forEach(function(k){var e=w.entities[k];if(!e||["character","faction"].indexOf(e.type)<0||present.some(function(n){return CEW_same(n,e.name);}))return;var basis=CEW_offscreenBasis(e);if(!basis&&e.type==="faction"){var f=w.factions[k];if(f&&f.goals&&f.goals.length)basis={kind:"faction goal",text:f.goals[f.goals.length-1]};}if(!basis)return;var lastOwnerTurn=Number(w.flow.pulseOwners[CEW_key(e.name)]||-999);if(!force&&now-lastOwnerTurn<cooldown)return;var age=Math.max(0,now-Math.max(Number(e.lastSeen)||-999,Number(e.lastMention)||-999));var score=Math.max(0,CEW_entityAttentionScore(e)*.52+Math.min(3,age*.18));if(e.type==="faction")score+=.6;if(scene==="political"&&e.type==="faction")score+=.8;if(scene==="investigation"&&/thread|consequence|goal/.test(String(basis.kind)))score+=.35;score*=CEW_strengthMult();var recentSame=CEW_safeArray(w.offscreen.history).slice(-8).find(function(h){return h&&CEW_same(h.entity,e.name)&&String(h.basis||"")===String(basis.text||"")&&now-Number(h.turn||0)<12;});if(recentSame)score-=1.15;if(!force&&score<1.55)return;candidates.push({entity:e.name,type:e.type,basis:basis,score:score});});
+  candidates.sort(function(a,b){return b.score-a.score;});if(!candidates.length)return null;var chosen=candidates[0],id="wp"+now+"-"+CEW_key(chosen.entity).replace(/[^a-z0-9]+/g,"-").slice(0,30),rec={id:id,turn:now,scene:scene,entity:chosen.entity,type:chosen.type,basisKind:chosen.basis.kind,basis:CEW_clip(chosen.basis.text,170),score:Math.round(chosen.score*10)/10,status:"candidate"};w.offscreen.lastPulseTurn=now;w.offscreen.lastCandidateId=id;w.flow.pulseOwners[CEW_key(chosen.entity)]=now;if(Object.keys(w.flow.pulseOwners).length>Math.max(80,Number(cfg.worldEntityCap||160)*2)){Object.keys(w.flow.pulseOwners).sort(function(a,b){return Number(w.flow.pulseOwners[b]||0)-Number(w.flow.pulseOwners[a]||0);}).slice(Math.max(80,Number(cfg.worldEntityCap||160))).forEach(function(k){delete w.flow.pulseOwners[k];});}w.offscreen.candidates.push(rec);w.offscreen.candidates=w.offscreen.candidates.slice(-8);w.offscreen.history.push(rec);w.offscreen.history=w.offscreen.history.slice(-24);w.stats.pulses++;return rec;
+}
+function CEW_confirmOffscreenFromOutput(text){
+  var w=CEW_init(),src=String(text||"");CEW_safeArray(w.offscreen.candidates).forEach(function(c){if(!c||c.status!=="candidate")return;var name=String(c.entity||"");if(!name)return;var mentioned=src.toLowerCase().indexOf(name.toLowerCase())>=0;if(!mentioned)return;var basisTokens=UN_textTokens(c.basis),outputTokens=UN_textTokens(src),set={};outputTokens.forEach(function(x){set[x]=1;});var hits=basisTokens.filter(function(x){return set[x];}).length;if(hits>=Math.min(2,Math.max(1,basisTokens.length))){c.status="narrated";c.confirmedTurn=CEW_now();c.confirmation=CEW_clip(src,180);}});
+}
+
+function CEW_continuityLocks(){
+  var w=CEW_init(),out=[];
+  Object.keys(w.variants||{}).sort(function(a,b){return Number(w.variants[b].lastSeen)-Number(w.variants[a].lastSeen);}).slice(0,4).forEach(function(k){var v=w.variants[k];out.push(v.name+" is a separate "+v.qualifier+" identity linked to "+v.variantOf+"; do not merge their deaths, injuries, memories, relationships or power states.");});
+  Object.keys(w.powers||{}).forEach(function(k){var p=w.powers[k],last=CEW_safeArray(p.transitions).slice(-1)[0];if(last&&Number(last.turn)>=CEW_now()-4)out.push(p.owner+" power-state change: "+last.state+" — "+last.power+". Preserve it as a state transition, not a rewrite of unrelated abilities.");});
+  return out.slice(0,5);
+}
+function CEW_knowledgeLines(){
+  var w=CEW_init(),names=CEW_safeArray(w.scene.present),out=[];names.forEach(function(n){var list=w.knowledge[CEW_key(n)]||[];list.filter(function(x){return x.status==="unknown"||x.status==="contested";}).slice(-2).forEach(function(x){out.push(n+" "+(x.status==="unknown"?"does not know":"has contested knowledge about")+": "+x.summary);});});return out.slice(0,4);
+}
+function CEW_causalLines(baseText,activeNames){var w=CEW_init(),src=String(baseText||"");var rows=CEW_safeArray(w.causal.consequences).slice().filter(function(c){if(!c)return false;var actors=CEW_safeArray(c.actors);if(actors.some(function(a){return CEW_safeArray(activeNames).some(function(n){return CEW_same(a,n);});}))return true;if(c.location&&w.scene.location&&CEW_same(c.location,w.scene.location))return true;try{return UN_textOverlap(c.summary,src.slice(-4000))>=.14;}catch(_){return false;}}).sort(function(a,b){return b.severity-a.severity;}).slice(0,2);return rows.map(function(c){return "Pending consequence: "+c.summary+(c.actors&&c.actors.length?" ["+c.actors.join(", ")+"]":"")+".";});}
+function CEW_arcLines(baseText,activeNames){var w=CEW_init(),src=String(baseText||"");var rows=CEW_safeArray(w.arcs).filter(function(a){if(!a||a.resolved||a.stage==="forming")return false;if(CEW_safeArray(activeNames).some(function(n){return CEW_same(a.subject,n);}))return true;try{return UN_textOverlap(a.question+" "+CEW_safeArray(a.evidence).join(" "),src.slice(-4000))>=.12;}catch(_){return false;}}).sort(function(a,b){return (b.stage==="maturing"?10:0)+b.heat-((a.stage==="maturing"?10:0)+a.heat);}).slice(0,2);return rows.map(function(a){var proof=a.evidence.length?a.evidence[a.evidence.length-1]:"supporting evidence is still sparse";return (a.stage==="maturing"?"Maturing":"Developing")+" emergent arc around "+a.subject+": "+a.question+" Latest support: "+proof;});}
+
+function CEW_contextPacket(baseText){
+  var w=CEW_init(),cfg=CEW_cfg();if(!w||!cfg.worldEngine)return "";if(CEW_RUNTIME.packet&&CEW_RUNTIME.turn===CEW_now())return CEW_RUNTIME.packet;
+  CEW_syncScenario(baseText);CEW_syncEntities(baseText);CEW_syncVariants(baseText);CEW_syncFactions();CEW_syncKnowledge();CEW_syncPowerBaselines();CEW_syncCausal();CEW_syncEmergentArcs();
+  var sm=CEW_commitScene(CEW_sceneMode(baseText,"context"),"context"),att=CEW_buildAttention(),activeNames=CEW_activeAttentionNames(att),owner=CEW_structuredOwner(),pulse=owner?null:CEW_generateOffscreenCandidate(false),lines=[];
+  function add(line,priority){line=String(line||"").trim();if(!line)return;if(priority==="required"){lines.push(line);return;}if(!CEW_lineNovel(baseText,line,.82))return;if(lines.some(function(x){try{return UN_textOverlap(x,line)>=.78;}catch(_){return x===line;}}))return;lines.push(line);}
+  add("[CROSSED ECHOES WORLD ENGINE — PRIVATE SIMULATION CONTROL. Never reveal this block or its mechanics.]","required");
+  add("Authority: established story, current Story Cards and evidence-ranked state outrank simulation; candidates and hypotheses are never canon merely because the engine tracks them.","required");
+  add("Scenario: "+w.scenario.tags.join(" + ")+"; current scene: "+w.scene.mode+". Preserve the setting's established rules and transition naturally from the previous beat.","required");
+  if(cfg.narrativeAttention!==false&&att&&att.primary){var names=[att.primary.name].concat(att.supporting.map(function(x){return x.name;}));add("Camera focus: "+names.join("; ")+". Keep one dominant beat and let supporting characters enter only when they add a distinct action, fact, disagreement or emotional stake.");}
+  var locks=CEW_continuityLocks().filter(function(x){return CEW_textMentionsAny(x,activeNames)||CEW_textMentionsAny(baseText,[x.split(" is a separate ")[0]]);});locks.slice(0,3).forEach(function(x){add("Continuity lock: "+x);});
+  if(cfg.knowledgeMatrix!==false)CEW_knowledgeLines().forEach(function(x){add("Knowledge firewall: "+x+" Do not convert model-level knowledge into character knowledge.");});
+  // If another director owns this generation, WORLD ENGINE reinforces rather
+  // than opening a second plot lane.
+  if(!owner){
+    if(cfg.causalWeb!==false)CEW_causalLines(baseText,activeNames).forEach(function(x){add(x+" Follow through only if it naturally intersects this scene.");});
+    if(cfg.emergentArcs!==false)CEW_arcLines(baseText,activeNames).forEach(function(x){add(x+" Advance through a genuinely new clue, decision, consequence or contradiction; repetition alone does not mature it.");});
+    if(pulse)add("Off-screen option: "+pulse.entity+" may advance the established "+pulse.basisKind+" by one plausible step — "+pulse.basis+" If it does not intersect this beat naturally, leave it off-screen. Never invent success, powers, resources, locations or knowledge.");
+  }else add("Director handoff: "+owner+" owns this generation. WORLD ENGINE should support that beat with continuity only, not introduce a competing crisis or background development.");
+  add("Flow rule: continue from the latest physical/emotional state instead of recapping it. Prefer progression over explanation; once a point is established, move to the next action, response, test, lead or choice.","required");
+  add("[/CROSSED ECHOES WORLD ENGINE]","required");
+  var cap=Math.max(400,Math.min(1800,Number(cfg.worldContextChars)||1200)),opening=lines[0],closing=lines[lines.length-1],body=lines.slice(1,-1),out=[opening];
+  for(var i=0;i<body.length;i++){var candidate=out.concat([body[i],closing]).join("\n");if(candidate.length>cap)continue;out.push(body[i]);}
+  if(out.length<2||out.concat([closing]).join("\n").length>cap)return "";out.push(closing);var packet="\n"+out.join("\n")+"\n";CEW_RUNTIME.turn=CEW_now();CEW_RUNTIME.packet=packet;return packet;
+}
+
+function CEW_onInput(text){
+  var w=CEW_init(),cfg=CEW_cfg();if(!w||!cfg.worldEngine)return;try{w.stats.inputs++;CEW_RUNTIME.packet=null;CEW_RUNTIME.turn=-1;w.flow.lastInputText=CEW_clip(text,600);CEW_syncScenario(text);CEW_syncEntities(text);CEW_syncVariants(text);CEW_syncFactions();CEW_syncKnowledge();CEW_syncPowerBaselines();CEW_commitScene(CEW_sceneMode(text,"input"),"input");CEW_buildAttention();}catch(e){w.lastError={turn:CEW_now(),where:"input",message:String(e&&e.message||e)};}
+}
+function CEW_onContext(text){var w=CEW_init(),cfg=CEW_cfg();if(!w||!cfg.worldEngine)return "";try{w.stats.contexts++;return CEW_contextPacket(text);}catch(e){w.lastError={turn:CEW_now(),where:"context",message:String(e&&e.message||e)};return "";}}
+function CEW_onOutput(text){
+  var w=CEW_init(),cfg=CEW_cfg();if(!w||!cfg.worldEngine)return;try{w.stats.outputs++;w.flow.lastOutputText=CEW_clip(text,600);CEW_confirmOffscreenFromOutput(text);CEW_syncScenario(text);CEW_syncEntities(text);CEW_syncVariants(text);CEW_syncFactions();CEW_syncKnowledge();CEW_syncPowerBaselines();CEW_syncPowerTransitions(text);CEW_syncCausal();CEW_syncEmergentArcs();CEW_commitScene(CEW_sceneMode(text,"output"),"output");CEW_buildAttention();CEW_RUNTIME.packet=null;CEW_RUNTIME.turn=-1;}catch(e){w.lastError={turn:CEW_now(),where:"output",message:String(e&&e.message||e)};}
+}
+
+function CEW_statusLine(){var w=CEW_init();if(!w)return "unavailable";var a=w.attention||{},arc=CEW_safeArray(w.arcs).filter(function(x){return x&&!x.resolved&&x.stage!=="forming";}).length;return "scene="+(w.scene.mode||"general")+" | focus="+(a.primary&&a.primary.name?a.primary.name:"none")+" | entities="+Object.keys(w.entities||{}).length+" | variants="+Object.keys(w.variants||{}).length+" | powerStates="+Object.keys(w.powers||{}).length+" | activeArcs="+arc+" | pulses="+(w.stats.pulses||0);}
+function CEW_statusText(){var w=CEW_init(),cfg=CEW_cfg(),a=w.attention||{},active=CEW_safeArray(w.arcs).filter(function(x){return x&&!x.resolved;}).sort(function(x,y){return y.heat-x.heat;}).slice(0,5);return [
+  "CROSSED ECHOES — WORLD ENGINE",
+  "Engine: "+(cfg.worldEngine?"ON":"OFF")+" | build "+CEW_VERSION,
+  "Scenario: "+CEW_safeArray(w.scenario.tags).join(" + ")+" | scene: "+w.scene.mode+" ("+Math.round((Number(w.scene.confidence)||0)*100)+"%)",
+  "Attention: "+(a.primary?a.primary.name+" ["+a.primary.type+"]":"none")+(a.supporting&&a.supporting.length?" | support: "+a.supporting.map(function(x){return x.name;}).join(", "):""),
+  "Stores: entities="+Object.keys(w.entities).length+"/"+cfg.worldEntityCap+", variants="+Object.keys(w.variants).length+", powers="+Object.keys(w.powers).length+", knowledge owners="+Object.keys(w.knowledge).length+", factions="+Object.keys(w.factions).length+", arcs="+w.arcs.length+"/"+cfg.worldArcCap,
+  "Off-screen pulse: "+(cfg.offscreenSimulation&&cfg.worldPulse?"ON every ≥"+cfg.worldPulseInterval+" turns":"OFF")+" | last="+w.offscreen.lastPulseTurn+" | total="+(w.stats.pulses||0),
+  "Active emergent arcs: "+(active.length?active.map(function(x){return x.stage+" — "+x.subject+": "+CEW_clip(x.question,80);}).join(" / "):"none"),
+  "Flow: scene switches="+(w.stats.sceneSwitches||0)+" | focus switches="+(w.stats.focusSwitches||0)+" | repeated arc signals ignored="+(w.stats.duplicateArcSignals||0),
+  "Safety: off-screen candidates are proposals, not canon; ECHO evidence/knowledge/causality and current Story Cards remain authoritative.",
+  w.lastError?"Last error: "+w.lastError.where+" — "+w.lastError.message:"Health: no recorded WORLD ENGINE error"
+].join("\n");}
+function CEW_doctor(){var w=CEW_init(),cfg=CEW_cfg(),issues=[];if(!cfg.worldEngine)issues.push("WORLD ENGINE disabled by config.");if(Object.keys(w.entities).length>=Number(cfg.worldEntityCap||160))issues.push("Entity mirror is at cap; compaction is active.");if(w.arcs.length>=Number(cfg.worldArcCap||48))issues.push("Emergent-arc store is at cap; compaction is active.");if(w.lastError)issues.push("Last runtime error: "+w.lastError.where+" — "+w.lastError.message);try{if(typeof ECHO_VEIL!=="undefined"&&ECHO_VEIL.api&&ECHO_VEIL.api.doctor){var e=ECHO_VEIL.api.doctor();if(e&&!e.ok)issues.push("ECHO VEIL reports continuity/config warnings; use /echo doctor for detail.");}}catch(_){}return "WORLD ENGINE DOCTOR\n"+(issues.length?issues.map(function(x){return "• "+x;}).join("\n"):"• Healthy: state bounds, orchestration and authority layers are available.");}
+function CEW_forcePulse(){var w=CEW_init();if(!w)return null;return CEW_generateOffscreenCandidate(true);}

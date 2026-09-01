@@ -23,7 +23,7 @@ var ownedControlCommand = (raw) => {
     if (typeof Library !== "undefined" && Library.extractCommand) return Library.extractCommand(raw);
   } catch (e) {}
   const t = String(raw || "").replace(/\r/g, "").trim();
-  const owned = "(?:crossedechoesstatus|crossedechoes|cestatus|ce|threadboundstatus|threadbound|tbstatus|unifiedstatus|unified|unsaid|pe(?:e|a)k|card|alias|unalias|twistcategories|twisttypes|twistlog|twisthelp|twist|plant|mature|scenario|synergy|link|intensity|threads|rescan|twists|wiremerge|wireforget|wireprofile|wirestatus|wiretwists|wirehelp|wirerole|wireage|wires|wire|spark)";
+  const owned = "(?:crossedechoesstatus|crossedechoes|cestatus|ce|threadboundstatus|threadbound|tbstatus|unifiedstatus|unified|worldengine|world|unsaid|pe(?:e|a)k|card|alias|unalias|twistcategories|twisttypes|twistlog|twisthelp|twist|plant|mature|scenario|synergy|link|intensity|threads|rescan|twists|wiremerge|wireforget|wireprofile|wirestatus|wiretwists|wirehelp|wirerole|wireage|wires|wire|spark)";
   const direct = new RegExp(`^[!/:]${owned}\\b`, "i");
   const normalize = value => {
     let v = String(value || "").trim();
@@ -499,14 +499,21 @@ var modifier = (text) => {
     if (typeof UN_resetHookCaches === "function") UN_resetHookCaches("input");
 
     var coordinatorCommand = ownedControlCommand(originalText);
-    if (coordinatorCommand && /^\/(?:crossedechoes(?:status)?|cestatus|ce|threadbound(?:status)?|tbstatus|unified(?:status)?)\b/i.test(coordinatorCommand)) {
+    if (coordinatorCommand && /^\/(?:crossedechoes(?:status)?|cestatus|ce|threadbound(?:status)?|tbstatus|unified(?:status)?|world(?:engine)?)\b/i.test(coordinatorCommand)) {
       try {
-        if (/^\/(?:crossedechoes|ce)\s+(?:help|commands?|guide)\s*$/i.test(coordinatorCommand)) {
-          pushMessage(crossedEchoesCommandHelp());
+        if (/^\/(?:world|worldengine)(?:\s+status)?\s*$/i.test(coordinatorCommand)) {
+          pushMessage(typeof CEW_statusText === "function" ? CEW_statusText() : "WORLD ENGINE unavailable.");
+        } else if (/^\/(?:world|worldengine)\s+doctor\s*$/i.test(coordinatorCommand)) {
+          pushMessage(typeof CEW_doctor === "function" ? CEW_doctor() : "WORLD ENGINE doctor unavailable.");
+        } else if (/^\/(?:world|worldengine)\s+pulse\s*$/i.test(coordinatorCommand)) {
+          var pulse = typeof CEW_forcePulse === "function" ? CEW_forcePulse() : null;
+          pushMessage(pulse ? ("🌍 WORLD ENGINE pulse candidate — "+pulse.entity+": "+pulse.basis) : "🌍 No evidence-backed off-screen pulse is currently eligible.");
+        } else if (/^\/(?:crossedechoes|ce)\s+(?:help|commands?|guide)\s*$/i.test(coordinatorCommand)) {
+          pushMessage(crossedEchoesCommandHelp()+"\n\nWORLD ENGINE: /world, /world doctor, /world pulse");
         } else if (/^\/(?:crossedechoes(?:status)?|cestatus|ce|threadbound(?:status)?|tbstatus|unified(?:status)?)(?:\s+status)?\s*$/i.test(coordinatorCommand)) {
           pushMessage(UN_statusText());
         } else {
-          pushMessage("🌒 Unknown CROSSED ECHOES coordinator option. Use /crossedechoes for status or /crossedechoes help for commands.");
+          pushMessage("🌒 Unknown CROSSED ECHOES coordinator option. Use /crossedechoes for status, /world for WORLD ENGINE status, or /crossedechoes help for commands.");
         }
       } catch (_) {}
       return { text: null, stop: true };
@@ -533,6 +540,7 @@ var modifier = (text) => {
     if (typeof UN_capturePlayerIntent === "function") UN_capturePlayerIntent(originalText);
     if (typeof CW_onInput === "function") visible = CW_onInput(visible);
     if (typeof ECHO_VEIL !== "undefined" && ECHO_VEIL.input) visible = ECHO_VEIL.input(visible);
+    if (typeof CEW_onInput === "function") CEW_onInput(visible);
     if (typeof UN_profileConsensus === "function") UN_profileConsensus();
     return { text: visible };
   } catch (e) {

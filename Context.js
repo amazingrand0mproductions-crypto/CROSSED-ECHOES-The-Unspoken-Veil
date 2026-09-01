@@ -806,6 +806,20 @@ var modifier = (text) => {
     if (typeof CW_onContext === "function") working = CW_onContext(working);
     if (typeof UN_markOwnerFromCrossed === "function") UN_markOwnerFromCrossed();
 
+    // WORLD ENGINE runs after the evidence/relationship layers have built their
+    // current state and before the compact fusion contract. It appends only a
+    // complete cache-safe suffix; if headroom is tight it yields wholesale.
+    if (typeof CEW_onContext === "function") {
+      var worldPacket = CEW_onContext(working);
+      if (worldPacket) {
+        if (typeof CE_isCacheEfficientContext === "function" && CE_isCacheEfficientContext() && typeof CE_appendCompleteContextSuffix === "function") {
+          var worldAppend = CE_appendCompleteContextSuffix(working, worldPacket, 0);
+          if (worldAppend.appended) working = worldAppend.text;
+          else if (typeof utSkipRuntimeTask === "function") utSkipRuntimeTask("world-engine-cache-headroom");
+        } else working += worldPacket;
+      }
+    }
+
     if (typeof UN_contextPacket === "function") {
       var bridgePacket = UN_contextPacket(working);
       if (bridgePacket) {
