@@ -530,9 +530,6 @@ var modifier = (text) => {
     if (owned) return afterUnsaid;
 
     var visible = afterUnsaid && typeof afterUnsaid.text !== "undefined" ? afterUnsaid.text : originalText;
-    // Capture unfinished player hand-offs before the scheduling systems run.
-    // This lets every automatic engine yield without changing the visible text.
-    if (typeof UN_captureContinuation === "function") UN_captureContinuation(originalText);
     if (typeof UN_capturePlayerIntent === "function") UN_capturePlayerIntent(originalText);
     if (typeof CW_onInput === "function") visible = CW_onInput(visible);
     if (typeof ECHO_VEIL !== "undefined" && ECHO_VEIL.input) visible = ECHO_VEIL.input(visible);

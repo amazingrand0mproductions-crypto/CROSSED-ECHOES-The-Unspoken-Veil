@@ -76,6 +76,27 @@ This keeps twists tied to the story that actually happened.
 
 ---
 
+
+### ⏳ Time travel, multiverse and power continuity are first-class systems
+
+CROSSED ECHOES now treats high-concept continuity as more than generic mystery text. It can distinguish **future/past versions**, **alternate-universe counterparts**, **branch timelines**, **multiversal leakage**, **reality anchors**, **copied or borrowed powers**, **power suppression**, **signature spoofing** and similar speculative mechanics.
+
+A future or alternate version of a character is tracked as a separate continuity identity unless the story explicitly establishes one continuous traveler. Injuries, deaths, memories, relationships and power state therefore do not silently overwrite the primary character.
+
+TWISTS AND TURNS also has dedicated temporal, multiversal and power-system twist families. Scenario detection weights those families more strongly when the adventure actually contains time travel, multiverse or superhero/reality mechanics, while grounded scenarios remain protected from speculative imports.
+
+### 🧵 Story Card thread Notes stay readable
+
+ECHO VEIL no longer presents important threads as clipped quotation fragments. Managed Story Card Notes use semantic thread labels with a status, an open question, an evidence count and a **Next proof** prompt. Hypotheses are clearly marked **unverified** and kept separate from established continuity.
+
+The bridge can let a supported ECHO thread seed a TWISTS AND TURNS long arc, but an unverified theory does **not** become factual setup merely because another subsystem noticed it. Actorless world theories also remain actorless instead of being attached to whichever NPC happened to be nearby.
+
+### 📚 CODEX is stricter without becoming blind
+
+CODEX adds another anti-junk layer for pasted AI instructions, diagnostic headings and derived narrative words such as *Investigations*, *Developments*, *Specifications*, *Reactions* and similar prose fragments. Explicit naming grammar remains an override, so deliberately unusual names are still possible.
+
+High-concept non-character entities are understood directly: named timelines/realities can become Locations, chronal anchors/arrays/tethers can become Items, and named projects/authorities/programs can become Factions when the story supplies strong semantic evidence.
+
 ### 🌘 The world remembers consequences
 
 ECHO VEIL handles the wider continuity layer.
@@ -159,21 +180,6 @@ The Director pays attention to what the player is actually trying to do right no
 A clear objective can push unrelated automatic drama out of the way. If you are actively searching a crime scene, the relationship engine is less likely to interrupt with a random confrontation. If a supported twist is directly tied to the thing you are investigating, it can still land naturally.
 
 Intent is only a scheduling signal. It never means the attempted action succeeded and it never creates evidence.
-
-### ✍️ Continuation Guard
-
-If the latest input is intentionally fragmentary — for example ending with a comma, em dash, ellipsis, an open quote, or a clear trailing connective — the Director gives the immediate beat priority. Automatic plot twists, relationship sparks and UNSAID/Codex side-tasks yield for the turn, while ECHO VEIL keeps continuity and knowledge safety active.
-
-**Agency is mode-aware.** In Story/NPC narration such as `Mara looks at Leo and says,`, the AI may finish the NPC/story hand-off. In player-controlled **Say/Do** input such as `You say, "What…"`, the written player fragment is treated as complete: the AI must react to it rather than inventing the rest of the player's dialogue, thoughts, action or consent. Complete ordinary actions are left alone.
-
-
-### 🧪 Long-story regression hardening
-
-The live-state layer now self-cleans two narrow legacy mistakes seen in long campaigns: transient pronoun-only actions such as a dying stranger's “He tries to speak” cannot survive as another NPC's durable motive, and metaphorical injury phrases such as “burned into her retinas” cannot survive as physical wound threads. Explicit causal theories are stored as **open hypotheses** until later evidence confirms or disproves them.
-
-Character Story Card **Relationships** fields are also imported as role baselines (parent, child, sibling, spouse/partner, relative, ally, rival and similar) without inventing trust or affection scores. This means a card can immediately know that Sasha is Julian's spouse or Marnie's parent while the live bond metrics still develop only from actual story events.
-
-Ensemble guidance now favours progression over round-robin reaction: only NPCs with a distinct contribution should speak/react, and the same conclusion should not be repeated through the whole cast unless the repetition changes the decision or meaning.
 
 ### 🧭 Entity Lattice
 
@@ -435,7 +441,7 @@ CODEX includes:
 
 `cardChars=950`
 
-This controls the maximum generated Story Card Entry size and can be set from **300 to 1000 characters**. The default is 950, leaving a little editor headroom.
+This controls the maximum generated Story Card Entry size and can be set from **300 to 2000 characters**.
 
 See `CONFIG_NOTES.md` for the full config reference.
 
@@ -583,20 +589,6 @@ Compact slash aliases such as `/wirestatus`, `/wireprofile`, `/wiretwists`, `/wi
 Commands are recognised from direct Story input and the normal AI Dungeon Story/Do/Say wrappers. A command mentioned inside ordinary prose is not treated as a control action.
 
 ---
-
-## 🧭 Evidence, capability and scene guards
-
-Long ensemble scenes now use an **evidence ladder** instead of allowing repeated speculation to harden into canon:
-
-**observed/documented fact → reported claim → expert inference → open hypothesis**
-
-A clue can suggest a theory, but it cannot silently prove a culprit, mechanism, purpose or inevitable future. Player questions are treated as questions rather than as new facts. A later result, record, witness or measurement can promote a hypothesis; contradiction can close it.
-
-ECHO VEIL also reads the active Character Story Cards as capability boundaries. A scientist may analyse data and form technical theories, but expertise does not become an unlisted supernatural sense. A baseline human does not gain a power because a scene needs an explanation.
-
-Presence is locked as well. Once an NPC explicitly leaves a scene, merely mentioning their name, work or results will not teleport them back into the active cast. Explicit arrivals and returns still work normally.
-
-The anti-loop layer now removes same-output duplicate paragraphs/sentences and remembers recently assigned ensemble jobs so the next generation is told not to reissue the same plan unless something actually changed. Off-screen NPCs keep agency, but the script discourages invented precise schedules, locations and activities when the story has not established them.
 
 ## 🛡️ Core rules
 

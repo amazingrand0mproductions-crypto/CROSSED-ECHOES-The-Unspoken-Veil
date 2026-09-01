@@ -1392,6 +1392,7 @@ var modifier = (text) => {
     if (typeof ECHO_VEIL !== "undefined" && ECHO_VEIL.output) visible = ECHO_VEIL.output(visible);
     if (typeof CE_stripVisibleScriptArtifacts === "function") visible = CE_stripVisibleScriptArtifacts(visible);
     if (typeof UN_afterOutput === "function") UN_afterOutput(visible);
+    if (typeof CE_bridgeEchoThreadsToTwists === "function") CE_bridgeEchoThreadsToTwists();
     if (typeof CE_syncStoryCardPresentation === "function") CE_syncStoryCardPresentation();
     return { text: visible };
   } catch (e) {
