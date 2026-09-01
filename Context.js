@@ -558,16 +558,53 @@ var unsaidModifier = (text) => {
       // existing cards forever.
       let candidates = [];
       let hardDeadline = false;
+      // Strong direct-scaffold candidates may bypass the ordinary Codex task
+      // cooldown. They have already passed the strict entity/type gates and
+      // creating the first evidence-only card does not require a model call.
+      // This is what makes an explicitly introduced character, location,
+      // item or faction reliably appear as a Story Card instead of waiting
+      // for the model to repeat the name several turns later.
+      const directScaffoldCandidates = (cfg.codexDirectScaffold !== false && typeof codexDirectScaffoldEligibility === "function")
+        ? available.filter(function(name){
+            const t = reconcileCodexEntityType(name, text) || resolveCodexEntityType(name, text) ||
+              (state.unsaid.codex.likelyCharacters[name] ? "character" : dominantCodexType(name));
+            return codexDirectScaffoldEligibility(name, t, cfg, codexRecent);
+          })
+        : [];
       if (deadlineCharacters.length > 0) {
         candidates = deadlineCharacters.slice(0, 1);
         hardDeadline = true;
       } else if (matureCharacters.length > 0) {
         candidates = matureCharacters.slice(0, 1);
+      } else if (directScaffoldCandidates.length > 0) {
+        candidates = directScaffoldCandidates.slice(0, 1);
       } else if (sinceLastCodex >= cfg.codexCooldown && !refreshVeryOverdue) {
         // One automatic card task per story turn. Multiple hidden profiles in
         // the same model response substantially increase the chance that the
         // model outputs only metadata and forgets the visible story.
         candidates = nonCharacters.slice(0, 1);
+      }
+
+      // ULTIMATE CODEX RELIABILITY: high-confidence entities no longer depend
+      // on the model obeying a hidden [CARD] formatting request. Build a
+      // conservative evidence-only scaffold immediately, then let normal
+      // refresh/enrichment improve it after more story evidence accumulates.
+      // This keeps automatic card creation reliable while the junk/entity
+      // gates remain responsible for deciding whether a name is safe.
+      if (candidates.length > 0 && cfg.codexDirectScaffold !== false && typeof createCodexDirectScaffoldCard === "function") {
+        const scaffoldName = candidates[0];
+        const scaffold = createCodexDirectScaffoldCard(scaffoldName, cfg, codexRecent);
+        if (scaffold) {
+          state.unsaid.codex.lastTriggerTurn = state.unsaid.turn;
+          state.unsaid.codex.pendingNames = [];
+          state.unsaid.codex.pendingTypes = {};
+          state.unsaid.codex.pendingForced = false;
+          state.unsaid.codex.pendingRefreshNames = [];
+          if (typeof pushMessage === "function") {
+            pushMessage("📇 CODEX created a provisional " + String(scaffold.type || "Story") + " card for " + String(scaffoldName) + ". It will enrich itself as new evidence appears.");
+          }
+          candidates = [];
+        }
       }
 
       if (candidates.length > 0) {

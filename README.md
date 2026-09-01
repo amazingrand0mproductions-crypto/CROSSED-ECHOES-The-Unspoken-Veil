@@ -64,7 +64,7 @@ Healthy relationships matter too. Strong loyalty, friendship, trust or affection
 
 TWISTS AND TURNS watches for story-supported possibilities and develops them over time.
 
-A twist can be planted, reinforced through later evidence and held back until there is enough support for a payoff.
+A twist can be planted, reinforced through later evidence and held back until there is enough support for a payoff. Existing threads use **semantic reinforcement**, so later evidence does not need to repeat the original trigger wording. A future-warning thread can mature through a blood sample, chronal residue, a resonance match, a contradictory date, an alternate-self sighting, a recovered component or another clearly related development.
 
 The system is designed around one important rule:
 
@@ -87,7 +87,7 @@ TWISTS AND TURNS also has dedicated temporal, multiversal and power-system twist
 
 ### 🧵 Story Card thread Notes stay readable
 
-ECHO VEIL no longer presents important threads as clipped quotation fragments. Managed Story Card Notes use semantic thread labels with a status, an open question, an evidence count and a **Next proof** prompt. Hypotheses are clearly marked **unverified** and kept separate from established continuity.
+ECHO VEIL no longer presents important threads as clipped quotation fragments. Managed Story Card Notes now explain threads in full sentences: what the arc is, whether it is established or hypothetical, what evidence has moved it, the open question, and a **Useful next proof** prompt. Hypotheses are clearly marked **unverified** and kept separate from established continuity.
 
 The bridge can let a supported ECHO thread seed a TWISTS AND TURNS long arc, but an unverified theory does **not** become factual setup merely because another subsystem noticed it. Actorless world theories also remain actorless instead of being attached to whichever NPC happened to be nearby.
 
@@ -96,6 +96,10 @@ The bridge can let a supported ECHO thread seed a TWISTS AND TURNS long arc, but
 CODEX adds another anti-junk layer for pasted AI instructions, diagnostic headings and derived narrative words such as *Investigations*, *Developments*, *Specifications*, *Reactions* and similar prose fragments. Explicit naming grammar remains an override, so deliberately unusual names are still possible.
 
 High-concept non-character entities are understood directly: named timelines/realities can become Locations, chronal anchors/arrays/tethers can become Items, and named projects/authorities/programs can become Factions when the story supplies strong semantic evidence.
+
+For high-confidence introductions, CODEX now creates a **direct evidence scaffold** itself instead of depending on the model to return a hidden `[CARD]` block. The first card contains only story-supported evidence, is marked provisional internally, and can enrich itself after later evidence appears. This closes the failure mode where CODEX detected an entity but no Story Card ever appeared.
+
+The anti-junk layer combines more than **1,700 explicit stop words**, **750+ generic common nouns**, **220+ hard generic entity roots**, morphology rejection, diagnostic-heading rejection, sentence grammar, semantic typing and partial-name shadow protection. `Timeline Omega` can be a real Location while bare `Timeline` is rejected; `Project Nightglass` can be a Faction while bare `Project` is not allowed to age into a junk card.
 
 ### 🌘 The world remembers consequences
 
@@ -234,9 +238,9 @@ CODEX watches the story for important entities and can create or refresh Story C
 
 Detection is evidence-driven rather than based on capital letters alone.
 
-Strong introductions can be recognised quickly:
+Strong introductions can be recognised quickly, including genre-specific roles:
 
-> a detective named Nyra Voss
+> a chronal investigator named Nyra Voss
 
 > the city called Thornhaven
 
@@ -244,7 +248,7 @@ Strong introductions can be recognised quickly:
 
 > a guild called The Ashen Circle
 
-Weak or ambiguous guesses need more evidence. Old one-off guesses gradually lose confidence and are eventually removed from the candidate pool, which helps stop junk cards from building up over a long adventure.
+Weak or ambiguous guesses need more evidence. Old one-off guesses gradually lose confidence and are eventually removed from the candidate pool, which helps stop junk cards from building up over a long adventure. A shorter prefix can no longer borrow the naming evidence of a longer proper name, so `Nyra Vale` does not separately validate `Nyra`, `Timeline Omega` does not validate bare `Timeline`, and `Project Nightglass` does not validate bare `Project`.
 
 When several valid entities are waiting for a card, CODEX considers things like:
 
@@ -615,6 +619,8 @@ The package includes:
 ```text
 run_tests.js
 stress_test.js
+high_concept_stress_test.js
+codex_noise_stress_test.js
 ```
 
 They cover the integration between the three engines, Story Card generation, entity detection, knowledge boundaries, Retry handling, context budgeting, output cleanup and both Standard and Optimized Context behavior.
@@ -624,7 +630,13 @@ Run them with:
 ```bash
 node run_tests.js
 node stress_test.js
+CE_CACHE_STRESS=1 node stress_test.js
+node high_concept_stress_test.js
+CE_CACHE_STRESS=1 node high_concept_stress_test.js
+codex_noise_stress_test.js
 ```
+
+Current verification: **125/125 integration/regression tests pass**. Both 60-turn / 180-hook large-library stress runs pass, both dedicated time-travel/multiverse/superpower stress runs pass, and both CODEX anti-junk stress modes reject all 36 deliberately forbidden generic candidates while still creating the four intended high-concept cards.
 
 
 ---
