@@ -15,6 +15,22 @@ var cleanCommandEntity = (raw, maxLen) => {
   return name.slice(0, typeof maxLen === "number" ? maxLen : 80);
 };
 
+var resolveControlEntityName = (enteredName, expectedType) => {
+  const entered = cleanCommandEntity(enteredName, 80);
+  if (!entered || typeof resolveUnsaidCanonicalName !== "function") return entered;
+  const resolved = resolveUnsaidCanonicalName(entered) || entered;
+  if (String(resolved).toLowerCase() === String(entered).toLowerCase()) return resolved;
+  // A trigger on an Event/Plot/manual lore card is retrieval overlap, not
+  // proof that the command named that card's identity. Preserve the literal
+  // command target unless at least one compatible entity card supports the
+  // alias resolution.
+  if (typeof storyCardMatchesForEntity === "function" && typeof codexCardIdentityCompatible === "function") {
+    const matches = storyCardMatchesForEntity(entered);
+    if (!matches.some(card => codexCardIdentityCompatible(card, entered, expectedType || ""))) return entered;
+  }
+  return resolved;
+};
+
 // Command input must fail closed. If an internal error happens while handling
 // an administrative command, never leak `/card`, `/peek`, etc. to the story
 // model as ordinary prose.
@@ -406,9 +422,7 @@ var unsaidModifier = (text) => {
       const coreRequested = /\s+core\s*$/i.test(rawName);
       if (coreRequested) rawName = rawName.replace(/\s+core\s*$/i, "");
       const enteredName = cleanCommandEntity(rawName, 60);
-      const name = enteredName && typeof resolveUnsaidCanonicalName === "function"
-        ? resolveUnsaidCanonicalName(enteredName)
-        : enteredName;
+      const name = resolveControlEntityName(enteredName, "character");
 
       if (!name) {
         pushMessage("👁️ /peek needs a character name — try \"/peek Elara\" or \"/peek Elara core\".");
@@ -422,9 +436,12 @@ var unsaidModifier = (text) => {
       const peekMatches = typeof storyCardMatchesForEntity === "function"
         ? storyCardMatchesForEntity(name)
         : [];
-      const matchedCard = peekMatches.length === 1 ? peekMatches[0] : findStoryCardForEntity(name);
-      if (peekMatches.length > 1) {
-        pushMessage(`👁️ "${name}" matches ${peekMatches.length} Story Cards — rename/remove the duplicate or use a more specific name before peeking.`);
+      const peekEntityMatches = typeof codexCardIdentityCompatible === "function"
+        ? peekMatches.filter(card => codexCardIdentityCompatible(card, name, "character"))
+        : peekMatches;
+      const matchedCard = peekEntityMatches.length === 1 ? peekEntityMatches[0] : null;
+      if (peekEntityMatches.length > 1) {
+        pushMessage(`👁️ "${name}" matches ${peekEntityMatches.length} Character Story Cards — rename/remove the duplicate or use a more specific name before peeking.`);
         return stopControl();
       }
       if (matchedCard && !isCharacterLikeCard(name)) {
@@ -446,9 +463,7 @@ var unsaidModifier = (text) => {
     const cardMatch = commandText.match(/^\/card\b\s*(.*?)\s*$/i);
     if (cardMatch) {
       const enteredName = cleanCommandEntity(cardMatch[1], 60);
-      const name = enteredName && typeof resolveUnsaidCanonicalName === "function"
-        ? resolveUnsaidCanonicalName(enteredName)
-        : enteredName;
+      const name = resolveControlEntityName(enteredName, "");
       if (!name) {
         pushMessage("📇 /card needs a name — try \"/card Elara\".");
         return stopControl();
@@ -460,12 +475,15 @@ var unsaidModifier = (text) => {
       const cardMatches = typeof storyCardMatchesForEntity === "function"
         ? storyCardMatchesForEntity(name)
         : [];
-      if (cardMatches.length > 1) {
-        pushMessage(`📇 "${name}" matches ${cardMatches.length} Story Cards — automatic overwrite is paused until you remove/rename the duplicate or use a more specific name.`);
+      const entityCardMatches = typeof codexCardIdentityCompatible === "function"
+        ? cardMatches.filter(card => codexCardIdentityCompatible(card, name, ""))
+        : cardMatches;
+      if (entityCardMatches.length > 1) {
+        pushMessage(`📇 "${name}" matches ${entityCardMatches.length} entity Story Cards — automatic overwrite is paused until you remove/rename the duplicate or use a more specific name.`);
         return stopControl();
       }
-      state.unsaid.forcedCodex = cardMatches.length === 1 && cardMatches[0].title
-        ? cardMatches[0].title
+      state.unsaid.forcedCodex = entityCardMatches.length === 1 && entityCardMatches[0].title
+        ? entityCardMatches[0].title
         : name;
       state.unsaid.controlRequest = "card";
       pushMessage(`📇 Writing a Story Card for ${name}...`);

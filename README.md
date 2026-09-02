@@ -107,6 +107,8 @@ High-concept non-character entities are understood directly: named timelines/rea
 
 For high-confidence introductions, CODEX now creates a **direct evidence scaffold** itself instead of depending on the model to return a hidden `[CARD]` block. The first card contains only story-supported evidence, is marked provisional internally, and can enrich itself after later evidence appears. This closes the failure mode where CODEX detected an entity but no Story Card ever appeared.
 
+Story Card writes are **identity-safe**. A matching trigger is not treated as proof that two cards represent the same entity, so a hand-authored Event, Plot or lore card cannot be overwritten merely because it shares a trigger with a new Character, Location, Item or Faction. CODEX retries a collision with specific identity-safe triggers, commits core fields through AI Dungeon's supported update route, and reports write failures separately from detection failures under `/unsaid status`.
+
 The anti-junk layer combines more than **1,700 explicit stop words**, **750+ generic common nouns**, **220+ hard generic entity roots**, morphology rejection, diagnostic-heading rejection, sentence grammar, semantic typing and partial-name shadow protection. `Timeline Omega` can be a real Location while bare `Timeline` is rejected; `Project Nightglass` can be a Faction while bare `Project` is not allowed to age into a junk card.
 
 ### 🌍 WORLD ENGINE — persistent simulation above the whole script
@@ -707,6 +709,8 @@ node codex_noise_stress_test.js
 CE_CACHE_STRESS=1 node codex_noise_stress_test.js
 node second_dawn_codex_replay_test.js
 CE_CACHE_STRESS=1 node second_dawn_codex_replay_test.js
+CE_LIBRARY_FILL=4980 node second_dawn_codex_replay_test.js
+CE_LIBRARY_FILL=4980 CE_CACHE_STRESS=1 node second_dawn_codex_replay_test.js
 node world_engine_tests.js
 node world_engine_long_stress_test.js
 CE_CACHE_STRESS=1 node world_engine_long_stress_test.js
@@ -716,7 +720,7 @@ node relationship_foundation_stress_test.js
 CE_CACHE_STRESS=1 node relationship_foundation_stress_test.js
 ```
 
-Current verification: **150/150 core integration/regression tests pass** and **31/31 WORLD ENGINE + fluidity tests pass**. The real supplied 313-card SECOND DAWN export also passes the dedicated relationship-foundation stress in Standard and Optimized Context: **197 cleaned directional foundations remain stable, relationship canon is injected on all 24/24 tested turns, and Ravati→YOU, Sasha↔Julian, Liam↔Cassia and Ezra→Sera are verified directly from the supplied cards.** WORLD ENGINE's matrix covers **30 supported scenario families, 12 hybrid combinations, genre-neutral handling and 20 scene modes**. Standard and Optimized large-library, high-concept, CODEX anti-junk, rotating-world and fluid camera-flow stress suites all pass; Optimized Context preserves the exact host prefix The dedicated SECOND DAWN CODEX replay also passes in Standard and Optimized mode both self-contained and with the supplied 313-card library: **Aethelgard Logistics, Sovereign Zero, Correctors and Sovereign are created while ten generic control words remain uncarded**.
+Current verification: **158/158 core integration/regression tests pass** and **31/31 WORLD ENGINE + fluidity tests pass**. The self-contained 312-card relationship fixture passes in Standard and Optimized Context with relationship canon present on **24/24 tested turns**. WORLD ENGINE's matrix covers **30 supported scenario families, 12 hybrid combinations, genre-neutral handling and 20 scene modes**. Standard and Optimized large-library, high-concept, CODEX anti-junk, rotating-world and fluid camera-flow stress suites all pass, and Optimized Context preserves the exact host prefix. The SECOND DAWN replay also passes with **4,980 pre-existing Story Cards** in both modes: **Aethelgard Logistics, Sovereign Zero, Correctors and Sovereign are created while ten generic control words remain uncarded**, with the final fixture remaining below the 5,000-card ceiling.
 
 
 ---

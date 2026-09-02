@@ -4326,7 +4326,12 @@ function initUnsaid() {
         lastTriggerTurn: 0,
         lastRefreshTriggerTurn: 0,
         globalMissStreak: 0,
-        autoPauseUntil: 0
+        autoPauseUntil: 0,
+        writeHealth: {
+          attempts: 0, successes: 0, failures: 0, collisions: 0,
+          collisionRecoveries: 0, consecutiveFailures: 0,
+          lastStatus: "untried", lastReason: "", lastEntity: "", lastTurn: -1
+        }
       }
     };
   }
@@ -4376,7 +4381,12 @@ function initUnsaid() {
       pendingRefreshNames: [],
       consecutiveFailedNames: [],
       lastTriggerTurn: 0,
-      lastRefreshTriggerTurn: 0
+      lastRefreshTriggerTurn: 0,
+      writeHealth: {
+        attempts: 0, successes: 0, failures: 0, collisions: 0,
+        collisionRecoveries: 0, consecutiveFailures: 0,
+        lastStatus: "untried", lastReason: "", lastEntity: "", lastTurn: -1
+      }
     };
   }
   if (!state.unsaid.codex.mentionCounts || typeof state.unsaid.codex.mentionCounts !== "object") state.unsaid.codex.mentionCounts = {};
@@ -4409,6 +4419,21 @@ function initUnsaid() {
   if (typeof state.unsaid.codex.lastRefreshTriggerTurn !== "number") state.unsaid.codex.lastRefreshTriggerTurn = 0;
   if (typeof state.unsaid.codex.globalMissStreak !== "number") state.unsaid.codex.globalMissStreak = 0;
   if (typeof state.unsaid.codex.autoPauseUntil !== "number") state.unsaid.codex.autoPauseUntil = 0;
+  if (!state.unsaid.codex.writeHealth || typeof state.unsaid.codex.writeHealth !== "object" || Array.isArray(state.unsaid.codex.writeHealth)) {
+    state.unsaid.codex.writeHealth = {
+      attempts: 0, successes: 0, failures: 0, collisions: 0,
+      collisionRecoveries: 0, consecutiveFailures: 0,
+      lastStatus: "untried", lastReason: "", lastEntity: "", lastTurn: -1
+    };
+  }
+  var codexWriteHealth = state.unsaid.codex.writeHealth;
+  ["attempts","successes","failures","collisions","collisionRecoveries","consecutiveFailures"].forEach(function(k){
+    if (typeof codexWriteHealth[k] !== "number" || codexWriteHealth[k] < 0) codexWriteHealth[k] = 0;
+  });
+  if (typeof codexWriteHealth.lastStatus !== "string") codexWriteHealth.lastStatus = "untried";
+  if (typeof codexWriteHealth.lastReason !== "string") codexWriteHealth.lastReason = "";
+  if (typeof codexWriteHealth.lastEntity !== "string") codexWriteHealth.lastEntity = "";
+  if (typeof codexWriteHealth.lastTurn !== "number") codexWriteHealth.lastTurn = -1;
   if (typeof state.unsaid.controlRequest !== "string") state.unsaid.controlRequest = "";
   if (typeof state.unsaid.lastActionCount !== "number") state.unsaid.lastActionCount = -1;
 
@@ -4751,23 +4776,171 @@ function activeUnsaidCharacters(cast, recentText, latestText) {
   return active;
 }
 
-function createOrFindCard(keys, initialEntry, type) {
-  try {
-    const idx = addStoryCard(keys, initialEntry, type);
-    if (typeof idx === "number" && storyCards[idx]) {
-      if (typeof invalidateUnsaidAliasIndex === "function") invalidateUnsaidAliasIndex();
-      return storyCards[idx];
-    }
-    return storyCards.find(c => {
-      const raw = Array.isArray(c && c.keys) ? c.keys.join(",") : String(c && c.keys || "");
-      return raw.toLowerCase() === String(keys || "").toLowerCase();
-    }) || null;
-  } catch (e) {
-    return storyCards.find(c => {
-      const raw = Array.isArray(c && c.keys) ? c.keys.join(",") : String(c && c.keys || "");
-      return raw.toLowerCase() === String(keys || "").toLowerCase();
-    }) || null;
+function codexWriteHealthState() {
+  if (!state.unsaid) state.unsaid = {};
+  if (!state.unsaid.codex) state.unsaid.codex = {};
+  if (!state.unsaid.codex.writeHealth || typeof state.unsaid.codex.writeHealth !== "object") {
+    state.unsaid.codex.writeHealth = {
+      attempts: 0, successes: 0, failures: 0, collisions: 0,
+      collisionRecoveries: 0, consecutiveFailures: 0,
+      lastStatus: "untried", lastReason: "", lastEntity: "", lastTurn: -1
+    };
   }
+  return state.unsaid.codex.writeHealth;
+}
+
+function codexRecordCardWrite(status, reason, entity) {
+  const h = codexWriteHealthState();
+  h.attempts = Math.min(999999, Number(h.attempts || 0) + 1);
+  h.lastStatus = String(status || "unknown").slice(0, 48);
+  h.lastReason = String(reason || "").slice(0, 180);
+  h.lastEntity = String(entity || "").slice(0, 90);
+  h.lastTurn = state.unsaid && Number.isFinite(state.unsaid.turn) ? state.unsaid.turn : 0;
+  if (status === "failed" || status === "degraded") {
+    h.failures = Math.min(999999, Number(h.failures || 0) + 1);
+    h.consecutiveFailures = Math.min(99, Number(h.consecutiveFailures || 0) + 1);
+  } else {
+    h.successes = Math.min(999999, Number(h.successes || 0) + 1);
+    h.consecutiveFailures = 0;
+  }
+  return h;
+}
+
+function codexCleanIdentity(value) {
+  return String(value || "").toLowerCase()
+    .replace(/[“”"'‘’.,:;!?()[\]{}\-‐‑–—]/g, " ")
+    .replace(/\s+/g, " ").trim();
+}
+
+function codexCardIdentityCompatible(card, expectedName, expectedType) {
+  if (!card || !expectedName) return false;
+  const wanted = codexCleanIdentity(expectedName);
+  if (!wanted) return false;
+  const rawType = String(card.type || "").trim().toLowerCase();
+  const wantedType = String(expectedType || "").trim().toLowerCase();
+  const standard = /^(?:character|location|item|faction)$/.test(rawType);
+  const characterLike = /^(?:character|npc|person|cast|companion)$/.test(rawType);
+  const typeCompatible = wantedType
+    ? rawType === wantedType || (wantedType === "character" && characterLike)
+    : standard || characterLike;
+  const title = codexCleanIdentity(card.title || card.name || "");
+  const entry = String(card.entry || card.value || "");
+  const nameLine = entry.match(/^\s*Name\s*:\s*([^\n\r]+)/im);
+  if (nameLine && codexCleanIdentity(nameLine[1]) === wanted && typeCompatible) return true;
+  if (title === wanted && typeCompatible) return true;
+  if (!typeCompatible) return false;
+  try {
+    return storyCardAliasValues(card).some(function(alias){ return codexCleanIdentity(alias) === wanted; });
+  } catch (_) {
+    const raw = Array.isArray(card.keys) ? card.keys.join(",") : String(card.keys || "");
+    return raw.split(/[,;|]/).some(function(alias){ return codexCleanIdentity(alias) === wanted; });
+  }
+}
+
+function codexCardsWithExactKeys(keys) {
+  if (typeof storyCards === "undefined" || !Array.isArray(storyCards)) return [];
+  const wanted = String(Array.isArray(keys) ? keys.join(",") : keys || "").trim().toLowerCase();
+  return storyCards.filter(function(card){
+    const raw = Array.isArray(card && card.keys) ? card.keys.join(",") : String(card && card.keys || "");
+    return raw.trim().toLowerCase() === wanted;
+  });
+}
+
+function codexCollisionSafeKeys(baseKeys, name, type, attempt) {
+  const base = String(Array.isArray(baseKeys) ? baseKeys.join(",") : baseKeys || name || "").trim();
+  const cleanName = String(name || "entity").replace(/[,;|]/g, " ").replace(/\s+/g, " ").trim();
+  const label = String(type || "profile").replace(/[^A-Za-z0-9 -]/g, " ").replace(/\s+/g, " ").trim().toLowerCase() || "profile";
+  const suffix = cleanName + " " + label + (attempt > 1 ? " " + attempt : "");
+  return [base, suffix].filter(Boolean).join(",");
+}
+
+function codexUniqueWriteKeys(card, requestedKeys, name, type) {
+  const raw = String(Array.isArray(requestedKeys) ? requestedKeys.join(",") : requestedKeys || "").trim();
+  const conflicts = codexCardsWithExactKeys(raw).filter(function(other){ return other !== card; });
+  if (!conflicts.length) return raw;
+  for (let i = 1; i <= 4; i++) {
+    const candidate = codexCollisionSafeKeys(raw, name, type, i);
+    if (!codexCardsWithExactKeys(candidate).some(function(other){ return other !== card; })) return candidate;
+  }
+  return raw;
+}
+
+function codexCommitStoryCard(card, keys, entry, type, name, notes) {
+  if (!card) return false;
+  const finalKeys = codexUniqueWriteKeys(card, keys, name, type);
+  const index = typeof storyCards !== "undefined" && Array.isArray(storyCards) ? storyCards.indexOf(card) : -1;
+  let apiOk = false, apiReason = "";
+  if (index >= 0 && typeof updateStoryCard === "function") {
+    try {
+      updateStoryCard(index, finalKeys, entry, type);
+      apiOk = true;
+    } catch (e) { apiReason = e && e.message ? e.message : "updateStoryCard threw"; }
+  } else {
+    apiReason = index < 0 ? "card index was not observable" : "updateStoryCard unavailable";
+  }
+  // Keep compatibility with runtimes exposing title/notes only through the
+  // live card object; the documented core fields have already gone through
+  // updateStoryCard when available.
+  card.keys = finalKeys;
+  card.entry = entry;
+  card.type = type;
+  if (name) { card.title = name; card.name = name; }
+  if (notes !== undefined) { card.description = notes; card.notes = notes; }
+  if (name) codexRecordCardWrite(apiOk ? "success" : "degraded", apiOk ? "core fields committed through updateStoryCard" : apiReason, name);
+  if (typeof invalidateUnsaidAliasIndex === "function") invalidateUnsaidAliasIndex();
+  return apiOk || index >= 0;
+}
+
+function createOrFindCard(keys, initialEntry, type, expectedName) {
+  const track = !!expectedName;
+  if (typeof storyCards === "undefined" || !Array.isArray(storyCards) || typeof addStoryCard !== "function") {
+    if (track) codexRecordCardWrite("failed", "Story Card write API unavailable", expectedName);
+    return null;
+  }
+
+  const attempts = [String(Array.isArray(keys) ? keys.join(",") : keys || "")];
+  if (track) for (let i = 1; i <= 4; i++) attempts.push(codexCollisionSafeKeys(attempts[0], expectedName, type, i));
+  let collisionSeen = false, lastError = "";
+
+  for (let a = 0; a < attempts.length; a++) {
+    const writeKeys = attempts[a];
+    const before = storyCards.length;
+    let result;
+    try { result = addStoryCard(writeKeys, initialEntry, type); }
+    catch (e) { lastError = e && e.message ? e.message : "addStoryCard threw"; result = false; }
+
+    let card = storyCards.length > before && storyCards[before] ? storyCards[before] : null;
+    if (!card && typeof result === "number" && storyCards[result]) card = storyCards[result];
+    if (card) {
+      if (track) {
+        const h = codexWriteHealthState();
+        if (collisionSeen) h.collisionRecoveries = Math.min(999999, Number(h.collisionRecoveries || 0) + 1);
+        codexRecordCardWrite(collisionSeen ? "collision-recovered" : "success", collisionSeen ? "created with identity-safe alternate triggers" : "card created", expectedName);
+      }
+      if (typeof invalidateUnsaidAliasIndex === "function") invalidateUnsaidAliasIndex();
+      return card;
+    }
+
+    const exact = codexCardsWithExactKeys(writeKeys);
+    if (exact.length) {
+      if (!track) return exact[0];
+      const compatible = exact.filter(function(c){ return codexCardIdentityCompatible(c, expectedName, type); });
+      if (compatible.length === 1) {
+        codexRecordCardWrite("reused", "matching entity card already used these triggers", expectedName);
+        return compatible[0];
+      }
+      collisionSeen = true;
+      const h = codexWriteHealthState();
+      h.collisions = Math.min(999999, Number(h.collisions || 0) + 1);
+      continue;
+    }
+    // A false return with no card carrying the requested keys is a host-level
+    // refusal, not a duplicate-key collision. Retrying altered keys cannot fix it.
+    if (result === false) break;
+  }
+
+  if (track) codexRecordCardWrite("failed", lastError || (collisionSeen ? "all identity-safe collision keys were refused" : "addStoryCard returned no observable card"), expectedName);
+  return null;
 }
 
 function levenshteinDistance(a, b) {
@@ -5293,6 +5466,9 @@ function renderCodexNotes() {
     "",
     "Story Card Entry contains public canon only. CROSSED ECHOES script diagnostics/private psychology belong in Notes and are excluded from story-evidence scans.",
     "",
+    "🛡️ STORY CARD WRITE SAFETY",
+    "CODEX verifies identity separately from trigger overlap. If an Event, Plot or hand-written lore card happens to share the new entity's trigger, that card is left untouched and CODEX uses a collision-safe trigger set for the separate entity card. Documented core-field changes use updateStoryCard when available. /unsaid status reports whether card creation/update succeeded, was refused, degraded to compatibility mode, or recovered after a trigger collision.",
+    "",
     "🕒 FRESHNESS + CANDIDATE HYGIENE",
     "Non-character candidates cannot wake up from ancient mention counts. Weak one-off guesses also lose confidence after a quiet stretch and are eventually garbage-collected, while explicitly named/trusted entities, introduced characters and pending work are protected. If a discarded name becomes important later, live prose rediscovers it from fresh evidence.",
     "",
@@ -5469,6 +5645,11 @@ function resetCodexTrackingState() {
   codex.lastRefreshTriggerTurn = 0;
   codex.globalMissStreak = 0;
   codex.autoPauseUntil = 0;
+  codex.writeHealth = {
+    attempts: 0, successes: 0, failures: 0, collisions: 0,
+    collisionRecoveries: 0, consecutiveFailures: 0,
+    lastStatus: "untried", lastReason: "", lastEntity: "", lastTurn: -1
+  };
 }
 
 function readUnsaidConfig() {
@@ -6477,14 +6658,21 @@ function codexLearnExplicitAliasesFromText(source, cfg) {
     if (!canonical || !alias || alias.length>42 || isGenericCodexCommonNounCandidate(alias, text)) continue;
     // Only learn aliases for an already established character/card; this stops
     // two fresh guesses in one sentence from mutually validating each other.
-    var established = !!findStoryCardForEntity(canonical) || !!(state.unsaid.codex.likelyCharacters||{})[canonical];
+    var establishedCard = findStoryCardForEntity(canonical);
+    var established = !!(establishedCard && codexCardIdentityCompatible(establishedCard, canonical, "")) ||
+      !!(state.unsaid.codex.likelyCharacters||{})[canonical];
     if (!established) continue;
     if (registerUnsaidAlias(canonical, alias)) learned++;
     try { if (typeof CW_registerAlias === "function") CW_registerAlias(alias, canonical); } catch (_) {}
-    var card = findStoryCardForEntity(canonical);
+    var card = establishedCard || findStoryCardForEntity(canonical);
+    if (card && !codexCardIdentityCompatible(card, canonical, "")) card = null;
     if (card && state.unsaid.codex.cardMeta && (state.unsaid.codex.cardMeta[card.title] || codexLogHasEntity(card.title))) {
       var keys = String(card.keys||"").split(/[,;|]/).map(function(x){return x.trim();}).filter(Boolean);
-      if (!keys.some(function(k){return k.toLowerCase()===alias.toLowerCase();}) && keys.length<CODEX_ALIAS_AUTO_LIMIT) { keys.push(alias); card.keys=keys.join(","); }
+      if (!keys.some(function(k){return k.toLowerCase()===alias.toLowerCase();}) && keys.length<CODEX_ALIAS_AUTO_LIMIT) {
+        keys.push(alias);
+        if (typeof codexCommitStoryCard === "function") codexCommitStoryCard(card,keys.join(","),card.entry,card.type,card.title||canonical,card.description||card.notes);
+        else card.keys=keys.join(",");
+      }
     }
   }});
   return learned;
@@ -6537,8 +6725,12 @@ function repairManagedCodexNonCharacterCard(name, source, strongType) {
     var repairLimit = codexCardEntryLimit();
     if (entry.length > repairLimit) entry = entry.slice(0, repairLimit - 1).trimEnd() + "…";
 
-    card.type = platformType(strong.type);
-    card.entry = entry;
+    if (typeof codexCommitStoryCard === "function") {
+      if (!codexCommitStoryCard(card,card.keys,entry,platformType(strong.type),card.title||name,card.description||card.notes)) return false;
+    } else {
+      card.type = platformType(strong.type);
+      card.entry = entry;
+    }
     codex.trustedEntities[name] = strong.type;
     codex.observedTypes[name] = strong.type;
     delete codex.likelyCharacters[name];
@@ -6869,7 +7061,13 @@ function pruneMentionCounts(maxChecks, lightweight) {
       const existingMatches = typeof storyCardMatchesForEntity === "function"
         ? storyCardMatchesForEntity(name)
         : [];
-      const fuzzyExisting = existingMatches.length > 0 || !!findStoryCardForEntity(name);
+      const proposedType = codex.likelyCharacters && codex.likelyCharacters[name]
+        ? "character"
+        : ((codex.observedTypes && codex.observedTypes[name]) || (typeof dominantCodexType === "function" ? dominantCodexType(name) : ""));
+      const compatibleExisting = typeof codexCardIdentityCompatible === "function"
+        ? existingMatches.filter(function(card){ return codexCardIdentityCompatible(card,name,proposedType); })
+        : existingMatches;
+      const fuzzyExisting = compatibleExisting.length > 0;
       if (fuzzyExisting) {
         // A fuzzy same-token hit is not always identity. Explicit operational
         // naming can establish a distinct entity that legitimately shares a
@@ -6882,7 +7080,7 @@ function pruneMentionCounts(maxChecks, lightweight) {
           ? codexOperationalExplicitType(name, evidenceText)
           : null;
         const exactExisting = typeof codexExactStoryCardIdentityExists === "function"
-          ? codexExactStoryCardIdentityExists(name)
+          ? codexExactStoryCardIdentityExists(name,proposedType)
           : false;
         if (exactExisting || !operationalDistinct) {
           forgetMentionTracking(name);
@@ -7997,16 +8195,16 @@ function buildCodexDirectScaffoldEntry(name, type, cfg, source) {
   return codexFitScaffoldFields(fields,cap);
 }
 
-function codexExactStoryCardIdentityExists(name) {
+function codexExactStoryCardIdentityExists(name, type) {
   if (!name || typeof storyCards === "undefined" || !Array.isArray(storyCards)) return false;
   const clean = function(v){ return String(v || "").toLowerCase().replace(/[“”"'‘’.,:;!?()[\]{}\-‐‑–—]/g," ").replace(/\s+/g," ").trim(); };
   const wanted = clean(name);
   if (!wanted) return false;
   for (let i=0;i<storyCards.length;i++) {
     const card=storyCards[i]; if(!card||!card.title||isOwnCard(card.title)) continue;
-    if (clean(card.title)===wanted) return true;
+    if (clean(card.title)===wanted && codexCardIdentityCompatible(card,name,type)) return true;
     const aliases=storyCardAliasValues(card);
-    if (aliases.some(function(a){return clean(a)===wanted;})) return true;
+    if (aliases.some(function(a){return clean(a)===wanted;}) && codexCardIdentityCompatible(card,name,type)) return true;
   }
   return false;
 }
@@ -8014,13 +8212,17 @@ function codexExactStoryCardIdentityExists(name) {
 function codexDirectScaffoldBlockedByExisting(name, type, source) {
   const matches = storyCardMatchesForEntity(name);
   if (!matches.length) return false;
-  if (codexExactStoryCardIdentityExists(name)) return true;
+  const compatible = matches.filter(function(card){ return codexCardIdentityCompatible(card,name,type); });
+  if (compatible.length) return true;
   // Fuzzy same-root matching is useful for aliases (Harlan -> Harlan Voss),
   // but it must not suppress a separately and explicitly named different-kind
   // entity such as historical "Storm Sovereign" versus project "Sovereign".
   const operational = codexOperationalExplicitType(name, source || codexEvidenceTextFor(name));
   if (operational && operational.type === type) return false;
-  return true;
+  // A trigger-only collision with Event/Plot/manual lore is not identity
+  // evidence. Strong direct-scaffold eligibility still applies before any new
+  // card is written, and createOrFindCard will use collision-safe triggers.
+  return false;
 }
 
 function createCodexDirectScaffoldCard(name, cfg, source) {
@@ -8040,9 +8242,13 @@ function createCodexDirectScaffoldCard(name, cfg, source) {
       .filter(function(x,i,a){ return a.findIndex(function(y){ return y.toLowerCase()===x.toLowerCase(); })===i; })
       .slice(0,6)
       .join(",");
-    const card = createOrFindCard(triggers || name.toLowerCase(), entry, platformType(type));
+    const card = createOrFindCard(triggers || name.toLowerCase(), entry, platformType(type), name);
     if (!card) return false;
-    card.title = name; card.name = name; card.type = platformType(type); card.entry = entry; card.keys = triggers || name;
+    if (typeof codexCommitStoryCard === "function") {
+      if (!codexCommitStoryCard(card, triggers || name, entry, platformType(type), name, card.description || card.notes)) return false;
+    } else {
+      card.title = name; card.name = name; card.type = platformType(type); card.entry = entry; card.keys = triggers || name;
+    }
     markCodexCardGenerated(name, type, entry, false);
     const key = codexManagedCardKey(name, card);
     const meta = state.unsaid.codex.cardMeta && state.unsaid.codex.cardMeta[key];
@@ -8292,10 +8498,13 @@ function buildStatusReport(cfg) {
   const likelyCharacters = codex.likelyCharacters || {};
   const introducedTurn = codex.introducedTurn || {};
   const observedTypes = codex.observedTypes || {};
-  const alreadyCarded = tracked.filter(n =>
-    (typeof storyCardMatchesForEntity === "function" && storyCardMatchesForEntity(n).length > 0) ||
-    !!findStoryCardForEntity(n)
-  );
+  const alreadyCarded = tracked.filter(n => {
+    const expectedType = likelyCharacters[n] ? "character" : (dominantCodexType(n) || observedTypes[n] || "");
+    const matches = typeof storyCardMatchesForEntity === "function"
+      ? storyCardMatchesForEntity(n)
+      : [findStoryCardForEntity(n)].filter(Boolean);
+    return matches.some(card => codexCardIdentityCompatible(card, n, expectedType));
+  });
   const minObserve = Math.max(0, cfg.codexCharacterMinTurns || 0);
   const minAppearances = Math.max(1, cfg.codexCharacterMinAppearances || 1);
   const deadline = Math.max(minObserve, cfg.codexCharacterDeadline || 5);
@@ -8372,6 +8581,14 @@ function buildStatusReport(cfg) {
   }
   if ((codex.globalMissStreak || 0) > 0) {
     lines.push(`  delivery miss streak: ${codex.globalMissStreak}`);
+  }
+  const writeHealth = codex.writeHealth && typeof codex.writeHealth === "object" ? codex.writeHealth : null;
+  if (writeHealth) {
+    lines.push(`  Story Card write health: ${writeHealth.lastStatus || "untried"}; ${writeHealth.successes || 0} successful operation(s), ${writeHealth.failures || 0} failed/degraded, ${writeHealth.collisions || 0} trigger collision(s), ${writeHealth.collisionRecoveries || 0} recovered safely`);
+    if (writeHealth.lastReason) lines.push(`  last write: ${writeHealth.lastEntity || "unknown entity"} — ${writeHealth.lastReason}`);
+    if ((writeHealth.consecutiveFailures || 0) >= 2) {
+      lines.push(`  write warning: ${writeHealth.consecutiveFailures} consecutive Story Card write failures; CODEX detection may still be working while the host refuses or hides card mutations`);
+    }
   }
 
   const managedCards = Object.keys(codex.cardMeta || {}).filter(name => !!findStoryCardForEntity(name));
@@ -18600,6 +18817,7 @@ function CE_findWritableEntityCard(name){
     if(!name||typeof storyCards==="undefined"||!Array.isArray(storyCards))return null;
     var wanted=String(name||"").trim().toLowerCase(),card=storyCards.find(function(c){return c&&!(typeof isOwnCard==="function"&&isOwnCard(c.title))&&String(c.title||c.name||"").trim().toLowerCase()===wanted;})||null;
     if(!card&&typeof findStoryCardForEntity==="function")card=findStoryCardForEntity(name);
+    if(card&&typeof codexCardIdentityCompatible==="function"&&!codexCardIdentityCompatible(card,name,""))return null;
     return card&&!(typeof isOwnCard==="function"&&isOwnCard(card.title))?card:null;
   }catch(_){return null;}
 }
