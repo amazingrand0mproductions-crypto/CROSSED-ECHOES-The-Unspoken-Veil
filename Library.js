@@ -4014,8 +4014,9 @@ function normalizeCodexCandidate(raw, source) {
     .trim());
   if (!name || name.length > 80 || !/[A-Za-zÀ-ÖØ-öø-ÿĀ-ſΑ-ωΆ-ώА-ЯЁа-яё]/.test(name)) return null;
 
-  const originalExplicit = hasExplicitCodexNamingCue(name, source);
-  const originalStrongExplicit = codexStrongNamingCanRescueGeneric(name, source);
+  const operationalExplicit = typeof codexOperationalExplicitType === "function" ? codexOperationalExplicitType(name, source) : null;
+  const originalExplicit = hasExplicitCodexNamingCue(name, source) || !!operationalExplicit;
+  const originalStrongExplicit = codexStrongNamingCanRescueGeneric(name, source) || !!operationalExplicit;
   if (!originalStrongExplicit && codexLooksLikeSystemHeadingNoise(name, source)) return null;
   let words = name.split(/\s+/).filter(Boolean);
 
@@ -5238,7 +5239,7 @@ function renderCodexNotes() {
     "If the model ignores or mangles a hidden CARD block, a strongly established entity can receive a conservative evidence-only card instead of forcing repeated Continue presses or a manual /card. No unsupported fields are invented; later refreshes can deepen the card. Ambiguous/weak entities do not qualify.",
     "",
     "directScaffold  [true/false]  Default: true",
-    "ULTIMATE reliability mode. When a candidate is already high-confidence, the script itself creates an extractive Story Card scaffold from existing story sentences instead of waiting for the model to return hidden CARD metadata. This is the main guarantee that detected entities actually become cards. Weak or ambiguous candidates never qualify.",
+    "ULTIMATE reliability mode. A high-confidence entity can create an extractive Story Card directly after visible Output, so TWISTS/UNSAID ownership of hidden Context cannot starve CODEX. Direct scaffolds create at most one card per Output and require strong evidence; explicit companies, operational destinations, named projects/programs and labeled unit/model classes are supported. Weak or ambiguous candidates never qualify.",
     "",
     "scaffoldRefresh  [1–50]  Default: 3",
     "How many turns a direct scaffold waits before it can receive a richer evidence-backed model refresh. Scaffold cards remain valid public lore immediately; the refresh only deepens supported fields.",
@@ -5914,6 +5915,52 @@ function cacheStrongNonCharacterResult(key, value) {
   return value;
 }
 
+// Cheap, explicit operational typing. This runs before the expensive semantic
+// classifier and therefore remains available even when a very large adventure
+// has already spent most of the current hook's regex/runtime budget. It only
+// recognizes grammar that directly assigns a named value to a concrete role;
+// capitalization or repetition alone never qualifies.
+function codexOperationalExplicitType(name, text) {
+  const rawName = String(name || "").replace(/\s+/g, " ").trim();
+  if (!rawName) return null;
+  const source = codexLocalEvidenceForName(rawName, text);
+  if (!source) return null;
+  const n = escapeForRegex(rawName);
+  const q1 = `["“'‘]?`, q2 = `["”'’]?`;
+  const rules = [
+    {
+      type: "location", score: 10, reason: "operational-location",
+      patterns: [
+        new RegExp(`\\b(?:delivery|drop|staging|rally|assembly|transfer|pickup|extraction)\\s+(?:point|site|zone|location|destination)\\b[^\\n.!?]{0,96}\\b(?:listed|logged|marked|designated|coded|named|called|shown|recorded)\\s+(?:as\\s+)?${q1}${n}${q2}(?=\\s|[,.;:!?]|$)`, "i"),
+        new RegExp(`\\b(?:destination|delivery\\s+destination|drop\\s+site|staging\\s+site|assembly\\s+site)\\b[^\\n.!?]{0,72}\\b${q1}${n}${q2}(?=\\s|[,.;:!?]|$)`, "i")
+      ]
+    },
+    {
+      type: "faction", score: 10, reason: "operational-project",
+      patterns: [
+        new RegExp(`\\b(?:project|program|programme|protocol|initiative|operation)\\s+(?:designation|codename|code\\s+name|name|identifier)\\s*(?::|=|is|was|listed\\s+as|recorded\\s+as)\\s*${q1}${n}${q2}(?=\\s|[,.;:!?—-]|$)`, "i"),
+        new RegExp(`\\b(?:project|program|programme|protocol|initiative|operation)\\s+(?:called|named|codenamed|designated)\\s+${q1}${n}${q2}(?=\\s|[,.;:!?—-]|$)`, "i")
+      ]
+    },
+    {
+      type: "item", score: 10, reason: "operational-unit-class",
+      patterns: [
+        new RegExp(`\\b(?:units?|machines?|robots?|drones?|constructs?|models?|devices?|platforms?|chassis)\\b[^\\n]{0,120}\\b(?:labeled|labelled|marked|designated|called|named|classified)\\s+(?:as\\s+)?${q1}${n}${q2}(?=\\s|[,.;:!?—-]|$)`, "i")
+      ]
+    },
+    {
+      type: "faction", score: 10, reason: "explicit-organization",
+      patterns: [
+        new RegExp(`\\b(?:holding\\s+)?(?:company|corporation|firm|business|enterprise|agency|organization|organisation|group|syndicate|foundation|network|conglomerate)\\s+(?:called|named|known\\s+as|registered\\s+as|trading\\s+as)\\s+${q1}${n}${q2}(?=\\s|[,.;:!?—-]|$)`, "i")
+      ]
+    }
+  ];
+  for (let i = 0; i < rules.length; i++) {
+    if (rules[i].patterns.some(function(re){ return re.test(source); })) return rules[i];
+  }
+  return null;
+}
+
 function strongCodexNonCharacterEvidence(name, text) {
   const rawSource = boundedCodexSemanticText(text);
   if (!rawSource || !name) return null;
@@ -5989,6 +6036,13 @@ function strongCodexNonCharacterEvidence(name, text) {
   if (CODEX_LOCATION_SUFFIX_HINTS.test(name)) scores.location += 2;
   if (CODEX_ITEM_HINTS.test(name)) scores.item += 2;
   if (CODEX_FACTION_HINTS.test(name)) scores.faction += 2;
+
+  // Explicit operational naming is intentionally evaluated from raw bounded
+  // evidence, not the optional deep-scan window, so a 300-card adventure can
+  // still classify a named company/destination/project/unit even when the
+  // expensive semantic budget has yielded for this hook.
+  const operational = codexOperationalExplicitType(name, rawSource);
+  if (operational && scores[operational.type] !== undefined) scores[operational.type] += operational.score;
 
   if (source) {
     const locationExplicit = [
@@ -6202,7 +6256,7 @@ function isLikelyCharacterIntroduction(name, text) {
 
 function codexEvidenceSentences(name, source) {
   if (!name || !source) return [];
-  const chunks = String(source).match(/[^.!?\n]+(?:[.!?]+|$)/g) || [String(source)];
+  const chunks = String(source).match(/[^.!?\n]+(?:[.!?]+(?:["”'’\)\]]+)?|$)/g) || [String(source)];
   const results = [];
   for (const raw of chunks) {
     const line = raw.replace(/\s+/g, " ").trim();
@@ -6311,7 +6365,14 @@ function collectCodexCandidates(source) {
     // One-token stylised names do not have to be quoted: codename eXile,
     // city called thornhaven, unit designated XJ-9. Strong semantic typing
     // later decides whether the token is actually an entity.
-    /\b(?:named|called|dubbed|codenamed|designated)\s+([A-Za-zÀ-ÖØ-öø-ÿĀ-ſΑ-ωΆ-ώА-ЯЁа-яё][A-Za-zÀ-ÖØ-öø-ÿĀ-ſΑ-ωΆ-ώА-ЯЁа-яё0-9'’.-]{1,40})(?=\s|[,.!?;:]|$)/gi
+    /\b(?:named|called|dubbed|codenamed|designated)\s+([A-Za-zÀ-ÖØ-öø-ÿĀ-ſΑ-ωΆ-ώА-ЯЁа-яё][A-Za-zÀ-ÖØ-öø-ÿĀ-ſΑ-ωΆ-ώА-ЯЁа-яё0-9'’.-]{1,40})(?=\s|[,.!?;:]|$)/gi,
+    // Operational naming grammar is common in mystery, military, sci-fi and
+    // corporate stories but does not always use ordinary `called X` syntax.
+    // Capture only the explicitly named value; semantic typing below decides
+    // whether it is a destination, project or manufactured class.
+    /\b(?:delivery|drop|staging|rally|assembly|transfer|pickup|extraction)\s+(?:point|site|zone|location|destination)\b[^\n.!?]{0,96}\b(?:listed|logged|marked|designated|coded|named|called|shown|recorded)\s+(?:as\s+)?["“'‘]?([A-ZÀ-ÖØ-ÞĀ-ſΑ-ΫА-ЯЁ][A-Za-zÀ-ÖØ-öø-ÿĀ-ſΑ-ωΆ-ώА-ЯЁа-яё0-9'’.-]*(?:\s+[A-ZÀ-ÖØ-ÞĀ-ſΑ-ΫА-ЯЁ0-9][A-Za-zÀ-ÖØ-öø-ÿĀ-ſΑ-ωΆ-ώА-ЯЁа-яё0-9'’.-]*){0,3})["”'’]?/gi,
+    /\b(?:project|program|programme|protocol|initiative|operation)\s+(?:designation|codename|code\s+name|name|identifier)\s*(?::|=|is|was|listed\s+as|recorded\s+as)\s*["“'‘]?([A-ZÀ-ÖØ-ÞĀ-ſΑ-ΫА-ЯЁ][A-Za-zÀ-ÖØ-öø-ÿĀ-ſΑ-ωΆ-ώА-ЯЁа-яё0-9'’.-]*(?:\s+[A-ZÀ-ÖØ-ÞĀ-ſΑ-ΫА-ЯЁ0-9][A-Za-zÀ-ÖØ-öø-ÿĀ-ſΑ-ωΆ-ώА-ЯЁа-яё0-9'’.-]*){0,3})["”'’]?/gi,
+    /\b(?:units?|machines?|robots?|drones?|constructs?|models?|devices?|platforms?|chassis)\b[^\n]{0,120}\b(?:labeled|labelled|marked|designated|called|named|classified)\s+(?:as\s+)?["“'‘]?([A-ZÀ-ÖØ-ÞĀ-ſΑ-ΫА-ЯЁ][A-Za-zÀ-ÖØ-öø-ÿĀ-ſΑ-ωΆ-ώА-ЯЁа-яё0-9'’.-]*(?:\s+[A-ZÀ-ÖØ-ÞĀ-ſΑ-ΫА-ЯЁ0-9][A-Za-zÀ-ÖØ-öø-ÿĀ-ſΑ-ωΆ-ώА-ЯЁа-яё0-9'’.-]*){0,3})["”'’]?/gi
   ];
   quoted.forEach(function(re){ var m; while ((m = re.exec(text)) !== null) add(m[1]); });
 
@@ -6362,6 +6423,8 @@ function codexCandidateStrength(name, source, observedType, presence, cfg) {
   var score = 0, reasons = [];
   if (hasStrongExplicitCodexNamingCue(name, evidence)) { score += 7; reasons.push("explicit-name"); }
   if (presence || explicitCodexCharacterCue(name, evidence)) { score += 6; reasons.push("character-presence"); }
+  var operational = codexOperationalExplicitType(name, evidence);
+  if (operational && operational.type === observedType) { score += 10; reasons.push(operational.reason); }
   var non = strongCodexNonCharacterEvidence(name, evidence);
   if (non && non.type === observedType) { score += Math.min(7, non.score || 0); reasons.push("typed-" + non.type); }
   var counts = state.unsaid && state.unsaid.codex && state.unsaid.codex.mentionCounts || {};
@@ -6527,12 +6590,17 @@ function trackMentions(text, observeIntroductions) {
     if (!name) return;
 
     const key = resolveCodexTrackingKey(name, source, !canConfirmIntroductions) || name;
+    // Operational naming grammar (for example "project designation is Sovereign")
+    // is stronger than the adjective-like tech-modifier heuristic. Resolve it
+    // before that heuristic so a legitimate one-word project/point/unit name
+    // cannot be thrown away merely because an older Story Card shares a token.
+    const earlyOperationalExplicit = canConfirmIntroductions ? codexOperationalExplicitType(key, source) : null;
 
     // A manufacturer/brand used only as an adjective-like tech-product modifier
     // ("Nintendo console") is not a standalone NPC mention. Do not age it toward
     // any automatic Story Card. On authoritative Output passes, also self-heal
     // a Codex-managed Character card created by an older buggy build.
-    if (canConfirmIntroductions && codexOnlyAttributiveTechModifier(key, source)) {
+    if (canConfirmIntroductions && !earlyOperationalExplicit && codexOnlyAttributiveTechModifier(key, source)) {
       const strong = strongCodexNonCharacterEvidence(key, source);
       if (strong) repairManagedCodexNonCharacterCard(key, source, strong);
       forgetMentionTracking(key);
@@ -6570,6 +6638,25 @@ function trackMentions(text, observeIntroductions) {
     }
     if (typeof state.unsaid.codex.firstSeenTurn[key] !== "number") {
       state.unsaid.codex.firstSeenTurn[key] = state.unsaid.turn;
+    }
+
+    // Large-story recall guard: explicit operational grammar is cheap enough
+    // to trust before the deep semantic classifier. This prevents a named
+    // company/destination/project/unit class from being stranded as a
+    // Character-shaped guess merely because this Output hook is already busy.
+    const operationalExplicit = earlyOperationalExplicit;
+    if (operationalExplicit) {
+      if (!state.unsaid.codex.strongScores || typeof state.unsaid.codex.strongScores !== "object") state.unsaid.codex.strongScores = {};
+      if (!state.unsaid.codex.strongReasons || typeof state.unsaid.codex.strongReasons !== "object") state.unsaid.codex.strongReasons = {};
+      state.unsaid.codex.trustedEntities[key] = operationalExplicit.type;
+      state.unsaid.codex.observedTypes[key] = operationalExplicit.type;
+      state.unsaid.codex.strongScores[key] = Math.max(state.unsaid.codex.strongScores[key] || 0, 12);
+      state.unsaid.codex.strongReasons[key] = Array.from(new Set((state.unsaid.codex.strongReasons[key] || []).concat([operationalExplicit.reason, "typed-" + operationalExplicit.type]))).slice(0,8);
+      recordCodexConfidence(key, operationalExplicit.type, 8, actionEpoch);
+      recordCodexEvidence(key, source, false);
+      if (state.unsaid.codex.likelyCharacters[key]) delete state.unsaid.codex.likelyCharacters[key];
+      if (typeof state.unsaid.codex.introducedTurn[key] !== "undefined") delete state.unsaid.codex.introducedTurn[key];
+      if (typeof state.unsaid.codex.appearanceTurns[key] !== "undefined") delete state.unsaid.codex.appearanceTurns[key];
     }
 
     // INPUT FAST PATH: ordinary player input remains mention-only for speed,
@@ -6782,9 +6869,25 @@ function pruneMentionCounts(maxChecks, lightweight) {
       const existingMatches = typeof storyCardMatchesForEntity === "function"
         ? storyCardMatchesForEntity(name)
         : [];
-      if (existingMatches.length > 0 || !!findStoryCardForEntity(name)) {
-        forgetMentionTracking(name);
-        return;
+      const fuzzyExisting = existingMatches.length > 0 || !!findStoryCardForEntity(name);
+      if (fuzzyExisting) {
+        // A fuzzy same-token hit is not always identity. Explicit operational
+        // naming can establish a distinct entity that legitimately shares a
+        // token with an older card (for example project "Sovereign" versus
+        // historical "Storm Sovereign Restored"). Exact title/trigger identity
+        // still wins and is pruned normally; only well-grounded operational
+        // evidence may keep the distinct candidate alive.
+        const evidenceText = typeof codexEvidenceTextFor === "function" ? codexEvidenceTextFor(name) : "";
+        const operationalDistinct = evidenceText && typeof codexOperationalExplicitType === "function"
+          ? codexOperationalExplicitType(name, evidenceText)
+          : null;
+        const exactExisting = typeof codexExactStoryCardIdentityExists === "function"
+          ? codexExactStoryCardIdentityExists(name)
+          : false;
+        if (exactExisting || !operationalDistinct) {
+          forgetMentionTracking(name);
+          return;
+        }
       }
     }
 
@@ -7801,7 +7904,9 @@ function codexDirectScaffoldEligibility(name, type, cfg, source) {
   const codex = state.unsaid.codex;
   const strong = Number(codex.strongScores && codex.strongScores[name] || 0);
   const reasons = codex.strongReasons && codex.strongReasons[name] || [];
-  const explicit = hasExplicitCodexNamingCue(name, [codexEvidenceTextFor(name), source || ""].join(" "));
+  const combinedEvidence = [codexEvidenceTextFor(name), source || ""].join(" ");
+  const explicit = hasExplicitCodexNamingCue(name, combinedEvidence);
+  const operational = codexOperationalExplicitType(name, combinedEvidence);
   if (type === "character") {
     if (!(codex.likelyCharacters && codex.likelyCharacters[name])) return false;
     if (typeof codexCharacterGateReady === "function" && codexCharacterGateReady(name, cfg)) return true;
@@ -7810,7 +7915,9 @@ function codexDirectScaffoldEligibility(name, type, cfg, source) {
   if (!["location","item","faction"].includes(type)) return false;
   if (!(codex.trustedEntities && codex.trustedEntities[name] === type)) return false;
   const margin = codexTypeVoteMargin(name, type);
-  const typed = reasons.indexOf("typed-" + type) >= 0 || reasons.some(function(r){ return String(r).indexOf("explicit-input-") === 0; });
+  const operationalMatch = !!(operational && operational.type === type);
+  const typed = reasons.indexOf("typed-" + type) >= 0 || reasons.some(function(r){ return String(r).indexOf("explicit-input-") === 0 || String(r) === (operational && operational.reason); });
+  if (operationalMatch && strong >= 7) return true;
   return (explicit || typed) && strong >= Math.max(5, CODEX_FAST_TRACK_NONCHAR_SCORE - 1) && margin >= 1;
 }
 
@@ -7890,13 +7997,39 @@ function buildCodexDirectScaffoldEntry(name, type, cfg, source) {
   return codexFitScaffoldFields(fields,cap);
 }
 
+function codexExactStoryCardIdentityExists(name) {
+  if (!name || typeof storyCards === "undefined" || !Array.isArray(storyCards)) return false;
+  const clean = function(v){ return String(v || "").toLowerCase().replace(/[“”"'‘’.,:;!?()[\]{}\-‐‑–—]/g," ").replace(/\s+/g," ").trim(); };
+  const wanted = clean(name);
+  if (!wanted) return false;
+  for (let i=0;i<storyCards.length;i++) {
+    const card=storyCards[i]; if(!card||!card.title||isOwnCard(card.title)) continue;
+    if (clean(card.title)===wanted) return true;
+    const aliases=storyCardAliasValues(card);
+    if (aliases.some(function(a){return clean(a)===wanted;})) return true;
+  }
+  return false;
+}
+
+function codexDirectScaffoldBlockedByExisting(name, type, source) {
+  const matches = storyCardMatchesForEntity(name);
+  if (!matches.length) return false;
+  if (codexExactStoryCardIdentityExists(name)) return true;
+  // Fuzzy same-root matching is useful for aliases (Harlan -> Harlan Voss),
+  // but it must not suppress a separately and explicitly named different-kind
+  // entity such as historical "Storm Sovereign" versus project "Sovereign".
+  const operational = codexOperationalExplicitType(name, source || codexEvidenceTextFor(name));
+  if (operational && operational.type === type) return false;
+  return true;
+}
+
 function createCodexDirectScaffoldCard(name, cfg, source) {
   try {
     if (!cfg || !cfg.codexEnabled || cfg.codexDirectScaffold === false || !name) return false;
-    const matches = storyCardMatchesForEntity(name);
-    if (matches.length) return false; // never overwrite or duplicate a real card
     const type = reconcileCodexEntityType(name, source) || resolveCodexEntityType(name, source) ||
       (state.unsaid.codex.likelyCharacters[name] ? "character" : dominantCodexType(name));
+    if (codexDirectScaffoldBlockedByExisting(name, type, source)) return false; // never overwrite a real identity
+    if (!type) return false;
     if (!codexDirectScaffoldEligibility(name, type, cfg, source)) return false;
     const entry = buildCodexDirectScaffoldEntry(name, type, cfg, source);
     if (!entry || entry.length < 45) return false;
@@ -7939,6 +8072,49 @@ function createCodexDirectScaffoldCard(name, cfg, source) {
     if (typeof utRecordRuntimeError === "function") utRecordRuntimeError("Codex/direct-scaffold",e);
     return false;
   }
+}
+
+function createCodexDirectScaffoldFromOutput(source, cfg) {
+  try {
+    if (!cfg || !cfg.codexEnabled || cfg.codexDirectScaffold === false || !state.unsaid || !state.unsaid.codex) return false;
+    const codex = state.unsaid.codex;
+    const epoch = (typeof info !== "undefined" && info && Number.isFinite(Number(info.actionCount))) ? Number(info.actionCount) : Number(state.unsaid.turn)||0;
+    if (Number(codex.lastDirectScaffoldOutputEpoch) === epoch) return false;
+    const fresh = collectCodexCandidates(source || "").slice(0,48);
+    // Include already-tracked names that occur in this Output. This lets a
+    // candidate whose strong typing was established on the previous turn get
+    // its card now even if the latest sentence uses a shorter repeat form.
+    Object.keys(codex.mentionCounts || {}).sort(function(a,b){
+      return Number((codex.lastMentionTurn||{})[b]||-999999)-Number((codex.lastMentionTurn||{})[a]||-999999);
+    }).slice(0,48).forEach(function(name){ if(nameAppears(name,source||"")) fresh.push(name); });
+
+    const seen=Object.create(null), ranked=[];
+    fresh.forEach(function(raw){
+      let name=normalizeCodexCandidate(raw,source||"");
+      if(!name){
+        const rawName=stripPossessive(String(raw||"").trim());
+        const known=Object.keys(codex.trustedEntities||{}).concat(Object.keys(codex.likelyCharacters||{})).find(function(k){return isSameCardEntity(k,rawName);});
+        if(known)name=known;
+      }
+      if(!name)return;
+      name=resolveCodexTrackingKey(name,source||"",false)||name;
+      const key=normalizeUnsaidIdentity(name); if(!key||seen[key])return; seen[key]=true;
+      if(!isSafeTrackedCodexName(name)||isClearlyJunkCodexName(name))return;
+      const evidence=[codexEvidenceTextFor(name),source||""].filter(Boolean).join(" ");
+      const operational=codexOperationalExplicitType(name,evidence);
+      const type=(operational&&operational.type)||reconcileCodexEntityType(name,source)||resolveCodexEntityType(name,source)||(codex.likelyCharacters[name]?"character":dominantCodexType(name));
+      if(!codexDirectScaffoldEligibility(name,type,cfg,source))return;
+      const strong=Number(codex.strongScores&&codex.strongScores[name]||0);
+      const importance=typeof codexImportanceScore==="function"?Number(codexImportanceScore(name,type,cfg)||0):0;
+      ranked.push({name:name,type:type,priority:(operational?100:0)+strong*3+importance+(codex.mentionCounts[name]||0)});
+    });
+    ranked.sort(function(a,b){return b.priority-a.priority;});
+    for(let i=0;i<ranked.length;i++){
+      const result=createCodexDirectScaffoldCard(ranked[i].name,cfg,source);
+      if(result){codex.lastDirectScaffoldOutputEpoch=epoch;codex.lastTriggerTurn=state.unsaid.turn;return result;}
+    }
+    return false;
+  } catch(e){ if(typeof utRecordRuntimeError==="function")utRecordRuntimeError("Codex/output-direct-scaffold",e); return false; }
 }
 
 function buildCodexInstruction(names, text, forced, priorFailures, hardDeadline, compact, refreshMode) {
@@ -14721,6 +14897,12 @@ const ECHO_VEIL = (() => {
     const preVerb = preVerbRaw.slice(boundary+1);
     const speakerMentions = extractEntityMentions(preVerb);
     let speaker = speakerMentions.length ? speakerMentions[speakerMentions.length-1].name : null;
+    // Input/Say prose commonly uses second person for the player:
+    // `You say to Mara, "I trust you."`  Pronouns are deliberately excluded
+    // from entity extraction, so recognise the player role explicitly here.
+    // Without this, quote-local `you` falls back to PLAYER as the object and
+    // the real PLAYER -> Mara relationship event collapses into PLAYER -> PLAYER.
+    if (!speaker && /\b(?:you|i)\b/i.test(preVerb)) speaker = "PLAYER";
     if (!speaker && CFG.enablePronounResolution && /\b(?:he|she|they)\b/i.test(preVerb)) speaker = (getState().discourse||{}).lastSubject || null;
 
     const postVerb = prefix.slice(last.end);
@@ -14742,8 +14924,16 @@ const ECHO_VEIL = (() => {
     const qctx = quoted ? quoteSpeakerContext(t,matchIndex) : {speaker:null,addressee:null};
 
     if (origin === "player") {
-      if (/\b(?:you|i)\b/i.test(beforeScope)) subject = "PLAYER";
-      if (/\b(?:you|me)\b/i.test(afterScope) && !after) object = "PLAYER";
+      // Inside attributed player dialogue, first person is the player while
+      // second person is the addressee. Outside quotes both still describe the
+      // player from AI Dungeon's normal Input/Say perspective.
+      if (quoted) {
+        if (/\bi\b/i.test(beforeScope)) subject = qctx.speaker || "PLAYER";
+        if (/\byou\b/i.test(afterScope) && !after) object = qctx.addressee || null;
+      } else {
+        if (/\b(?:you|i)\b/i.test(beforeScope)) subject = "PLAYER";
+        if (/\b(?:you|me)\b/i.test(afterScope) && !after) object = "PLAYER";
+      }
       if (!subject) subject = "PLAYER";
     } else {
       // In AI output, second-person narration refers to PLAYER, but first-person
@@ -15276,6 +15466,11 @@ const ECHO_VEIL = (() => {
     const add = (name, start, end, confidence, sourceKind, kind) => {
       const canon = canonicalEntityName(name);
       if (!canon || canon === "PLAYER") return;
+      // Perspective words are grammatical roles, never discoverable entities.
+      // Keep this guard at the shared sink so Story Cards, CODEX consensus,
+      // semantic first-sight detection and persisted aliases cannot reintroduce
+      // a bogus You/She/Her NPC through a different evidence route.
+      if (/^(?:i|me|my|mine|myself|you|your|yours|yourself|yourselves|he|him|his|himself|she|her|hers|herself|they|them|their|theirs|themself|themselves|we|us|our|ours|ourselves|it|its|itself)$/i.test(String(canon).trim())) return;
       const controlled = playerHints.controlled.has(String(canon).toLowerCase()) || playerHints.controlled.has(String(name).toLowerCase());
       candidates.push({ name: canon, text: source.slice(start, end), start, end, confidence, source: sourceKind, kind: controlled ? "player-character" : (kind || "person"), controlled });
     };
@@ -15583,12 +15778,21 @@ const ECHO_VEIL = (() => {
 
   function nudgeRelation(rel, field, amount, evidence, confidence) {
     if (!rel || !field) return;
+    // Input/Say text is often echoed almost verbatim by the model in Output.
+    // Do not count the same directed axis twice in one action, while still
+    // allowing a distinct NPC reaction (normally the reverse direction) and
+    // allowing genuinely new evidence on later turns.
+    rel.nudgeSigs = rel.nudgeSigs && typeof rel.nudgeSigs === "object" ? rel.nudgeSigs : {};
+    const incoming = safeEvidence(evidence, 135);
+    const prior = rel.nudgeSigs[field];
+    if (prior && Number(prior.turn) === nowTurn() && tokenOverlap(prior.evidence || "", incoming) > 0.42) return;
     const c = clamp(Number.isFinite(confidence) ? confidence : 0.8, 0.25, 1);
     rel[field] = clamp((rel[field] || 0) + amount * c, -10, 10);
     rel.confidence = clamp(Math.max(rel.confidence || 0.5, c), 0, 1);
     rel.lastTurn = nowTurn();
     rel.evidence = Array.isArray(rel.evidence) ? rel.evidence : [];
-    const e = safeEvidence(evidence, 135);
+    const e = incoming;
+    rel.nudgeSigs[field] = { turn:nowTurn(), evidence:e };
     if (e && !rel.evidence.some(x => tokenOverlap(x, e) > 0.56)) {
       rel.evidence.push(e);
       if (rel.evidence.length > 3) rel.evidence.shift();
@@ -18512,10 +18716,14 @@ function CE_syncStoryCardPresentation(){try{
   (u.lastActiveCast||[]).slice(0,10).forEach(add);
   var codex=u.codex||{};Object.keys(codex.cardMeta||{}).slice(-12).forEach(function(k){var m=codex.cardMeta[k];if(m&&m.name)add(m.name);});
 
-  // Refresh active cards first, then drain a bounded migration queue so an
-  // upgraded long-running adventure replaces stale pre-foundation diagnostics
-  // without rewriting every Story Card on one hook.
-  var active=names.slice(0,20),synced={};
+  // Refresh only the highest-priority active cards with the full multi-engine
+  // diagnostic stack, then drain the cheaper relationship-only migration queue.
+  // Large ensemble scenes can contain dozens of relevant names; rebuilding full
+  // UNSAID/ECHO/TWISTS/CODEX notes for all of them every Output is presentation
+  // work, not simulation work, and can dominate hook time without improving the
+  // generated scene. The priority ordering above keeps focus/current bonds fresh
+  // while the rotating relationship queue repairs the wider cast incrementally.
+  var active=names.slice(0,4),synced={};
   active.forEach(function(n){CE_syncEntityCard(n);synced[String(n).toLowerCase()]=true;});
   var q=CE_relationshipPresentationQueue(cw),remain=[],budget=12;
   for(var qi=0;qi<q.length;qi++){

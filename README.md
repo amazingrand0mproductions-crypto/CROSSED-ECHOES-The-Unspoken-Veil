@@ -278,7 +278,7 @@ CODEX watches the story for important entities and can create or refresh Story C
 
 Detection is evidence-driven rather than based on capital letters alone.
 
-Strong introductions can be recognised quickly, including genre-specific roles:
+Strong introductions can be recognised quickly, including genre-specific and operational naming grammar:
 
 > a chronal investigator named Nyra Voss
 
@@ -287,6 +287,14 @@ Strong introductions can be recognised quickly, including genre-specific roles:
 > a sword named Dawnfall
 
 > a guild called The Ashen Circle
+
+> a holding company called Aethelgard Logistics
+
+> a Delivery Point listed as Sovereign Zero
+
+> the project designation is Sovereign
+
+> the units are labeled as Correctors
 
 Weak or ambiguous guesses need more evidence. Old one-off guesses gradually lose confidence and are eventually removed from the candidate pool, which helps stop junk cards from building up over a long adventure. A shorter prefix can no longer borrow the naming evidence of a longer proper name, so `Nyra Vale` does not separately validate `Nyra`, `Timeline Omega` does not validate bare `Timeline`, and `Project Nightglass` does not validate bare `Project`.
 
@@ -303,6 +311,10 @@ When several valid entities are waiting for a card, CODEX considers things like:
 - confidence in the entity type
 
 A repeatedly failed card request is temporarily deprioritised so it cannot block every other valid entity behind it.
+
+**Direct-scaffold reliability is now independent of the hidden Context owner.** Once visible Output establishes a high-confidence entity, CODEX can write one evidence-only Story Card locally on that Output pass. TWISTS, UNSPOKEN TURNS or another structured system may still own Context without starving card creation. This path does not bypass the anti-junk gates: it still requires explicit/typed evidence and creates at most one direct scaffold per Output.
+
+Operational naming now has dedicated semantic routes rather than falling through to Character: delivery/drop/staging destinations resolve as Locations, explicit project/program designations resolve as project/faction entities, and labeled manufactured unit/model classes resolve as Items. Same-root names remain protected from duplicate partials, but an explicitly named different-kind entity can coexist when canon genuinely distinguishes them (for example `Storm Sovereign` history and a separate project named `Sovereign`).
 
 ---
 
@@ -693,6 +705,8 @@ node high_concept_stress_test.js
 CE_CACHE_STRESS=1 node high_concept_stress_test.js
 node codex_noise_stress_test.js
 CE_CACHE_STRESS=1 node codex_noise_stress_test.js
+node second_dawn_codex_replay_test.js
+CE_CACHE_STRESS=1 node second_dawn_codex_replay_test.js
 node world_engine_tests.js
 node world_engine_long_stress_test.js
 CE_CACHE_STRESS=1 node world_engine_long_stress_test.js
@@ -702,7 +716,7 @@ node relationship_foundation_stress_test.js
 CE_CACHE_STRESS=1 node relationship_foundation_stress_test.js
 ```
 
-Current verification: **145/145 core integration/regression tests pass** and **31/31 WORLD ENGINE + fluidity tests pass**. The real supplied 313-card SECOND DAWN export also passes the dedicated relationship-foundation stress in Standard and Optimized Context: **197 cleaned directional foundations remain stable, relationship canon is injected on all 24/24 tested turns, and Ravati→YOU, Sasha↔Julian, Liam↔Cassia and Ezra→Sera are verified directly from the supplied cards.** WORLD ENGINE's matrix covers **30 supported scenario families, 12 hybrid combinations, genre-neutral handling and 20 scene modes**. Standard and Optimized large-library, high-concept, CODEX anti-junk, rotating-world and fluid camera-flow stress suites all pass; Optimized Context preserves the exact host prefix.
+Current verification: **150/150 core integration/regression tests pass** and **31/31 WORLD ENGINE + fluidity tests pass**. The real supplied 313-card SECOND DAWN export also passes the dedicated relationship-foundation stress in Standard and Optimized Context: **197 cleaned directional foundations remain stable, relationship canon is injected on all 24/24 tested turns, and Ravati→YOU, Sasha↔Julian, Liam↔Cassia and Ezra→Sera are verified directly from the supplied cards.** WORLD ENGINE's matrix covers **30 supported scenario families, 12 hybrid combinations, genre-neutral handling and 20 scene modes**. Standard and Optimized large-library, high-concept, CODEX anti-junk, rotating-world and fluid camera-flow stress suites all pass; Optimized Context preserves the exact host prefix The dedicated SECOND DAWN CODEX replay also passes in Standard and Optimized mode both self-contained and with the supplied 313-card library: **Aethelgard Logistics, Sovereign Zero, Correctors and Sovereign are created while ten generic control words remain uncarded**.
 
 
 ---

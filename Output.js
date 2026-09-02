@@ -1050,6 +1050,19 @@ var unsaidModifier = (text) => {
 
     trackMentions(text, true);
 
+    // CODEX RECALL GUARANTEE: deterministic first-card creation runs on the
+    // authoritative visible Output pass, not only inside Context scheduling.
+    // This means a mystery-heavy turn can let TWISTS/UNSPOKEN own hidden
+    // Context without starving an explicitly established company, place,
+    // project or unit class of its Story Card. One scaffold maximum per Output.
+    if (!controlRequest && cfg.codexEnabled && cfg.codexDirectScaffold !== false &&
+        typeof createCodexDirectScaffoldFromOutput === "function") {
+      const directScaffold = createCodexDirectScaffoldFromOutput(text, cfg);
+      if (directScaffold && typeof pushMessage === "function") {
+        pushMessage("📇 CODEX created a provisional " + String(directScaffold.type || "Story") + " card for " + String(directScaffold.name || "the new entity") + ". It will enrich itself as new evidence appears.");
+      }
+    }
+
     const revealWasRequested = !!state.unsaid.pending;
     const revealWasForced = !!state.unsaid.pendingRevealForced;
     const revealWasCoreCheck = !!state.unsaid.pendingCoreCheck;
