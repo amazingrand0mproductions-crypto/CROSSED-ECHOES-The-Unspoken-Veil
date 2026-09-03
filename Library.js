@@ -3706,7 +3706,7 @@ var CODEX_LOCATION_SUFFIX_HINTS = /(tower|keep|hold|spire|haven|hollow|reach|scr
 // directly: none of the fantasy-only terms below matched "Thorne
 // Industries" or "Dragon's Breath Fried Chicken", so both silently fell
 // back to being guessed as a character.
-var CODEX_FACTION_HINTS = /\b(order|guild|alliance|empire|faction|clan|brotherhood|council|syndicate|coalition|army|legion|cult|society|corporation|company|companies|initiative|division|agency|federation|dynasty|tribe|vanguard|battalion|regiment|squad|squadron|fleet|crew|cabal|circle|sect|resistance|movement|militia|garrison|industries|industry|enterprises|incorporated|holdings|conglomerate|group|partners|associates|firm|labs?|laboratory|laboratories|studio|studios|productions|pharmaceuticals|restaurant|diner|bistro|caf[eé]|eatery|grill|kitchen|bakery|brewery|pizzeria|steakhouse|deli|hospital|clinic|salon|boutique|store|shop|franchise|chain|brand|app|platform|network|streaming|team|club|league|union|association|foundation|charity|church|ministry|department|bureau|office|committee|party|campaign|band|orchestra|label|school|college|university|house|family|court|government|police|fire department)\b/i;
+var CODEX_FACTION_HINTS = /\b(order|guild|alliance|empire|faction|clan|brotherhood|council|syndicate|coalition|army|legion|cult|society|corporation|company|companies|initiative|division|agency|federation|dynasty|tribe|vanguard|battalion|regiment|squad|squadron|fleet|crew|cabal|circle|cell|sect|resistance|movement|militia|garrison|industries|industry|enterprises|incorporated|holdings|conglomerate|group|partners|associates|firm|labs?|laboratory|laboratories|studio|studios|productions|pharmaceuticals|restaurant|diner|bistro|caf[eé]|eatery|grill|kitchen|bakery|brewery|pizzeria|steakhouse|deli|hospital|clinic|salon|boutique|store|shop|franchise|chain|brand|app|platform|network|streaming|team|club|league|union|association|foundation|charity|church|ministry|department|bureau|office|committee|party|campaign|band|orchestra|label|school|college|university|house|family|court|government|police|fire department)\b/i;
 
 // Sci-fi vessel/mech/robot vocabulary was missing here entirely — the
 // modern-vehicle words (car/truck/van/vehicle) already reflect an earlier
@@ -3750,6 +3750,25 @@ var CODEX_TITLE_WORDS = new Set([
   "Prof", "Capt", "Gen", "Col", "Lt", "Sgt", "Cmdr", "Maj", "Adm", "Rev",
   "Hon", "Gov", "Sen", "Rep", "Det", "Insp"
 ].map(w => w.toLowerCase()));
+
+
+// Courtesy/rank abbreviations followed by a genuine multi-token name are
+// address forms, not part of the durable identity. Keep iconic full-word
+// names such as "Doctor Doom" or "Professor X" intact, but normalize
+// "Dr. Klaus Von Heisler" -> "Klaus Von Heisler" before mention tracking.
+var CODEX_STRIPPABLE_TITLE_ABBREVIATIONS = /^(?:Mr|Mrs|Ms|Miss|Dr|Prof|Capt|Gen|Col|Lt|Sgt|Cmdr|Maj|Adm|Rev|Hon|Gov|Sen|Rep|Det|Insp)\.\s+/i;
+function codexStripLeadingAbbreviatedTitle(name) {
+  var clean = String(name || "").trim();
+  if (!CODEX_STRIPPABLE_TITLE_ABBREVIATIONS.test(clean)) return clean;
+  var stripped = clean.replace(CODEX_STRIPPABLE_TITLE_ABBREVIATIONS, "").trim();
+  return stripped && /\s|^[A-ZÀ-ÖØ-ÞĀ-ſΑ-ΫА-ЯЁ][A-Za-zÀ-ÖØ-öø-ÿĀ-ſΑ-ωΆ-ώА-ЯЁа-яё0-9'’.-]{1,}$/.test(stripped) ? stripped : clean;
+}
+function codexSingleTitleIsExplicitCodename(name, source) {
+  var clean = String(name || "").trim();
+  if (!clean) return false;
+  var n = escapeForRegex(clean);
+  return new RegExp('\\b(?:codename|callsign|call\\s+sign|designation|alias|known\\s+as|called|named)\\s*(?::|=|is\\s+)?\\s*["“‘\\\']' + n + '["”’\\\']', 'i').test(String(source || ""));
+}
 
 var SENTENCE_ABBREVIATIONS = new Set([
   "Dr", "Mr", "Mrs", "Ms", "Prof", "St", "Jr", "Sr", "Capt", "Gen",
@@ -3870,6 +3889,10 @@ function hasStrongExplicitCodexNamingCue(name, text) {
     new RegExp(`\\b(?:introduces?|introduced)\\s+(?:himself|herself|themself|themselves|itself)\\s+as\\s+${quote}${n}\\b`, "i"),
     new RegExp(`\\b(?:${entityKind})\\s+(?:named|called|known\\s+as|dubbed|codenamed|designated)\\s+${quote}${n}\\b`, "i"),
     new RegExp(`\\b(?:named|called|known\\s+as|dubbed|codenamed|designated)\\s+${quote}${n}\\b`, "i"),
+    // Canonical identity may omit an address-form abbreviation even when the prose includes one.
+    new RegExp(`\\b(?:named|called|known\\s+as|dubbed|codenamed|designated)\\s+(?:(?:Mr|Mrs|Ms|Miss|Dr|Prof|Capt|Gen|Col|Lt|Sgt|Cmdr|Maj|Adm|Rev|Hon|Gov|Sen|Rep|Det|Insp)\\.\\s+)?${quote}${n}\\b`, "i"),
+    // Quoted appositive labels: a small group of researchers—the 'Symmetry Cell'.
+    new RegExp(`\\b(?:group|organization|organisation|team|cell|unit|project|program|programme|initiative)\\b[^\\n.!?]{0,96}(?:—|–|-|:)\\s*(?:the\\s+)?["“'‘]${n}[.!?]?["”'’]`, "i"),
     new RegExp(`\\b(?:codename|code\\s+name|callsign|call\\s+sign|designation|nickname|alias)\\s*(?::|=|is\\s+)?\\s*${quote}${n}\\b`, "i"),
     new RegExp(`\\b${n}\\b\\s+(?:is|was)\\s+(?:my|his|her|their|its|the)\\s+(?:name|nickname|codename|callsign|designation)\\b`, "i"),
     // "This is Rose, my sister" is a genuine introduction; bare "This is
@@ -4014,10 +4037,15 @@ function normalizeCodexCandidate(raw, source) {
     .trim());
   if (!name || name.length > 80 || !/[A-Za-zÀ-ÖØ-öø-ÿĀ-ſΑ-ωΆ-ώА-ЯЁа-яё]/.test(name)) return null;
 
-  const operationalExplicit = typeof codexOperationalExplicitType === "function" ? codexOperationalExplicitType(name, source) : null;
-  const originalExplicit = hasExplicitCodexNamingCue(name, source) || !!operationalExplicit;
-  const originalStrongExplicit = codexStrongNamingCanRescueGeneric(name, source) || !!operationalExplicit;
-  if (!originalStrongExplicit && codexLooksLikeSystemHeadingNoise(name, source)) return null;
+  const rawIdentityName = name;
+  const operationalExplicit = typeof codexOperationalExplicitType === "function" ? codexOperationalExplicitType(rawIdentityName, source) : null;
+  const originalExplicit = hasExplicitCodexNamingCue(rawIdentityName, source) || !!operationalExplicit;
+  const originalStrongExplicit = codexStrongNamingCanRescueGeneric(rawIdentityName, source) || !!operationalExplicit;
+  if (!originalStrongExplicit && codexLooksLikeSystemHeadingNoise(rawIdentityName, source)) return null;
+
+  // "Dr."/"Prof." etc. are often swallowed by the capitalized-name scan.
+  // Strip only dotted abbreviations; full-word aliases/titles can be canonical.
+  name = codexStripLeadingAbbreviatedTitle(rawIdentityName);
   let words = name.split(/\s+/).filter(Boolean);
 
   // Sentence-openers and titles can be captured together with the real
@@ -4082,6 +4110,11 @@ function normalizeCodexCandidate(raw, source) {
   }
 
   if (keys.length === 1) {
+    // A malformed sentence boundary such as "named Dr. Klaus..." used to
+    // produce an explicit-looking one-word Character called "Dr". Titles are
+    // never standalone auto-Codex identities unless the story explicitly
+    // quotes the title itself as a codename/designation.
+    if (CODEX_TITLE_WORDS.has(keys[0]) && !codexSingleTitleIsExplicitCodename(name, source)) return null;
     if (name.length <= 1 && !strongExplicit) return null;
     if (/^(?:[ivxlcdm]+)$/i.test(name) && name.length <= 8 && !strongExplicit) return null;
     if (/^\d+(?:st|nd|rd|th)?$/i.test(name) && !strongExplicit) return null;
@@ -5523,6 +5556,48 @@ function ensureCodexConfigCard(sourceCard) {
   return card;
 }
 
+
+function parseUnsaidSectionInto(cfg, section) {
+  if (!cfg || !section) return cfg;
+  var v;
+  v = configBool(section, "enabled", /Enable UNSAID:\s*(true|false)/i); if (v !== null) cfg.enabled = v;
+  v = configBool(section, "showThoughts", /Show private thoughts in the story text:\s*(true|false)/i); if (v !== null) cfg.showThoughtsInStory = v;
+  v = configBool(section, "subtleHints", /subtly color actions:\s*(true|false)/i); if (v !== null) cfg.subtleHints = v;
+  v = configBool(section, "jsonNotes", /Store card notes as JSON:\s*(true|false)/i); if (v !== null) cfg.jsonNotes = v;
+  v = configBool(section, "adaptiveMind", /Enable adaptive private memory:\s*(true|false)/i); if (v !== null) cfg.adaptiveMindEnabled = v;
+  v = configBool(section, "behaviorContinuity", /Let active NPC goals\/plans shape behavior between thought reveals:\s*(true|false)/i); if (v !== null) cfg.behavioralContinuity = v;
+  v = configBool(section, "coreShift", /rewrite a core truth:\s*(true|false)/i); if (v !== null) cfg.allowCoreShift = v;
+  v = configBool(section, "reduceOnActions", /Ease off during your own Do\/Say actions:\s*(true|false)/i); if (v !== null) cfg.reduceDuringActions = v;
+  v = parseFloat(configValue(section, "thoughtChance", /thought per turn[^:]*:\s*([\d.]+)/i)); if (!isNaN(v)) cfg.chance = Math.min(1, Math.max(0, v));
+  v = parseInt(configValue(section, "thoughtCD", /think again:\s*(\d+)/i), 10); if (!isNaN(v)) cfg.cooldown = Math.min(500, Math.max(0, v));
+  v = parseInt(configValue(section, "activeWindow", /Recent turns counted as "active":\s*(\d+)/i), 10); if (!isNaN(v)) cfg.recentTurnsWindow = Math.min(20, Math.max(1, v));
+  v = parseInt(configValue(section, "mindSlots", /Adaptive private memory slots per character:\s*(\d+)/i), 10); if (!isNaN(v)) cfg.adaptiveMindSlots = Math.min(ADAPTIVE_MIND_MAX_SLOTS, Math.max(ADAPTIVE_MIND_MIN_SLOTS, v));
+  v = parseInt(configValue(section, "reflectEvery", /Deep reflection every N private moments:\s*(\d+)/i), 10); if (!isNaN(v)) cfg.adaptiveReflectionInterval = Math.min(20, Math.max(2, v));
+  v = parseInt(configValue(section, "continuityMinds", /Maximum active NPC minds used for behavioral continuity:\s*(\d+)/i), 10); if (!isNaN(v)) cfg.behavioralContinuityCharacters = Math.min(4, Math.max(1, v));
+  v = configValue(section, "player", /Player character \(skip when Codexing\):[ \t]*(.*)/i); if (v !== null) cfg.playerName = v.slice(0, 80);
+  return cfg;
+}
+
+function normalizeSharedConfigEntry(card) {
+  if (!card) return false;
+  var current = CW_cardEntryText(card);
+  var twistSection = extractConfigSection(current, CONFIG_SECTION_TWIST);
+  var unsaidSection = extractConfigSection(current, CONFIG_SECTION_UNSAID);
+  if (!twistSection && !unsaidSection) return false;
+  var twistCfg = Object.assign({}, CP_DEFAULTS, (state && state.contingencyConfig) || {});
+  if (twistSection) applyTwistConfigText(twistCfg, twistSection);
+  var unsaidCfg = Object.assign({}, UNSAID_DEFAULTS);
+  if (unsaidSection) parseUnsaidSectionInto(unsaidCfg, unsaidSection);
+  state.contingencyConfig = Object.assign({}, twistCfg);
+  var canonical = renderTwistSection(twistCfg).replace(/\s+$/, "") + "\n\n" + renderUnsaidSection(unsaidCfg);
+  if (canonical !== current) {
+    card.entry = canonical;
+    card.value = canonical;
+    return true;
+  }
+  return false;
+}
+
 function ensureSharedConfigCard() {
   let card = findConfigCardTolerant(CONFIG_CARD_TITLE) || findConfigCardTolerant("UNSPOKEN TURNS — Config");
   if (card && card.title !== CONFIG_CARD_TITLE) { card.title = CONFIG_CARD_TITLE; card.name = CONFIG_CARD_TITLE; }
@@ -5597,6 +5672,11 @@ function ensureSharedConfigCard() {
       card.entry = spliceConfigSection(CW_cardEntryText(card), CONFIG_SECTION_UNSAID, renderUnsaidSection(UNSAID_DEFAULTS));
       card.value = card.entry;
     }
+    // Old combined cards could contain duplicated UNSAID keys, stray theme
+    // lists or missing newer options inside an otherwise valid section. Merely
+    // checking for section markers left that corruption alive forever. Parse
+    // every known value, then rewrite the two live sections canonically.
+    normalizeSharedConfigEntry(card);
     if (String(card.description || card.notes || "").indexOf(CONFIG_SECTION_TWIST) === -1) {
       card.description = spliceConfigSection(
         String(card.description || card.notes || ""),
@@ -5678,28 +5758,7 @@ function readUnsaidConfig() {
   const cfg = { ...UNSAID_DEFAULTS };
   const entrySection = extractConfigSection(CW_cardEntryText(card), CONFIG_SECTION_UNSAID);
   let v;
-
-  v = configBool(entrySection, "enabled", /Enable UNSAID:\s*(true|false)/i); if (v !== null) cfg.enabled = v;
-  v = configBool(entrySection, "showThoughts", /Show private thoughts in the story text:\s*(true|false)/i); if (v !== null) cfg.showThoughtsInStory = v;
-  v = configBool(entrySection, "subtleHints", /subtly color actions:\s*(true|false)/i); if (v !== null) cfg.subtleHints = v;
-  v = configBool(entrySection, "jsonNotes", /Store card notes as JSON:\s*(true|false)/i); if (v !== null) cfg.jsonNotes = v;
-  v = configBool(entrySection, "adaptiveMind", /Enable adaptive private memory:\s*(true|false)/i); if (v !== null) cfg.adaptiveMindEnabled = v;
-  v = configBool(entrySection, "behaviorContinuity", /Let active NPC goals\/plans shape behavior between thought reveals:\s*(true|false)/i); if (v !== null) cfg.behavioralContinuity = v;
-  v = configBool(entrySection, "coreShift", /rewrite a core truth:\s*(true|false)/i); if (v !== null) cfg.allowCoreShift = v;
-  v = configBool(entrySection, "reduceOnActions", /Ease off during your own Do\/Say actions:\s*(true|false)/i); if (v !== null) cfg.reduceDuringActions = v;
-
-  v = parseFloat(configValue(entrySection, "thoughtChance", /thought per turn[^:]*:\s*([\d.]+)/i));
-  if (!isNaN(v)) cfg.chance = Math.min(1, Math.max(0, v));
-  v = parseInt(configValue(entrySection, "thoughtCD", /think again:\s*(\d+)/i), 10);
-  if (!isNaN(v)) cfg.cooldown = Math.min(500, Math.max(0, v));
-  v = parseInt(configValue(entrySection, "activeWindow", /Recent turns counted as "active":\s*(\d+)/i), 10);
-  if (!isNaN(v)) cfg.recentTurnsWindow = Math.min(20, Math.max(1, v));
-  v = parseInt(configValue(entrySection, "mindSlots", /Adaptive private memory slots per character:\s*(\d+)/i), 10);
-  if (!isNaN(v)) cfg.adaptiveMindSlots = Math.min(ADAPTIVE_MIND_MAX_SLOTS, Math.max(ADAPTIVE_MIND_MIN_SLOTS, v));
-  v = parseInt(configValue(entrySection, "reflectEvery", /Deep reflection every N private moments:\s*(\d+)/i), 10);
-  if (!isNaN(v)) cfg.adaptiveReflectionInterval = Math.min(20, Math.max(2, v));
-  v = parseInt(configValue(entrySection, "continuityMinds", /Maximum active NPC minds used for behavioral continuity:\s*(\d+)/i), 10);
-  if (!isNaN(v)) cfg.behavioralContinuityCharacters = Math.min(4, Math.max(1, v));
+  parseUnsaidSectionInto(cfg, entrySection);
   const codexEntrySection = codexCard ? CW_cardEntryText(codexCard) : "";
   applyCodexConfigText(cfg, codexEntrySection);
   const resetValue = configBool(codexEntrySection, "resetCodex", /Reset Codex tracking now:\s*(true|false)/i);
@@ -6025,6 +6084,7 @@ function explicitCodexCharacterCue(name, text) {
   const cues = [
     new RegExp(`\\b(?:I\\s*(?:am|'m|’m)|my\\s+name\\s+is|name\\s*(?:is|'s|’s)|call\\s+me|this\\s+is|meet|known\\s+as|go\\s+by)\\s+["“”'‘’]?${n}\\b`, "i"),
     new RegExp(`\\b(?:a|an|the)\\s+(?:(?:[A-Za-zÀ-ÖØ-öø-ÿĀ-ſ-]+)\\s+){0,2}${personKinds}\\s+(?:named|called)\\s+["“”'‘’]?${n}\\b`, "i"),
+    new RegExp(`\\b(?:a|an|the)\\s+(?:(?:[A-Za-zÀ-ÖØ-öø-ÿĀ-ſ-]+)\\s+){0,2}${personKinds}\\s+(?:named|called)\\s+(?:(?:Mr|Mrs|Ms|Miss|Dr|Prof|Capt|Gen|Col|Lt|Sgt|Cmdr|Maj|Adm|Rev|Hon|Gov|Sen|Rep|Det|Insp)\\.\\s+)?["“”'‘’]?${n}\\b`, "i"),
     new RegExp(`\\b${n}\\b\\s+(?:is|was)\\s+(?:a|an|the)\\s+(?:(?:[A-Za-zÀ-ÖØ-öø-ÿĀ-ſ-]+)\\s+){0,2}${personKinds}\\b`, "i"),
     new RegExp(`\\b${n}(?:'s|’s)\\s+(?:eyes?|voice|hands?|face|expression|smile|gaze|shoulders?|breath|hair|fingers?|arms?|feet|cheeks?|lips?|posture|jaw|stance|grip|footsteps?)\\b`, "i"),
     new RegExp(`\\b${n}\\b\\s+(?:says?|asks?|replies?|answers?|whispers?|murmurs?|shouts?|adds?|admits?|explains?|insists?|snaps?|growls?|mutters?)\\b`, "i")
@@ -6203,7 +6263,7 @@ function strongCodexNonCharacterEvidence(name, text) {
 
   const factionKinds =
     "(?:order|guild|alliance|faction|clan|brotherhood|council|syndicate|" +
-    "coalition|company|corporation|agency|organization|organisation|group|" +
+    "coalition|company|corporation|agency|organization|organisation|group|cell|" +
     "gang|cult|society|restaurant|store|shop|brand|network|team|club|league|" +
     "union|association|foundation|charity|department|bureau|committee|party|" +
     "campaign|band|orchestra|label|school|college|university|crew|fleet|" +
@@ -6294,10 +6354,11 @@ function strongCodexNonCharacterEvidence(name, text) {
       new RegExp(`\\b${n}\\b\\s+(?:is|was|are|were)\\s+(?:a|an|the)\\s+(?:[a-z-]+\\s+){0,2}${factionKinds}\\b`, "i"),
       new RegExp(`\\b${n}\\s+${factionKinds}\\b`, "i"),
       // Appositive naming: "Silver Hand, a secret order".
-      new RegExp(`\\b${n}\\b\\s*(?:,|—|-)\\s*(?:a|an|the)\\s+(?:[a-z-]+\\s+){0,3}${factionKinds}\\b`, "i")
+      new RegExp(`\\b${n}\\b\\s*(?:,|—|-)\\s*(?:a|an|the)\\s+(?:[a-z-]+\\s+){0,3}${factionKinds}\\b`, "i"),
+      new RegExp(`\\b(?:group|organization|organisation|team|cell|unit)\\b[^\\n.!?]{0,96}(?:—|–|-|:)\\s*(?:the\\s+)?["“'‘]${n}[.!?]?["”'’]`, "i")
     ];
     if (factionExplicit.some(re => re.test(source))) scores.faction += 6;
-    if (new RegExp(`\\b${n}\\b[^\\n.!?]{0,48}\\b(?:chain|franchise|corporation|company|business|brand|conglomerate|organization|organisation|network|enterprise|enterprises|industries)\\b`, "i").test(source)) scores.faction += 4;
+    if (new RegExp(`\\b${n}\\b[^\\n.!?]{0,48}\\b(?:chain|franchise|corporation|company|business|brand|conglomerate|organization|organisation|network|cell|enterprise|enterprises|industries)\\b`, "i").test(source)) scores.faction += 4;
     if (new RegExp(`\\b(?:works?|worked|employed|member|members|joined|joins|leads?|founded|owns?)\\s+(?:at|for|by|of)?\\s*(?:the\\s+)?${n}\\b`, "i").test(source)) scores.faction += 1;
     if (new RegExp(`\\b(?:members?|agents?|employees?|officers?|soldiers?|students?|staff)\\s+of\\s+(?:the\\s+)?${n}\\b|\\b${n}\\s+(?:members?|agents?|employees?|officers?|staff)\\b`, "i").test(source)) scores.faction += 2;
   }
@@ -6437,10 +6498,15 @@ function isLikelyCharacterIntroduction(name, text) {
 
 function codexEvidenceSentences(name, source) {
   if (!name || !source) return [];
-  const chunks = String(source).match(/[^.!?\n]+(?:[.!?]+(?:["”'’\)\]]+)?|$)/g) || [String(source)];
+  // Protect ordinary title abbreviations before sentence splitting. Without
+  // this, "named Dr. Klaus Von Heisler" was split at Dr. and the deterministic
+  // scaffold saw only "Klaus Von Heisler." instead of the actual evidence.
+  const rawSource = String(source);
+  const protectedSource = rawSource.replace(/\b(Dr|Mr|Mrs|Ms|Prof|Capt|Gen|Col|Lt|Sgt|Rev|Hon|Rep|Sen|Gov|Adm|Cmdr|Maj|Det|Insp)\.(?=\s+[A-ZÀ-ÖØ-ÞĀ-ſΑ-ΫА-ЯЁ])/g, "$1§DOT§");
+  const chunks = protectedSource.match(/[^.!?\n]+(?:[.!?]+(?:["”'’\)\]]+)?|$)/g) || [protectedSource];
   const results = [];
   for (const raw of chunks) {
-    const line = raw.replace(/\s+/g, " ").trim();
+    const line = raw.replace(/§DOT§/g, ".").replace(/\s+/g, " ").trim();
     if (!line || !nameAppears(name, line)) continue;
     const clipped = line.length > CODEX_EVIDENCE_SNIPPET_LENGTH
       ? line.slice(0, CODEX_EVIDENCE_SNIPPET_LENGTH - 1).trimEnd() + "…"
@@ -6481,12 +6547,57 @@ function codexAppearanceCount(name) {
   return Array.isArray(turns) ? turns.length : 0;
 }
 
+
+// Existing lore libraries commonly contain event cards whose titles begin with
+// a character's first name ("Mira Vail's Betrayal", "Mira Duplicate ...").
+// Generic entity lookup correctly treats that as ambiguous and refuses writes,
+// but Codex knows the observed entity type. Use that extra evidence to resolve
+// a unique compatible canonical card instead of creating a duplicate "Mira".
+function codexExistingCanonicalAlias(name, source) {
+  if (!name || typeof storyCards === "undefined" || !Array.isArray(storyCards)) return "";
+  var matches = storyCardMatchesForEntity(name);
+  if (!matches || !matches.length) return "";
+  var observed = "";
+  try { observed = classifyCodexEntry(name, source || "") || ""; } catch (_) {}
+  if (!/^(?:character|location|item|faction)$/.test(observed)) observed = "";
+  var compatible = matches.filter(function(card){
+    if (!card || !card.title || isOwnCard(card.title)) return false;
+    var raw = String(card.type || "").trim().toLowerCase();
+    if (observed) return raw === observed;
+    return /^(?:character|location|item|faction)$/.test(raw);
+  });
+  if (compatible.length === 1) return compatible[0].title;
+
+  // For a single-token character alias, prefer one unique Character whose
+  // canonical title starts with that token. This is deliberately asymmetric:
+  // it resolves "Mira" -> "Mira Vail" but never merges "Mira Vail" into an
+  // unrelated event/location just because the title shares words.
+  var bits = String(name).trim().split(/\s+/).filter(Boolean);
+  if ((observed === "character" || !observed) && bits.length === 1 && bits[0].length >= 3) {
+    var wanted = bits[0].toLowerCase().replace(/[“”"'‘’.,:;!?()[\]{}]/g, "");
+    var chars = storyCards.filter(function(card){
+      if (!card || String(card.type || "").trim().toLowerCase() !== "character" || !card.title || isOwnCard(card.title)) return false;
+      var first = String(card.title).trim().split(/\s+/)[0].toLowerCase().replace(/[“”"'‘’.,:;!?()[\]{}]/g, "");
+      return first === wanted;
+    });
+    if (chars.length === 1) return chars[0].title;
+  }
+  return "";
+}
+
 function resolveCodexTrackingKey(name, source, lightweight) {
   const codex = state && state.unsaid && state.unsaid.codex;
   if (!codex || !name) return name;
   const keys = Object.keys(codex.mentionCounts || {});
   const exact = keys.find(k => k.toLowerCase() === String(name).toLowerCase());
   if (exact) return exact;
+
+  // On authoritative Output, canonicalize safe aliases against the existing
+  // library before a fresh tracking bucket can be born. Input stays lightweight.
+  if (!lightweight) {
+    const cardAlias = codexExistingCanonicalAlias(name, source);
+    if (cardAlias) return cardAlias;
+  }
 
   // Raw player Input is deliberately lightweight: do not fuzzy-merge names
   // there because proving whether "Rose" and "Rose Garden" are the same
@@ -8106,8 +8217,9 @@ function codexDirectScaffoldEligibility(name, type, cfg, source) {
   const explicit = hasExplicitCodexNamingCue(name, combinedEvidence);
   const operational = codexOperationalExplicitType(name, combinedEvidence);
   if (type === "character") {
-    if (!(codex.likelyCharacters && codex.likelyCharacters[name])) return false;
-    if (typeof codexCharacterGateReady === "function" && codexCharacterGateReady(name, cfg)) return true;
+    const establishedCharacter = !!(codex.likelyCharacters && codex.likelyCharacters[name]);
+    if (!establishedCharacter && !(explicit && strong >= Math.max(5, CODEX_FAST_TRACK_CHARACTER_SCORE - 1))) return false;
+    if (establishedCharacter && typeof codexCharacterGateReady === "function" && codexCharacterGateReady(name, cfg)) return true;
     return explicit && strong >= Math.max(5, CODEX_FAST_TRACK_CHARACTER_SCORE - 1);
   }
   if (!["location","item","faction"].includes(type)) return false;
@@ -13287,6 +13399,109 @@ function CW_prepareRetryContext(turn) {
   return true;
 }
 
+
+function CW_visibleRelationshipSentences(prose) {
+  const flat = String(prose || "").replace(/\r/g, "").replace(/\n+/g, " ").replace(/\s+/g, " ").trim();
+  if (!flat) return [];
+  return flat.match(/[^.!?]+(?:[.!?]+|$)/g) || [flat];
+}
+
+function CW_visibleKnownNpcs(sentence) {
+  const hits = [];
+  const seen = {};
+  const npcs = (state.crossedWires && state.crossedWires.npcs) || {};
+  for (const key in npcs) {
+    const npc = npcs[key];
+    if (!npc || !npc.name || CW_isPlayerName(npc.name)) continue;
+    const forms = CW_nameFormsForKey(key);
+    if (!forms.length) forms.push(npc.name);
+    if (!forms.some(function (name) { return CW_wordPresent(sentence, name); })) continue;
+    const canonical = CW_resolveNpcName(npc.name) || npc.name;
+    const ck = CW_key(canonical);
+    if (!seen[ck]) { seen[ck] = true; hits.push(canonical); }
+  }
+  return hits;
+}
+
+function CW_visibleRelationshipTarget(sentence, fromName, knownHits) {
+  // Player-directed prose is both common and the safest target to resolve.
+  if (/\b(?:you|your|yours|yourself)\b/i.test(sentence)) return "YOU";
+  // NPC dialogue often addresses the protagonist by their actual name rather
+  // than second person ("I'm here, Kyle"). Treat only identities already
+  // proven to be the player as YOU; ordinary proper names remain NPCs.
+  try {
+    if (CW_playerNames().some(function (name) { return name && CW_wordPresent(sentence, name); })) return "YOU";
+  } catch (_) {}
+  const fromKey = CW_key(fromName);
+  const others = (knownHits || []).filter(function (name) { return CW_key(name) !== fromKey; });
+  return others.length === 1 ? others[0] : "";
+}
+
+function CW_visibleRelationshipKind(sentence, fromName, toName, turn) {
+  const lower = String(sentence || "").toLowerCase();
+  // Deliberately conservative. These are observable actions/statements, not
+  // inferred feelings, motives, attraction or private thoughts.
+  if (/\b(?:betrays?|betrayed|turns? (?:on|against))\b/.test(lower)) return ["betrayal", 2];
+  if (/\b(?:threatens?|threatened|menaces?)\b/.test(lower)) return ["threat", 2];
+  if (/\b(?:insults?|insulted|mocks?|mocked|demeans?|humiliates?)\b/.test(lower)) return ["insult", 1];
+  if (/\b(?:apologi[sz]es?|apologi[sz]ed|says? (?:he|she|they) (?:is|are) sorry)\b/.test(lower)) return ["apology", 1];
+  if (/\b(?:forgives?|forgave|forgiven)\b/.test(lower)) return ["forgiveness", 1];
+  if (/\b(?:rescues?|rescued|saves?|saved)\b/.test(lower)) return ["rescue", 2];
+  if (/\b(?:protects?|protected|shields?|shielded|defends?|defended|steps? in front of)\b/.test(lower)) return ["protection", 1];
+  if (/\b(?:keeps? (?:his|her|their|a) promise|kept (?:his|her|their|a) promise)\b/.test(lower)) return ["kept_promise", 2];
+  if (/\b(?:confides? in|confided in|entrusts?|entrusted)\b/.test(lower)) return ["shared_secret", 1];
+  if (/\b(?:reassures?|reassured|comforts?|comforted|supports?|supported|stands? by|stood by|backs? (?:you|him|her|them)|backed (?:you|him|her|them))\b/.test(lower)) return ["support", 1];
+  if (/\b(?:i(?:'|’)m here|i am here|not going anywhere|i(?:'|’)ll stay|i will stay)\b/.test(lower)) {
+    return CW_pairRelationshipFoundation(fromName, toName, turn) ? ["mutual_reassurance", 1] : ["support", 1];
+  }
+  if (/\b(?:hugs?|hugged|embraces?|embraced|pulls? (?:you|him|her|them) (?:close|closer)|pulled (?:you|him|her|them) (?:close|closer)|holds? (?:you|him|her|them) close|held (?:you|him|her|them) close)\b/.test(lower)) return ["warmth", 1];
+  if (/\b(?:argues? with|argued with|confronts?|confronted|quarrels? with|quarreled with)\b/.test(lower)) return ["conflict", 1];
+  return null;
+}
+
+function CW_inferVisibleRelationshipEvents(prose, turn, maxCount) {
+  const limit = Math.max(0, Number(maxCount) || 0);
+  if (!limit) return 0;
+  const sentences = CW_visibleRelationshipSentences(prose);
+  let lastNpc = "", lastDialogueNpc = "", added = 0;
+  for (const rawSentence of sentences) {
+    if (added >= limit) break;
+    const sentence = String(rawSentence || "").trim();
+    if (!sentence) continue;
+    const hits = CW_visibleKnownNpcs(sentence);
+    let from = "";
+    if (hits.length === 1) from = hits[0];
+    else if (hits.length > 1) {
+      // Require a named subject at the start when more than one NPC appears.
+      for (const name of hits) {
+        const escaped = String(name).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+        const first = String(name).split(/\s+/)[0].replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+        if (new RegExp("^\\s*(?:" + escaped + "|" + first + ")\\b", "i").test(sentence)) { from = name; break; }
+      }
+    }
+    // Sentence splitting often leaves an opening quote before the pronoun:
+    // '" She pulls you closer.' Keep the most recently resolved NPC subject.
+    if (!from && lastNpc && /^\s*["“'‘]?\s*(?:he|she|they)\b/i.test(sentence)) from = lastNpc;
+    // Quoted dialogue often puts the pronoun attribution after the spoken words:
+    // '"I know," she whispers.' Resolve that pronoun only to the most recent
+    // named NPC, never to an arbitrary cast member.
+    if (!from && lastNpc && /\b(?:he|she|they)\s+(?:says?|asks?|replies?|answers?|whispers?|murmurs?|shouts?|adds?|admits?|explains?|insists?|snaps?|growls?|mutters?)\b/i.test(sentence)) from = lastNpc;
+    // After an attributed line such as '"I know," she whispers.', subsequent
+    // first-person quoted sentences belong to that same NPC until evidence says otherwise.
+    if (!from && lastDialogueNpc && /^\s*["“'‘]?\s*(?:i\b|i['’]m\b|i am\b|my\b)/i.test(sentence)) from = lastDialogueNpc;
+    if (from) lastNpc = from;
+    if (from && /\b(?:says?|asks?|replies?|answers?|whispers?|murmurs?|shouts?|adds?|admits?|explains?|insists?|snaps?|growls?|mutters?)\b/i.test(sentence)) lastDialogueNpc = from;
+    if (!from || CW_isPlayerName(from)) continue;
+    const target = CW_visibleRelationshipTarget(sentence, from, hits);
+    if (!target) continue;
+    const classified = CW_visibleRelationshipKind(sentence, from, target, turn);
+    if (!classified) continue;
+    const note = "Visible prose: " + sentence.slice(0, 130);
+    if (CW_addEvent(from, target, classified[0], classified[1], note, turn)) added++;
+  }
+  return added;
+}
+
 function CW_parseModelOutput(text, turn) {
   const raw = String(text || "");
   const prose = CW_stripTags(raw);
@@ -13330,6 +13545,14 @@ function CW_parseModelOutput(text, turn) {
       pairCounts[pair] = (pairCounts[pair] || 0) + 1;
       pairGroups[pair + "|" + group] = true;
     }
+  }
+
+  // Hidden CW tags remain the preferred evidence channel. If the model omits
+  // them entirely, salvage only explicit, observable relationship actions from
+  // visible prose. This keeps long-run relationship history alive without ever
+  // fabricating the protagonist's feelings or NPC private thoughts.
+  if (!candidates.length && accepted < CW_config().maxEventsPerTurn) {
+    accepted += CW_inferVisibleRelationshipEvents(prose, turn, CW_config().maxEventsPerTurn - accepted);
   }
 
   const tw = state.crossedWires.twist;
@@ -14759,6 +14982,24 @@ const ECHO_VEIL = (() => {
         e.motives=e.motives.filter(function(x){return !/\b(?:doesn['’]?t|does not|didn['’]?t|did not|don['’]?t|do not|no)\s+(?:really\s+)?need\s+to\b|\bno\s+need\s+to\b/i.test(String(x||""));});
       });
       s.meta.semanticCleanupV7=true;
+    }
+
+    // R8 live-save cleanup: remove conversational placeholder mysteries that
+    // older ECHO builds persisted, and detach personal goals from non-agent
+    // world entities such as locations/items/concepts. The thread itself may
+    // remain actorless so genuine team/world objectives are not erased.
+    if (!s.meta.semanticCleanupR8LiveStory) {
+      s.threads=(s.threads||[]).filter(function(t){
+        if(!t)return false;
+        const raw=String(t.rawEvidence||t.summary||"");
+        if(t.type==="mystery"&&echoWeakDeicticMystery(raw))return false;
+        return true;
+      });
+      (s.threads||[]).forEach(function(t){
+        if(!t||t.type!=="goal"||!Array.isArray(t.actors))return;
+        t.actors=t.actors.filter(echoThreadActorCanOwnGoal);
+      });
+      s.meta.semanticCleanupR8LiveStory=true;
     }
 
     // Upgrade entities created by older versions without losing their history.
@@ -17448,6 +17689,45 @@ const ECHO_VEIL = (() => {
     return (t.heat || 0) + Math.min(6, age * CFG.threadAgePressure) - stale * 0.03 - resolvedPenalty;
   }
 
+  function echoThreadActorCanOwnGoal(name) {
+    const clean=String(name||"").trim();
+    if(!clean)return false;
+    const low=clean.toLowerCase();
+    if(low==="you"||low==="player"||isPlayerControlledName(clean))return true;
+    try {
+      const e=getState().entities&&getState().entities[low];
+      if(e&&/^(?:person|player-character|group|faction|organization|organisation)$/i.test(String(e.kind||"")))return true;
+      if(e&&/^(?:location|object|item|concept|technology|transport)$/i.test(String(e.kind||"")))return false;
+    } catch(_){}
+    try {
+      const profile=storyCardProfileFor(clean);
+      if(profile&&/^(?:person|player-character|group|faction|organization|organisation)$/i.test(String(profile.kind||"")))return true;
+    } catch(_){}
+    try {
+      if(typeof storyCards!=="undefined"&&Array.isArray(storyCards)){
+        const c=storyCards.find(function(card){return card&&CE_sameName(card.title||card.name||"",clean);});
+        if(c){
+          const type=String(c.type||"").toLowerCase();
+          if(/^(?:character|npc|faction|organization|organisation|group)$/.test(type))return true;
+          if(/^(?:location|item|concept|technology|transport|event|era|mission|class|race|ranking)$/.test(type))return false;
+        }
+      }
+    } catch(_){}
+    return false;
+  }
+
+  function echoWeakDeicticMystery(clause) {
+    const raw=String(clause||"").trim();
+    if(!raw)return false;
+    // Bare conversational placeholders do not carry a durable mystery by
+    // themselves; their referent belongs to the surrounding evidence thread.
+    if(/^\s*["“'‘]?(?:that(?:'s|’s| is)|this(?:'s|’s| is)|it(?:'s|’s| is)|the part\b)[^.!?]{0,70}\bmissing\b/i.test(raw))return true;
+    // Concern about someone's visible condition after an event is not an
+    // independent investigative mystery merely because the phrase "what happened" appears.
+    if(/\b(?:search(?:es|ed|ing)?|scan(?:s|ned|ning)?|stud(?:y|ies|ied|ying))\b[^.!?]{0,70}\b(?:face|expression|eyes?)\b[^.!?]{0,70}\b(?:sign|signs)\b[^.!?]{0,35}\bwhat happened\b/i.test(raw))return true;
+    return false;
+  }
+
   function scanThreads(text, source) {
     if (!CFG.enableThreads) return;
     for (const clause of splitClauses(text)) {
@@ -17464,13 +17744,15 @@ const ECHO_VEIL = (() => {
         // duplicating "look for/check the fringes" as a personal mystery on
         // every named team member creates noisy Story Card threads.
         if (p.type === "mystery" && guard.quoted && /\b(?:i want you|you(?:'|’)re|you are|check(?:ing)?|look for|search for|field sweep|dig into)\b/i.test(clause)) continue;
+        if (p.type === "mystery" && echoWeakDeicticMystery(clause)) continue;
         // Epistemic narration about what is *probably not* relevant is not an
         // unresolved secret/mystery that should mature into plot pressure.
         if (["mystery","secret"].includes(p.type) && guard.uncertain && /\b(?:beneath (?:him|her|them)|unlikely|probably not|not involved|doesn['’]?t look like|does not look like)\b/i.test(clause)) continue;
         // Reported speech can create a mystery/secret thread but should not turn
         // an alleged wound/debt into an established obligation.
         if (guard.reported && ["wound","debt","evidence"].includes(p.type)) continue;
-        addThread(p.type,clause,p.heat,actors,source);
+        const threadActors=p.type==="goal"?actors.filter(echoThreadActorCanOwnGoal):actors;
+        addThread(p.type,clause,p.heat,threadActors,source);
       }
     }
     const s=getState();

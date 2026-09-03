@@ -720,7 +720,7 @@ node relationship_foundation_stress_test.js
 CE_CACHE_STRESS=1 node relationship_foundation_stress_test.js
 ```
 
-Current verification: **158/158 core integration/regression tests pass** and **31/31 WORLD ENGINE + fluidity tests pass**. The self-contained 312-card relationship fixture passes in Standard and Optimized Context with relationship canon present on **24/24 tested turns**. WORLD ENGINE's matrix covers **30 supported scenario families, 12 hybrid combinations, genre-neutral handling and 20 scene modes**. Standard and Optimized large-library, high-concept, CODEX anti-junk, rotating-world and fluid camera-flow stress suites all pass, and Optimized Context preserves the exact host prefix. The SECOND DAWN replay also passes with **4,980 pre-existing Story Cards** in both modes: **Aethelgard Logistics, Sovereign Zero, Correctors and Sovereign are created while ten generic control words remain uncarded**, with the final fixture remaining below the 5,000-card ceiling.
+Current verification: **168/168 core integration/regression tests pass** and **31/31 WORLD ENGINE tests pass**. The self-contained 312-card relationship fixture passes in Standard and Optimized Context, while the live **324-card SECOND DAWN** export reconstructs **191 directional relationship foundations** and passes the hardened relationship replay in both modes. WORLD ENGINE's matrix covers **30 supported scenario families, 12 hybrid combinations, genre-neutral handling and 20 scene modes**. Standard and Optimized large-library, high-concept, CODEX anti-junk, rotating-world and fluid camera-flow stress suites all pass, and Optimized Context preserves the exact host prefix. The live SECOND DAWN CODEX replay preserves authoritative manual canon such as unresolved **Sovereign Zero**, correctly resolves **Mira → Mira Vail**, creates **Klaus Von Heisler** and **Symmetry Cell**, and rejects bare-title junk such as **Dr**. The synthetic capacity replay also passes with **4,980 pre-existing Story Cards** in both modes and remains below the 5,000-card ceiling.
 
 
 ---
@@ -734,3 +734,10 @@ Current verification: **158/158 core integration/regression tests pass** and **3
 - **ECHO VEIL**
 
 They still have distinct responsibilities under the hood. CROSSED ECHOES coordinates them, and WORLD ENGINE is the persistent simulation/orchestration layer above that coordination. Evidence authority remains with the story, Story Cards and the specialist systems; WORLD ENGINE decides relevance and continuity pressure rather than inventing truth.
+
+## 🧪 Live-story hardening
+
+The engine is also regression-tested against a large, long-running Story Card library rather than synthetic fixtures alone. That testing hardened several edge cases that matter in real adventures: address forms such as `Dr. Name`, short-name aliases that collide with Event titles, quoted organization labels, existing manual cards whose type must not be overwritten, malformed legacy combined configs, and relationship scenes where the model omits private Crossed Wires tags.
+
+When private relationship tags are missing, Crossed Wires can conservatively recover **observable NPC actions** from visible prose—support, reassurance, protection, apology, forgiveness, betrayal, rescue, hugs/embraces and related events. A proven protagonist name is resolved to `YOU`; the fallback never invents the player's feelings, attraction, consent, choices or private thoughts.
+
