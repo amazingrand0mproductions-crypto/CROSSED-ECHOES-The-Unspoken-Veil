@@ -94,8 +94,16 @@ var twistsModifier = (text) => {
 
     try {
     if (c.forcePlant) {
-      const existing = Library.findThreadFuzzy(c, c.forcePlant.entity);
-      if (!existing) Library.createThread(c, c.forcePlant.entity, c.forcePlant.category, c.turn, cfg);
+      // /plant is author intent, not factual evidence. It creates (or reuses)
+      // the requested category without pretending the story has already
+      // supplied a clue. Explicit categories can coexist up to the normal
+      // per-entity cap instead of being blocked by some unrelated old thread.
+      const planted = Library.createThread(c, c.forcePlant.entity, c.forcePlant.category, c.turn, cfg);
+      if (planted) {
+        planted.source = "manual";
+        planted.manualPlant = true;
+        if (!planted.evidenceRecords || !planted.evidenceRecords.length) planted.storyEvidenceTouches = 0;
+      }
       c.forcePlant = null;
     }
 
@@ -141,6 +149,7 @@ var twistsModifier = (text) => {
       let thread = null;
       if (c.forceEntity === "any") {
         thread = Library.pickPayoffThread(c, cfg) || Library.pickMostBuiltUpBrewingThread(c, cfg);
+        if (thread && cfg.strictLogic !== false && Library.twistGroundingScore(thread) < 0.90) thread = null;
         if (thread && thread.status === "brewing") {
           thread.seedTouches = Math.max(thread.seedTouches, cfg.minSeedsForPayoff);
           thread.tier = Library.tierFor(thread.seedTouches);

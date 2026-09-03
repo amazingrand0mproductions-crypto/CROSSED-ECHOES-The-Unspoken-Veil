@@ -74,11 +74,13 @@ TWISTS AND TURNS watches for story-supported possibilities and develops them ove
 
 A twist can be planted, reinforced through later evidence and held back until there is enough support for a payoff. Existing threads use **semantic reinforcement**, so later evidence does not need to repeat the original trigger wording. A future-warning thread can mature through a blood sample, chronal residue, a resonance match, a contradictory date, an alternate-self sighting, a recovered component or another clearly related development.
 
+Evidence is deliberately conservative. **The same clue cannot be counted twice**, one Story Card contributes one evidence touch, and explicit counter-evidence such as a ruled-out theory weakens a thread instead of secretly strengthening it. Background Story Cards only seed current twist threads when they contain a genuinely open/uncertain hook; archive-only profiles, completed history and canon rules such as “do not reopen this” stay dormant unless the live story reactivates them.
+
 The system is designed around one important rule:
 
 > **Suspicion is not proof.**
 
-A private fear, relationship problem or interesting NPC can make a plot thread more relevant, but it cannot magically prove that a betrayal, hidden identity, conspiracy or secret is true.
+A private fear, relationship problem or interesting NPC can make a plot thread more relevant, but it cannot magically prove that a betrayal, hidden identity, conspiracy or secret is true. With `strictLogic=true`, compound reveals also need an already-established bridge between their threads, and `/twist` is a pacing override for a supported reveal rather than a loophole for creating new canon. Confirmed payoffs save the **actual revealed fact** into established-twist memory so later continuity remembers what was revealed, not just the category name.
 
 This keeps twists tied to the story that actually happened.
 
@@ -620,7 +622,7 @@ Compatibility aliases from older merged builds are also slash commands:
 /rescan
 ```
 
-`/twist` forces the next eligible payoff. `/plant` starts a thread deliberately. `/threads` writes a spoiler-safe brewing overview. The remaining controls tune or inspect the twist engine without advancing the story.
+`/twist` accelerates the next **supported** payoff. With `strictLogic=true`, it refuses to manufacture an unsupported secret; disabling strict logic can permit configured wildcard behaviour. `/plant` starts a plotting thread deliberately but contributes **zero factual evidence** by itself. `/threads` writes a spoiler-safe brewing overview. The remaining controls tune or inspect the twist engine without advancing the story.
 
 ### ❤️ Crossed Wires
 
@@ -679,20 +681,27 @@ A dedicated 48-turn camera-flow torture test repeatedly cycles social → invest
 
 ---
 
+### 🧩 Documented host-field compatibility
+
+CROSSED ECHOES no longer depends on `title`, `description` or other non-guaranteed Story Card properties surviving between isolated hooks. Managed config identity uses inert sentinel triggers, and entity identity can be reconstructed from canonical Entry forms (`Name:`, `{title: ...}`, `[NAME: ...]`) plus safe trigger aliases. Compatibility names are hook-local and non-enumerable, so the resolver does not pollute manual Story Card objects.
+
 ## 🧪 Testing
 
 The package includes:
 
 ```text
 run_tests.js
+twists_hardening_tests.js
 world_engine_tests.js
+host_contract_tests.js
 stress_test.js
 high_concept_stress_test.js
 codex_noise_stress_test.js
 world_engine_long_stress_test.js
 fluidity_stress_test.js
-node relationship_foundation_stress_test.js
-CE_CACHE_STRESS=1 node relationship_foundation_stress_test.js
+relationship_foundation_stress_test.js
+second_dawn_codex_replay_test.js
+second_dawn_twist_replay_test.js
 ```
 
 They cover the integration between the three engines, Story Card generation, entity detection, knowledge boundaries, Retry handling, context budgeting, output cleanup and both Standard and Optimized Context behavior.
@@ -701,6 +710,9 @@ Run them with:
 
 ```bash
 node run_tests.js
+node twists_hardening_tests.js
+node world_engine_tests.js
+node host_contract_tests.js
 node stress_test.js
 CE_CACHE_STRESS=1 node stress_test.js
 node high_concept_stress_test.js
@@ -709,9 +721,9 @@ node codex_noise_stress_test.js
 CE_CACHE_STRESS=1 node codex_noise_stress_test.js
 node second_dawn_codex_replay_test.js
 CE_CACHE_STRESS=1 node second_dawn_codex_replay_test.js
+node second_dawn_twist_replay_test.js
 CE_LIBRARY_FILL=4980 node second_dawn_codex_replay_test.js
 CE_LIBRARY_FILL=4980 CE_CACHE_STRESS=1 node second_dawn_codex_replay_test.js
-node world_engine_tests.js
 node world_engine_long_stress_test.js
 CE_CACHE_STRESS=1 node world_engine_long_stress_test.js
 node fluidity_stress_test.js
@@ -720,7 +732,7 @@ node relationship_foundation_stress_test.js
 CE_CACHE_STRESS=1 node relationship_foundation_stress_test.js
 ```
 
-Current verification: **175/175 core integration/regression tests pass** and **31/31 WORLD ENGINE tests pass**. The self-contained 312-card relationship fixture passes in Standard and Optimized Context, while the live **324-card SECOND DAWN** export reconstructs **191 directional relationship foundations** and passes the hardened relationship replay in both modes. WORLD ENGINE's matrix covers **30 supported scenario families, 12 hybrid combinations, genre-neutral handling and 20 scene modes**. Standard and Optimized large-library, high-concept, CODEX anti-junk, rotating-world and fluid camera-flow stress suites all pass, and Optimized Context preserves the exact host prefix. The live SECOND DAWN CODEX replay preserves authoritative manual canon such as unresolved **Sovereign Zero**, correctly resolves **Mira → Mira Vail**, creates **Klaus Von Heisler** and **Symmetry Cell**, and rejects bare-title junk such as **Dr**. The synthetic capacity replay also passes with **4,980 pre-existing Story Cards** in both modes and remains below the 5,000-card ceiling. The current polish pass also adds bounded head+tail Story Card sampling so late-story entities remain visible in huge libraries, a streaming Story Card fingerprint to reduce temporary heap pressure, conservative cross-turn AI-output deduplication, and UNSAID observable-behaviour continuity that is explicitly kept separate from private thoughts.
+Current verification: **175/175 core integration/regression tests pass**, **23/23 dedicated TWISTS hardening tests pass**, **31/31 WORLD ENGINE tests pass**, and a new **6/6 official-host compatibility suite passes**. The host suite intentionally discards non-documented Story Card fields between isolated hooks, proving that the five config cards, setting changes, titleless entity identity, Established Facts and player/model history attribution survive on AI Dungeon's documented `id / keys / entry / type` contract. The live **324-card SECOND DAWN** export still reconstructs **191 directional relationship foundations** in Standard and Optimized Context. Its CODEX replay preserves manual canon such as unresolved **Sovereign Zero**, resolves **Mira → Mira Vail**, creates **Klaus Von Heisler** and **Symmetry Cell**, and rejects bare-title junk such as **Dr**. A live-library capacity replay padded to **4,980 pre-existing Story Cards** passes in both modes; after the performance hardening its measured p95 is about **1.35 s Standard** and **1.32 s Optimized**, leaving materially more headroom below the host's 2-second hook limit. The speedup comes from eliminating redundant whole-library player-identity scans during relationship bootstrap and avoiding heavyweight alias parsing for irrelevant cards—not from disabling continuity features.
 
 
 ---
@@ -741,3 +753,8 @@ The engine is also regression-tested against a large, long-running Story Card li
 
 When private relationship tags are missing, Crossed Wires can conservatively recover **observable NPC actions** from visible prose—support, reassurance, protection, apology, forgiveness, betrayal, rescue, hugs/embraces and related events. A proven protagonist name is resolved to `YOU`; the fallback never invents the player's feelings, attraction, consent, choices or private thoughts.
 
+
+
+### Twist hardening audit
+
+See `TWISTS_HARDENING_AUDIT.txt` for the dedicated TWISTS AND TURNS 1.3.1 live-story audit and final regression results.

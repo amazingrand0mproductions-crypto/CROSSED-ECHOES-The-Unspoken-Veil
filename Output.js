@@ -34,6 +34,8 @@ var twistsModifier = (text) => {
       thread.status = "resolved";
       thread.resolvedTurn = c.turn;
       thread.confirmMisses = 0;
+      const revealedFact = Library.extractResolvedTwistFact ? Library.extractResolvedTwistFact(thread, text) : "";
+      thread.resolvedFact = revealedFact || "";
       c.twistLog.push({
         entity: thread.entity,
         category: thread.category,
@@ -42,7 +44,8 @@ var twistsModifier = (text) => {
         wildcard: !!thread.wildcard,
         mature: !!thread.mature || Library.isMatureCategory(thread.category),
         source: thread.source || "live",
-        compoundWith: partnerName || null
+        compoundWith: partnerName || null,
+        fact: revealedFact || ""
       });
       Library.createTwistStoryCard(c, cfg, thread, partnerName || null);
 
@@ -126,12 +129,19 @@ var twistsModifier = (text) => {
       const thread = c.threads.find(t => t.id === c.pendingSeedId);
       if (thread && thread.status === "brewing") {
         if (confirmedSeeds.has(thread.id)) {
-          thread.seedTouches += 1;
-          thread.storyEvidenceTouches = (thread.storyEvidenceTouches || 0) + 1;
+          // The marker proves the model rendered a setup beat, but repeating
+          // the same beat is still not a second clue. Reuse the evidence
+          // signature model before increasing maturity.
+          const added = Library.rememberTwistEvidence ? Library.rememberTwistEvidence(thread, text, c, {}) : true;
+          if (added) {
+            thread.seedTouches = Math.min(200, Number(thread.seedTouches || 1) + 1);
+            if (thread.lastEvidenceLevel !== "hypothesis") thread.storyEvidenceTouches = (thread.storyEvidenceTouches || 0) + 1;
+            else thread.hypothesisTouches = (thread.hypothesisTouches || 0) + 1;
+            thread.lastSeedTurn = c.turn;
+            thread.tier = Library.tierFor(thread.seedTouches);
+            if (Library.isEligible(thread, c, cfg)) thread.status = "ready";
+          }
           thread.seedConfirmMisses = 0;
-          thread.lastSeedTurn = c.turn;
-          thread.tier = Library.tierFor(thread.seedTouches);
-          if (Library.isEligible(thread, c, cfg)) thread.status = "ready";
         } else {
           thread.seedConfirmMisses = (thread.seedConfirmMisses || 0) + 1;
         }

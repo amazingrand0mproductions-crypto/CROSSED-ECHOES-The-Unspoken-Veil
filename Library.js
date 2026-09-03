@@ -11,6 +11,103 @@ var CE_CONFIG_TITLE_ECHO = "CROSSED ECHOES — Config — ECHO VEIL";
 var CE_CONFIG_TITLE_CODEX = "CROSSED ECHOES — Config — CODEX";
 var CE_CONFIG_TITLE_INTEGRATION = "CROSSED ECHOES — Config — INTEGRATION";
 
+
+// Story Card persistence compatibility.
+// AI Dungeon's documented scripting contract guarantees only id/keys/entry/type
+// on live Story Cards and only the 3-argument add/update helpers. Newer builds
+// may expose title/name/description/notes too, but those fields must never be
+// required for identity or persistence across isolated hooks.
+function CE_cardKeysCore(card) {
+  if (!card) return "";
+  return Array.isArray(card.keys) ? card.keys.join(",") : String(card.keys || "");
+}
+function CE_cardEntryCore(card) {
+  if (!card) return "";
+  if (card.entry != null && String(card.entry).trim()) return String(card.entry);
+  if (card.value != null && String(card.value).trim()) return String(card.value);
+  return "";
+}
+function CE_cardIdentityName(card) {
+  if (!card) return "";
+  const direct = String(card.title || card.name || "").trim();
+  if (direct) return direct;
+  const entry = CE_cardEntryCore(card);
+  let m = entry.match(/(?:^|\n)\s*(?:Name|Title)\s*:\s*([^\n]{1,120})/i);
+  if (!m) m = entry.match(/(?:^|\n)\s*\{title\s*:\s*([^}\n]{1,120})\}/i);
+  if (!m) m = entry.match(/(?:^|\n)\s*\[NAME\s*:\s*([^\]\n]{1,120})\]/i);
+  if (m) return String(m[1] || "").replace(/^['"“”‘’]+|['"“”‘’]+$/g, "").trim();
+  if (/config/i.test(String(card.type || ""))) return "";
+  const keys = CE_cardKeysCore(card).split(",").map(function(x){ return x.trim(); }).filter(Boolean);
+  for (let i = 0; i < keys.length; i++) {
+    if (/^__.*__$/.test(keys[i])) continue;
+    if (/^(?:the|a|an|and|you|said|was|is)$/i.test(keys[i])) continue;
+    return keys[i];
+  }
+  return "";
+}
+function CE_hasCardKey(card, wanted) {
+  const key = String(wanted || "").trim().toLowerCase();
+  if (!key) return false;
+  return CE_cardKeysCore(card).toLowerCase().split(",").map(function(x){ return x.trim(); }).indexOf(key) >= 0;
+}
+function CE_commitCoreStoryCard(card, keys, entry, type) {
+  if (!card) return false;
+  const k = Array.isArray(keys) ? keys.join(",") : String(keys == null ? "" : keys);
+  const e = String(entry == null ? "" : entry);
+  const t = String(type == null ? "" : type);
+  let index = -1, apiOk = false;
+  try { if (typeof storyCards !== "undefined" && Array.isArray(storyCards)) index = storyCards.indexOf(card); } catch (_) {}
+  if (index >= 0 && typeof updateStoryCard === "function") {
+    try { updateStoryCard(index, k, e, t); apiOk = true; } catch (_) {}
+  }
+  const current = (index >= 0 && typeof storyCards !== "undefined" && storyCards[index]) ? storyCards[index] : card;
+  try { current.keys = k; current.entry = e; current.type = t; if (current.value !== undefined) current.value = e; } catch (_) {}
+  return apiOk || index >= 0;
+}
+
+var CE_CONFIG_KEY_UNSAID = "__crossed_echoes_config_unsaid__";
+var CE_CONFIG_KEY_CODEX = "__crossed_echoes_config_codex__";
+var CE_CONFIG_KEY_CROSSED = "__crossed_echoes_config_crossed_wires__";
+var CE_CONFIG_KEY_ECHO = "__echo_veil_config__";
+var CE_CONFIG_KEY_INTEGRATION = "__crossed_echoes_integration__";
+var CE_TWIST_FACTS_SENTINEL = "__crossed_echoes_established_facts__";
+
+function CE_coreConfigTitle(card) {
+  if (CE_hasCardKey(card, CE_CONFIG_KEY_UNSAID)) return CE_CONFIG_TITLE_UNSAID;
+  if (CE_hasCardKey(card, CE_CONFIG_KEY_CODEX)) return CE_CONFIG_TITLE_CODEX;
+  if (CE_hasCardKey(card, CE_CONFIG_KEY_CROSSED)) return CE_CONFIG_TITLE_CROSSED;
+  if (CE_hasCardKey(card, CE_CONFIG_KEY_ECHO)) return CE_CONFIG_TITLE_ECHO;
+  if (CE_hasCardKey(card, CE_CONFIG_KEY_INTEGRATION)) return CE_CONFIG_TITLE_INTEGRATION;
+  if (CE_hasCardKey(card, CE_TWIST_FACTS_SENTINEL)) return "CROSSED ECHOES — Established Facts";
+  return "";
+}
+function CE_hydrateStoryCardCompat() {
+  // title/name are convenient host extensions, not persistence primitives.
+  // Reconstruct them ephemerally every isolated hook so legacy helper paths
+  // remain fast while all durable identity lives in keys/entry/type.
+  try {
+    if (typeof storyCards === "undefined" || !Array.isArray(storyCards)) return 0;
+    let hydrated = 0;
+    for (let i = 0; i < storyCards.length; i++) {
+      const card = storyCards[i];
+      if (!card) continue;
+      let name = String(card.title || card.name || "").trim();
+      if (!name) name = CE_coreConfigTitle(card) || CE_cardIdentityName(card);
+      if (!name) continue;
+      try {
+        if (!card.title) Object.defineProperty(card, "title", { value:name, writable:true, configurable:true, enumerable:false });
+        if (!card.name) Object.defineProperty(card, "name", { value:name, writable:true, configurable:true, enumerable:false });
+        hydrated++;
+      } catch (_) {
+        // Frozen/non-extensible host objects are still supported because every
+        // correctness-critical lookup also calls CE_cardIdentityName directly.
+      }
+    }
+    return hydrated;
+  } catch (_) { return 0; }
+}
+CE_hydrateStoryCardCompat();
+
 // AI Dungeon added cache-compatible V1 Context scripts in mid-2026. In that
 // mode the host only accepts a returned Context when the entire original
 // prompt is preserved as an unchanged prefix and script guidance is appended
@@ -62,7 +159,7 @@ function CE_noteCacheCompatibleSeen() {
   } catch (_) {}
 }
 
-var CP_VERSION = "1.3";
+var CP_VERSION = "1.3.1";
 
 // Shared by both systems' name/entity detection (TWISTS AND TURNS'
 // findEntityInSentence and UNSAID's CODEX_NAME_TOKEN below) — the set of
@@ -894,7 +991,10 @@ var CP_LOOSE_THREAD_PATTERNS = [
   { rx: /\b(lied about|wasn't telling the (whole )?truth|a half-truth)\b/i, cat: "hiddenIdentity" },
   { rx: /\b(for reasons (of )?(their|his|her) own|refused to explain|declined to say why)\b/i, cat: "ulteriorMotive" },
   { rx: /\b(more (to (this|it) )?than (it|they) (seemed|let on)|not (everything|the whole story))\b/i, cat: "misdirection" },
-  { rx: /\b(reported dead|presumed dead|thought (dead|lost) )\b/i, cat: "fakedDefeat" },
+  // A death status alone is not a twist. Require contradictory survival evidence;
+  // "presumed dead" is common archive canon and used to create dozens of
+  // unsupported resurrection/faked-death threads.
+  { rx: /\b(?:reported dead|presumed dead|thought (?:dead|lost))\b.{0,70}\b(?:but|yet|however)\b.{0,70}\b(?:seen alive|alive|returned|sighting|signal|message|transmission|body was missing|body never found)\b/i, cat: "fakedDefeat" },
   { rx: /\b(had been planning|this was no coincidence|part of something (bigger|larger))\b/i, cat: "longConGame" },
   { rx: /\b(a test|being tested|to see (if|whether) (they|he|she))\b/i, cat: "theTest" },
   { rx: /\b(wasn't (the )?(real|original)|an impostor|had (replaced|been replacing))\b/i, cat: "notTheOriginal" },
@@ -967,7 +1067,9 @@ var CP_LOOSE_THREAD_PATTERNS = [
   { rx: /\b(consensus was manufactured|everyone agrees .{0,20} manufactured|only a few made it seem everyone agreed)\b/i, cat: "falseConsensus" },
   { rx: /\b(secret contingency plan|insurance plan no one knew about|backup plan was already in place)\b/i, cat: "theInsurance" },
   { rx: /\b(wrong timeline|not the year they thought|events were out of order|timeframe was wrong)\b/i, cat: "wrongTimeline" },
-  { rx: /\b(the simulation|constructed reality|controlled environment masquerading as reality|reality was simulated)\b/i, cat: "theSimulation" },
+  // Technical/combat simulations are ordinary tools, not proof reality itself is
+  // simulated. Require reality/world/environment semantics.
+  { rx: /\b(?:inside (?:a|the) simulation|world (?:is|was) (?:a )?simulation|reality (?:is|was) simulated|constructed reality|controlled environment masquerading as reality|simulation masquerading as reality)\b/i, cat: "theSimulation" },
   { rx: /\b(recording contradicted|footage didn\'t match|audio contradicted|captured image told a different story)\b/i, cat: "theRecording" },
   { rx: /\b(dream was real|vision was a real warning|what seemed like a dream actually happened)\b/i, cat: "dreamWithinReality" },
   { rx: /\b(stand-in for the real|decoy stood in for|substitute was used in place of the real)\b/i, cat: "theStandin" },
@@ -1059,9 +1161,12 @@ var CP_SCENARIO_HINT_PATTERNS = [
   { rx: /\b(true identity|disguised as|masquerading as|not what (he|she|they) seem)\b/i, cat: "hiddenIdentity" },
   { rx: /\b(exiled|banished|forbidden|sealed away)\b/i, cat: "buriedPast" },
   { rx: /\b(cursed|prophecy (foretells|speaks of)|rumored to)\b/i, cat: "theWarningWasReal" },
-  { rx: /\b(believed to be dead|vanished decades ago|long-lost)\b/i, cat: "fakedDefeat" },
+  { rx: /\b(?:believed to be dead.{0,60}(?:but|yet).{0,45}(?:alive|returned|sighting|signal)|vanished decades ago.{0,45}(?:new sighting|message|signal|returned)|long[- ]lost.{0,35}(?:returned|appeared|contacted))\b/i, cat: "fakedDefeat" },
   { rx: /\b(sworn enemy|betrayed by|harbors? a grudge|seeks revenge)\b/i, cat: "trustedFlip" },
-  { rx: /\b(double life|spy for|loyal only to|clandestine|conspiracy)\b/i, cat: "doubleAgent" },
+  // "Conspiracy" by itself is intentionally NOT a double-agent clue. It is
+  // ordinary mystery/political vocabulary and produced false character twists
+  // in long ensemble stories. Require an actual covert-role signal instead.
+  { rx: /\b(double life|spy for|loyal only to|clandestine|working for (?:the|a) other side|inside (?:the|a) group for another side)\b/i, cat: "doubleAgent" },
   { rx: /\b(usurper|illegitimate heir)\b/i, cat: "notTheOriginal" },
   { rx: /\b(bound by an oath|debt (is |was )?owed)\b/i, cat: "secretDebt" },
   { rx: /\bcursed bloodline\b/i, cat: "familyCurse" },
@@ -1522,6 +1627,13 @@ var Library = (() => {
       if (typeof t.lastDevelopment !== "string") t.lastDevelopment = t.evidence.length ? t.evidence[t.evidence.length-1] : "";
       if (typeof t.lastDevelopmentTurn !== "number") t.lastDevelopmentTurn = t.lastSeedTurn;
       if (typeof t.semanticDomain !== "string" || !t.semanticDomain) t.semanticDomain = twistSemanticDomain(t.category, t.lastDevelopment || "");
+      if (!Array.isArray(t.counterEvidence)) t.counterEvidence = [];
+      t.counterEvidence = t.counterEvidence.map(function(x){ return String(x || "").replace(/\s+/g," ").trim(); }).filter(Boolean).slice(-6);
+      if (!Array.isArray(t.counterEvidenceSignatures)) t.counterEvidenceSignatures = t.counterEvidence.map(function(x){ return twistEvidenceSignature(x); }).filter(Boolean).slice(-8);
+      if (typeof t.counterTouches !== "number" || !isFinite(t.counterTouches)) t.counterTouches = t.counterEvidence.length;
+      t.counterTouches = Math.max(0, Math.floor(t.counterTouches));
+      if (typeof t.lastCounterTurn !== "number") t.lastCounterTurn = -999;
+      if (t.source === "manual" && !t.evidenceRecords.length) t.storyEvidenceTouches = 0;
       t.mature = isMatureCategory(t.category);
       if (t.mature && typeof t.adultConfirmed !== "boolean") {
         t.adultConfirmed = isEntityConfirmedAdult(t.entity, "");
@@ -1707,9 +1819,10 @@ var Library = (() => {
         let used = 0;
         for (let i = storyCards.length - 1; i >= 0 && used < 12; i--) {
           const card = storyCards[i];
-          if (!card || !card.title || isOwnCard(card.title)) continue;
+          const cardName = CE_cardIdentityName(card);
+          if (!card || !cardName || isOwnCard(cardName)) continue;
           const publicNotes = (typeof CE_publicStoryCardNotes === "function") ? CE_publicStoryCardNotes(card) : String(card.description || "");
-          parts.push([card.title, card.entry, publicNotes].filter(Boolean).join(" ").slice(0, 900));
+          parts.push([cardName, CE_cardEntryCore(card), publicNotes].filter(Boolean).join(" ").slice(0, 900));
           used++;
         }
       }
@@ -1870,12 +1983,13 @@ var Library = (() => {
     if (!entity || typeof storyCards === "undefined" || !Array.isArray(storyCards)) return "";
     for (let i = 0; i < storyCards.length; i++) {
       const card = storyCards[i];
-      if (!card || !card.title) continue;
+      const cardName = CE_cardIdentityName(card);
+      if (!card || !cardName) continue;
       let same = false;
       try {
         same = typeof isSameCardEntity === "function"
-          ? isSameCardEntity(card.title, entity)
-          : String(card.title).toLowerCase() === String(entity).toLowerCase();
+          ? isSameCardEntity(cardName, entity)
+          : String(cardName).toLowerCase() === String(entity).toLowerCase();
       } catch (e) {}
       if (!same) continue;
       const type = String(card.type || "").trim().toLowerCase();
@@ -1888,7 +2002,7 @@ var Library = (() => {
 
       if (!directOnly) {
         const publicNotes = (typeof CE_publicStoryCardNotes === "function") ? CE_publicStoryCardNotes(card) : String(card.description || "");
-        return [card.title, card.entry, publicNotes].filter(Boolean).join(" ");
+        return [cardName, card.entry, publicNotes].filter(Boolean).join(" ");
       }
 
       // For age-gating, use fields that describe the character directly.
@@ -2028,7 +2142,7 @@ var Library = (() => {
     // small overflow before sorting so longer/more-specific names still win.
     const collectionCap = cap && hasSource ? cap * 2 : 0;
     for (let i = 0; i < storyCards.length; i++) {
-      const title = storyCards[i] && storyCards[i].title;
+      const title = storyCards[i] ? CE_cardIdentityName(storyCards[i]) : "";
       if (!title || isOwnCard(title)) continue;
       if (hasSource && !knownEntityLiteralAppears(title, source, sourceLower)) continue;
       out.push(title);
@@ -2096,7 +2210,7 @@ var Library = (() => {
   }
 
   function findThread(c, entity, category) {
-    return c.threads.find(t => t.entity === entity && t.category === category);
+    return c.threads.find(t => t.category === category && isSameCardEntity(t.entity, entity));
   }
 
   // Fuzzy variant for player-typed input (the /plant command) — matches on
@@ -2108,7 +2222,7 @@ var Library = (() => {
   }
 
   function priorTwistCountFor(c, entity) {
-    return c.twistLog.filter(t => t.entity === entity).length;
+    return c.twistLog.filter(t => isSameCardEntity(t.entity, entity)).length;
   }
 
   // ----------------------------------------------------------------------
@@ -2196,15 +2310,16 @@ var Library = (() => {
   }
 
   function twistEvidenceCounts(thread) {
-    const counts = { observed:0, reported:0, inference:0, hypothesis:0 };
+    const counts = { observed:0, reported:0, inference:0, hypothesis:0, counter:0 };
     const records = thread && Array.isArray(thread.evidenceRecords) ? thread.evidenceRecords : [];
     records.forEach(function(r){ const k = r && counts.hasOwnProperty(r.level) ? r.level : "hypothesis"; counts[k] += 1; });
+    counts.counter = Math.max(counts.counter, Number(thread && thread.counterTouches || 0));
     return counts;
   }
 
   function twistGroundingScore(thread) {
     const c = twistEvidenceCounts(thread);
-    return c.observed + c.reported * 0.70 + c.inference * 0.55;
+    return Math.max(0, c.observed + c.reported * 0.70 + c.inference * 0.55 - c.counter * 1.10);
   }
 
   function twistEvidenceQualityText(thread) {
@@ -2216,6 +2331,94 @@ var Library = (() => {
     if (c.reported > 0) return "supported by a reported claim that is not yet independently verified";
     if (c.inference > 0) return "supported by expert or contextual inference rather than direct proof";
     return "still only a hypothesis; repetition does not promote it to fact";
+  }
+
+  // Strong negative canon must never be mined as positive setup.  This is kept
+  // deliberately narrower than a generic "not" check so phrases such as
+  // "not fully human" remain valid positive evidence for their own category.
+  function twistIsCounterEvidence(text) {
+    const t = String(text || "").replace(/\s+/g, " ").trim();
+    if (!t) return false;
+    return /\b(?:false lead|closed false lead|ruled out|rules? (?:him|her|them|it|this|that)?\s*out|no evidence (?:links?|connects?|ties?)|nothing (?:links?|connects?|ties?)|no connection (?:to|between)|not connected to|unrelated to|has nothing to do with|does not explain|doesn't explain|did not cause|didn't cause|not responsible for|confirmed (?:as )?(?:unrelated|not involved)|locked exclusion|locked exclusions|clean canon separation|clean canon resolution|canon correction|not the (?:builder|cause|source|answer|mechanism|explanation)|isn't the (?:builder|cause|source|answer|mechanism|explanation)|is not the (?:builder|cause|source|answer|mechanism|explanation)|(?:is|are|was|were|did|does|do|has|have|had) not secretly\b|\bnot\s+(?:an?|the)?\s*(?:operative|agent|builder|mastermind|controller)\b|do not (?:secretly )?(?:make|treat|assume|reopen|recycle|connect|merge|resurrect|use)\b|never (?:secretly )?(?:assume|treat|connect|merge|reopen|recycle|resurrect)\b)\b/i.test(t);
+  }
+
+  // Figurative comparisons are texture, not biomedical evidence.  The guard is
+  // intentionally limited to explicit comparison grammar so a literal
+  // "parasite was recovered from the sample" still works normally.
+  function twistIsMetaphoricalThreatLanguage(text) {
+    const t = String(text || "").replace(/\s+/g, " ").trim();
+    if (!t) return false;
+    return /\b(?:looks?|looked|seems?|seemed|appears?|appeared|resembles?|resembled|shaped)\s+(?:almost\s+|eerily\s+|exactly\s+)?(?:like|as)\s+(?:an?\s+)?(?:parasite|virus|infection|plague|disease|cancer)\b/i.test(t) ||
+      /\b(?:like|as if|akin to|resembling)\s+(?:an?\s+)?(?:parasite|virus|infection|plague|disease|cancer)\b/i.test(t) ||
+      /\b(?:parasite|virus|infection|plague|disease|cancer)[- ]like\b/i.test(t);
+  }
+
+  function twistSentenceEligibleForDiscovery(text, sourceTag) {
+    const t = String(text || "").replace(/\s+/g, " ").trim();
+    if (!t) return false;
+    if (twistIsCounterEvidence(t)) return false;
+    if (twistIsMetaphoricalThreatLanguage(t)) return false;
+    // Diagnostics/rules are metadata, not world events.
+    if (/^(?:rule|story rule|locked fact|locked exclusion|clean canon|canon correction|archive context|historical archive|triggers disabled|current impact|current status)\s*:/i.test(t)) return false;
+    if (sourceTag === "storycard" && /^\s*[\[{]?(?:true[_ ]nature|personality|appearance|status|powers?|background|goals?|threats?|affiliation|tier|biology|role|objective|public[_ ]image|overview|key[_ ]areas?|notes?)\s*:/i.test(t)) return false;
+    if (sourceTag === "storycard" && /\b(?:TRIGGERS DISABLED|archive card|historical archive profile|no confirmed appearance in (?:the )?(?:newest|supplied|current) story corpus)\b/i.test(t)) return false;
+    return true;
+  }
+
+  function twistCardIsArchiveOnly(card, haystack) {
+    const d = String(card && (card.description || card.notes) || "");
+    const h = String(haystack || "");
+    return /\bTRIGGERS DISABLED\b/i.test(d) ||
+      /\bARCHIVE CONTEXT\b/i.test(h) ||
+      /\bhistorical archive profile\b/i.test(h) ||
+      /\bno confirmed appearance in (?:the )?(?:newest|supplied|current) story corpus\b/i.test(h) ||
+      /\bTYPE\s*:\s*(?:completed|historical)\b/i.test(h) ||
+      /\bmission remains historical\b/i.test(h);
+  }
+
+  function twistCardHasOpenHook(haystack) {
+    const h = String(haystack || "");
+    // "Optional unresolved threat, not the default explanation" is an explicit
+    // dormant-lore instruction. Keep it dormant until live story evidence
+    // actually brings it back on camera.
+    if (/\bOPTIONAL unresolved threat\b[\s\S]{0,180}\bnot the default\b/i.test(h)) return false;
+    return /\b(?:OPEN MYSTERY|UNRESOLVED|UNKNOWN|NOT YET PROVEN|NOT CONFIRMED|unconfirmed|not independently confirmed|remaining mystery|still unknown|uncertain|allegedly|implying|suggests?|suspected|rumou?red|open question|has not yet|have not yet|not yet lived)\b/i.test(h);
+  }
+
+  function twistStoryCardSentenceScore(sentence) {
+    const t = String(sentence || "");
+    let score = 0;
+    if (/\b(?:OPEN MYSTERY|UNRESOLVED|UNKNOWN|NOT YET PROVEN|NOT CONFIRMED|unconfirmed|remaining mystery|uncertain|allegedly|implying|suggests?|suspected|rumou?red|not yet lived)\b/i.test(t)) score += 5;
+    if (/\b(?:evidence|clue|trace|signature|anomaly|contradiction|witness|record|sample|residue|signal)\b/i.test(t)) score += 2;
+    if (/\b(?:died|dead|imploded|destroyed|completed|historical|final action|status)\b/i.test(t)) score -= 2;
+    if (/^\s*[\[{]?(?:true[_ ]nature|personality|appearance|status|powers?|background|goals?|threats?|affiliation|tier|biology|role|objective|public[_ ]image|overview|key[_ ]areas?|notes?)\s*:/i.test(t)) score -= 6;
+    return score;
+  }
+
+  function rememberTwistCounterEvidence(thread, evidenceText, c) {
+    if (!thread || !evidenceText) return false;
+    const clean = twistClipEvidence(evidenceText, 320);
+    if (!clean) return false;
+    const sig = twistEvidenceSignature(clean);
+    if (!sig) return false;
+    if (!Array.isArray(thread.counterEvidence)) thread.counterEvidence = [];
+    if (!Array.isArray(thread.counterEvidenceSignatures)) thread.counterEvidenceSignatures = [];
+    const duplicate = thread.counterEvidenceSignatures.some(function(old){
+      return old === sig || twistEvidenceOverlap(old, sig) >= 0.82;
+    });
+    if (duplicate) return false;
+    thread.counterEvidence.push(clean);
+    if (thread.counterEvidence.length > 6) thread.counterEvidence = thread.counterEvidence.slice(-6);
+    thread.counterEvidenceSignatures.push(sig);
+    if (thread.counterEvidenceSignatures.length > 8) thread.counterEvidenceSignatures = thread.counterEvidenceSignatures.slice(-8);
+    thread.counterTouches = Math.min(20, Number(thread.counterTouches || 0) + 1);
+    // A direct contradiction cannot erase history, but it can revoke readiness
+    // and lower support until genuinely new evidence appears.
+    thread.seedTouches = Math.max(1, Number(thread.seedTouches || 1) - 1);
+    thread.storyEvidenceTouches = Math.max(0, Number(thread.storyEvidenceTouches || 0) - 1);
+    if (thread.status === "ready") thread.status = "brewing";
+    thread.lastCounterTurn = c && typeof c.turn === "number" ? c.turn : thread.lastSeedTurn;
+    return true;
   }
 
   function rememberTwistEvidence(thread, evidenceText, c, options) {
@@ -2291,10 +2494,10 @@ var Library = (() => {
     let cat = category && CP_CATEGORIES[category] ? category : null;
 
     if (cat && !isCategoryAllowed(cat, entity, safeCfg, evidenceText || "")) return null;
+    if (cat && alreadyResolvedCombo(c, entity, cat)) return null;
 
     const activeForEntity = c.threads.filter(t =>
-      t && t.status !== "resolved" &&
-      String(t.entity || "").toLowerCase() === String(entity || "").toLowerCase()
+      t && t.status !== "resolved" && isSameCardEntity(t.entity, entity)
     );
 
     if (cat) {
@@ -2565,19 +2768,23 @@ var Library = (() => {
     try {
       if (!c || !cfg || !cfg.enabled || !cfg.crossSystemSynergy || !entity || !evidenceText) return null;
       if (isPlayerEntity(c, entity) && !cfg.involvePlayer) return null;
-      const category = matchScenarioCategory(evidenceText, entity, cfg);
+      const category = matchScenarioCategory(evidenceText, entity, cfg, "codex");
       if (!category) return null;
       let thread = findThread(c, entity, category);
       if (thread) {
-        if (thread.status === "brewing" && thread.lastSeedTurn !== c.turn) {
-          thread.seedTouches += 1;
+        if (twistIsCounterEvidence(evidenceText)) {
+          rememberTwistCounterEvidence(thread, evidenceText, c);
+        } else if (thread.status === "brewing" && thread.lastSeedTurn !== c.turn) {
           const addedEvidence = rememberTwistEvidence(thread, evidenceText, c, {});
-          if (addedEvidence && thread.lastEvidenceLevel !== "hypothesis") thread.storyEvidenceTouches = (thread.storyEvidenceTouches || 0) + 1;
-          else if (addedEvidence) thread.hypothesisTouches = (thread.hypothesisTouches || 0) + 1;
-          thread.lastSeedTurn = c.turn;
-          thread.tier = tierFor(thread.seedTouches);
-          thread.codexLinked = true;
-          if (isEligible(thread, c, cfg)) thread.status = "ready";
+          if (addedEvidence) {
+            thread.seedTouches = Math.min(200, Number(thread.seedTouches || 1) + 1);
+            if (thread.lastEvidenceLevel !== "hypothesis") thread.storyEvidenceTouches = (thread.storyEvidenceTouches || 0) + 1;
+            else thread.hypothesisTouches = (thread.hypothesisTouches || 0) + 1;
+            thread.lastSeedTurn = c.turn;
+            thread.tier = tierFor(thread.seedTouches);
+            thread.codexLinked = true;
+            if (isEligible(thread, c, cfg)) thread.status = "ready";
+          }
         }
         return thread;
       }
@@ -2649,6 +2856,7 @@ var Library = (() => {
   // pools for what should be the same underlying check.
   function matchAnyThreadPattern(sentence, entity, cfg) {
     const safeCfg = cfg || CP_DEFAULTS;
+    if (!twistSentenceEligibleForDiscovery(sentence, "live")) return null;
     for (const p of CP_ALL_THREAD_PATTERNS) {
       if (!p.rx.test(sentence)) continue;
       if (!isCategoryAllowed(p.cat, entity, safeCfg, sentence)) continue;
@@ -2691,23 +2899,28 @@ var Library = (() => {
 
       const existing = findThread(c, entity, cat);
       if (existing) {
-        if (existing.status === "brewing" && existing.lastSeedTurn !== c.turn) {
-          existing.seedTouches += 1;
+        if (twistIsCounterEvidence(s)) {
+          rememberTwistCounterEvidence(existing, s, c);
+        } else if (existing.status === "brewing" && existing.lastSeedTurn !== c.turn) {
           const addedEvidence = rememberTwistEvidence(existing, s, c, {});
-          if (addedEvidence && existing.lastEvidenceLevel !== "hypothesis") existing.storyEvidenceTouches = (existing.storyEvidenceTouches || 0) + 1;
-          else if (addedEvidence) existing.hypothesisTouches = (existing.hypothesisTouches || 0) + 1;
-          existing.lastSeedTurn = c.turn;
-          existing.tier = tierFor(existing.seedTouches);
-          if (isEligible(existing, c, cfg)) existing.status = "ready";
+          if (addedEvidence) {
+            existing.seedTouches = Math.min(200, Number(existing.seedTouches || 1) + 1);
+            if (existing.lastEvidenceLevel !== "hypothesis") existing.storyEvidenceTouches = (existing.storyEvidenceTouches || 0) + 1;
+            else existing.hypothesisTouches = (existing.hypothesisTouches || 0) + 1;
+            existing.lastSeedTurn = c.turn;
+            existing.tier = tierFor(existing.seedTouches);
+            if (isEligible(existing, c, cfg)) existing.status = "ready";
+          }
         }
-      } else {
+      } else if (!twistIsCounterEvidence(s)) {
         createThread(c, entity, cat, c.turn, cfg, s);
       }
     }
   }
 
-  function matchScenarioCategory(text, entity, cfg) {
+  function matchScenarioCategory(text, entity, cfg, sourceTag) {
     if (!text) return null;
+    if (!twistSentenceEligibleForDiscovery(text, sourceTag || "scenario")) return null;
     const safeCfg = cfg || CP_DEFAULTS;
     for (const p of CP_ALL_THREAD_PATTERNS) {
       if (!p.rx.test(text)) continue;
@@ -2718,14 +2931,17 @@ var Library = (() => {
   }
 
   function alreadyResolvedCombo(c, entity, category) {
-    return c.twistLog.some(t => t.entity === entity && t.category === category);
+    return c.twistLog.some(t => t && t.category === category && isSameCardEntity(t.entity, entity));
   }
 
   function creditPartialThread(c, entity, category, cfg, source, evidenceText) {
     const originTurn = c.turn - Math.floor(cfg.minTurnsForPayoff / 2);
     const thread = createThread(c, entity, category, originTurn, cfg, evidenceText || "");
     if (!thread) return null;
-    thread.seedTouches = Math.max(1, Math.ceil(cfg.minSeedsForPayoff / 2));
+    // One Story Card or memory field is one source, therefore one clue.
+    // Older builds pre-credited half of minSeeds, so a single lore card could
+    // become artificially mature just because the user raised minSeeds.
+    thread.seedTouches = 1;
     thread.tier = tierFor(thread.seedTouches);
     thread.source = source;
     if (isEligible(thread, c, cfg)) thread.status = "ready";
@@ -2739,33 +2955,57 @@ var Library = (() => {
     // card against every twist pattern in a single modifier pass caused the
     // worst first-turn spikes. Current-scene cards are processed immediately;
     // background lore is inspected through a small rotating slice.
-    const processCard = card => {
-      if (!card || !card.title || isOwnCard(card.title)) return false;
+    const processCard = (card, preferredActive) => {
+      const cardName = CE_cardIdentityName(card);
+      if (!card || !cardName || isOwnCard(cardName)) return false;
       const descriptionWithoutPrivateThoughts = typeof MIND_NOTES_MARKER !== "undefined"
         ? (card.description || "").split(MIND_NOTES_MARKER)[0]
         : (card.description || "");
-      const haystack = ((card.entry || "") + " " + descriptionWithoutPrivateThoughts).slice(0, 3200);
+      const haystack = ((card.entry || card.value || "") + "\n" + descriptionWithoutPrivateThoughts).slice(0, 4200);
       const sig = textSignature(haystack);
-      if (c.importedCardSignatures[card.title] === sig) return true;
-      c.importedCardSignatures[card.title] = sig;
+      if (c.importedCardSignatures[cardName] === sig) return true;
+      c.importedCardSignatures[cardName] = sig;
 
-      const entity = ("" + card.title).trim();
+      const entity = ("" + cardName).trim();
       if (!entity || entity.length < 2) return true;
       if (isPlayerEntity(c, entity) && !cfg.involvePlayer) return true;
+      if (twistCardIsArchiveOnly(card, haystack)) return true;
+      // Background rotation is conservative: static known lore does not become
+      // a fresh twist merely because a card contains words like secret, dead,
+      // infected or simulation. Current-scene cards may still use established
+      // hidden lore; off-screen cards need an explicit open/uncertain hook.
+      if (!preferredActive && !twistCardHasOpenHook(haystack)) return true;
 
-      const category = matchScenarioCategory(haystack, entity, cfg);
+      // Mine one affirmative unresolved statement, not the entire card blob.
+      // This prevents "Rule: do not resurrect X" and "FALSE LEAD" text from
+      // being reinterpreted as positive setup merely because another sentence
+      // on the same card contains a twist keyword.
+      const cardSentences = [];
+      String(haystack).split(/\n+/).forEach(function(line){
+        splitSentences(line).forEach(function(sentence){ if (sentence) cardSentences.push(sentence); });
+      });
+      let category = null, evidenceSentence = "", bestSentenceScore = -999;
+      for (let si = 0; si < cardSentences.length; si++) {
+        const sentence = cardSentences[si];
+        if (!twistSentenceEligibleForDiscovery(sentence, "storycard")) continue;
+        if (!preferredActive && !/\b(?:OPEN MYSTERY|UNRESOLVED|UNKNOWN|NOT YET PROVEN|NOT CONFIRMED|unconfirmed|remaining mystery|uncertain|allegedly|implying|suggests?|suspected|rumou?red|not yet lived|has not yet|have not yet)\b/i.test(sentence)) continue;
+        const candidate = matchScenarioCategory(sentence, entity, cfg, "storycard");
+        if (!candidate) continue;
+        const ss = twistStoryCardSentenceScore(sentence);
+        if (ss > bestSentenceScore) { category = candidate; evidenceSentence = sentence; bestSentenceScore = ss; }
+      }
       if (!category) return true;
       if (alreadyResolvedCombo(c, entity, category)) return true;
       if (findThread(c, entity, category)) return true;
-      creditPartialThread(c, entity, category, cfg, "scenario", haystack);
+      creditPartialThread(c, entity, category, cfg, "scenario", evidenceSentence);
       return true;
     };
 
     const preferred = Array.isArray(preferredTitles) ? preferredTitles.slice(0, 8) : [];
     if (preferred.length) {
       preferred.forEach(title => {
-        const card = storyCards.find(ca => ca && ca.title === title);
-        if (card) processCard(card);
+        const card = storyCards.find(ca => ca && CE_sameName ? CE_sameName(CE_cardIdentityName(ca), title) : String(CE_cardIdentityName(ca)).toLowerCase() === String(title).toLowerCase());
+        if (card) processCard(card, true);
       });
     }
 
@@ -2778,9 +3018,10 @@ var Library = (() => {
       consumed = offset + 1;
       const index = (start + offset) % total;
       const card = storyCards[index];
-      if (!card || !card.title || isOwnCard(card.title)) continue;
+      const bgName = CE_cardIdentityName(card);
+      if (!card || !bgName || isOwnCard(bgName)) continue;
       visited++;
-      processCard(card);
+      processCard(card, false);
     }
     c.storyCardScenarioScanCursor = (start + Math.max(1, consumed)) % total;
   }
@@ -2812,7 +3053,7 @@ var Library = (() => {
       }
       if (!entity) continue;
 
-      const category = matchScenarioCategory(s, entity, cfg);
+      const category = matchScenarioCategory(s, entity, cfg, sourceTag);
       if (!category) continue;
       if (isPlayerEntity(c, entity) && !cfg.involvePlayer) continue;
       if (alreadyResolvedCombo(c, entity, category)) continue;
@@ -2856,11 +3097,77 @@ var Library = (() => {
   // still happily keep seeding that same pre-existing thread — confirmed
   // directly via sandbox. Filtering here too closes that gap the same way
   // the other three pickers already do.
+  function twistThreadScenePriority(thread, c) {
+    if (!thread) return 0;
+    let score = 0;
+    try {
+      const scene = state && state.echoVeil && state.echoVeil.scene;
+      const cast = scene && scene.cast && typeof scene.cast === "object" ? scene.cast : null;
+      if (cast) {
+        Object.keys(cast).forEach(function(k){
+          const row = cast[k];
+          const n = row && (row.name || k);
+          if (n && isSameCardEntity(n, thread.entity)) score = Math.max(score, 6);
+        });
+      }
+    } catch (_) {}
+    const now = c && typeof c.turn === "number" ? c.turn : 0;
+    const devAge = Math.max(0, now - Number(thread.lastDevelopmentTurn || thread.lastSeedTurn || thread.originTurn || 0));
+    if (devAge <= 1) score += 3;
+    else if (devAge <= 3) score += 2;
+    else if (devAge <= 6) score += 1;
+    return score;
+  }
+
+  function twistSignatureSharedCount(a, b) {
+    const aa = new Set(String(a || "").split("|").filter(Boolean));
+    const bb = new Set(String(b || "").split("|").filter(Boolean));
+    let n = 0; aa.forEach(function(x){ if (bb.has(x)) n += 1; });
+    return n;
+  }
+
+  function twistTextMentionsEntity(text, entity) {
+    const t = String(text || "").toLowerCase();
+    const e = String(entity || "").toLowerCase().trim();
+    if (!t || !e) return false;
+    if (t.indexOf(e) >= 0) return true;
+    const parts = e.split(/\s+/).filter(function(x){ return x.length >= 4; });
+    return parts.length > 1 && t.indexOf(parts[parts.length - 1]) >= 0;
+  }
+
+  function twistCompoundBridgeEvidence(threadA, threadB) {
+    if (!threadA || !threadB || isSameCardEntity(threadA.entity, threadB.entity)) return "";
+    const aRecords = Array.isArray(threadA.evidenceRecords) ? threadA.evidenceRecords : [];
+    const bRecords = Array.isArray(threadB.evidenceRecords) ? threadB.evidenceRecords : [];
+    for (let i = aRecords.length - 1; i >= 0; i--) {
+      const txt = aRecords[i] && aRecords[i].text;
+      if (txt && twistTextMentionsEntity(txt, threadB.entity) && !twistIsCounterEvidence(txt)) return twistClipEvidence(txt, 220);
+    }
+    for (let i = bRecords.length - 1; i >= 0; i--) {
+      const txt = bRecords[i] && bRecords[i].text;
+      if (txt && twistTextMentionsEntity(txt, threadA.entity) && !twistIsCounterEvidence(txt)) return twistClipEvidence(txt, 220);
+    }
+    let best = { score:0, shared:0, text:"" };
+    aRecords.forEach(function(ar){
+      bRecords.forEach(function(br){
+        const as = ar && (ar.signature || twistEvidenceSignature(ar.text));
+        const bs = br && (br.signature || twistEvidenceSignature(br.text));
+        const shared = twistSignatureSharedCount(as, bs);
+        const score = twistEvidenceOverlap(as, bs);
+        if (shared >= 3 && score >= 0.34 && score > best.score) {
+          best = { score:score, shared:shared, text:twistClipEvidence((ar.text || "") + " / " + (br.text || ""), 260) };
+        }
+      });
+    });
+    return best.text || "";
+  }
+
   function pickForeshadowThread(c, cfg) {
     let brewing = c.threads.filter(t => t.status === "brewing" && isThreadAllowed(t, cfg));
     if (cfg && !cfg.involvePlayer) brewing = brewing.filter(t => !isPlayerEntity(c, t.entity));
     if (brewing.length === 0) return null;
     brewing.sort((a, b) =>
+      twistThreadScenePriority(b, c) - twistThreadScenePriority(a, c) ||
       mindPriorityForThread(b) - mindPriorityForThread(a) ||
       a.seedTouches - b.seedTouches ||
       a.originTurn - b.originTurn ||
@@ -2874,6 +3181,7 @@ var Library = (() => {
     if (!cfg.involvePlayer) brewing = brewing.filter(t => !isPlayerEntity(c, t.entity));
     if (brewing.length === 0) return null;
     brewing.sort((a, b) =>
+      twistThreadScenePriority(b, c) - twistThreadScenePriority(a, c) ||
       b.seedTouches - a.seedTouches ||
       a.originTurn - b.originTurn ||
       String(a.entity).localeCompare(String(b.entity))
@@ -2890,6 +3198,7 @@ var Library = (() => {
     // failed confirmation attempts break ties so one stubborn thread does
     // not starve everything behind it forever.
     ready.sort((a, b) =>
+      twistThreadScenePriority(b, c) - twistThreadScenePriority(a, c) ||
       a.originTurn - b.originTurn ||
       mindPriorityForThread(b) - mindPriorityForThread(a) ||
       (a.confirmMisses || 0) - (b.confirmMisses || 0) ||
@@ -2910,7 +3219,12 @@ var Library = (() => {
     );
     for (let i = 0; i < ready.length; i++) {
       for (let j = i + 1; j < ready.length; j++) {
-        if (ready[i].entity !== ready[j].entity) return [ready[i], ready[j]];
+        if (isSameCardEntity(ready[i].entity, ready[j].entity)) continue;
+        const bridge = twistCompoundBridgeEvidence(ready[i], ready[j]);
+        if (cfg && cfg.strictLogic !== false && !bridge) continue;
+        ready[i]._compoundBridge = bridge || "";
+        ready[j]._compoundBridge = bridge || "";
+        return [ready[i], ready[j]];
       }
     }
     return null;
@@ -2983,11 +3297,15 @@ var Library = (() => {
     const adapt = scenarioGuidance("", state && state.contingencyConfig ? state.contingencyConfig : CP_DEFAULTS);
     const psycheA = psychologyContextForTwist(threadA.entity);
     const psycheB = psychologyContextForTwist(threadB.entity);
+    const cfg = state && state.contingencyConfig ? state.contingencyConfig : CP_DEFAULTS;
+    const bridge = threadA._compoundBridge || threadB._compoundBridge || twistCompoundBridgeEvidence(threadA, threadB);
+    const bridgeRule = cfg.strictLogic !== false
+      ? (" The connection between them is already supported by this tracked bridge: " + (bridge || "[no bridge — do not combine these threads]") + ". Use that connection only; do NOT invent a new bridge, shared mastermind, family link, causal link or conspiracy.")
+      : " Build a specific connection that remains consistent with established canon; avoid coincidence-for-coincidence's-sake.";
     return "[Two threads resolve together right now, as one connected twist: " +
       threadA.entity + " — " + descA + " — turns out to be tied to " + threadB.entity +
-      " — " + descB + ". Invent a specific, logical connection between them built on what's " +
-      "already established about each, so the two revelations land as a single discovery, not " +
-      "two coincidences. Scale it as a " + CP_TIER_LABELS[scaleTier] + " revelation relative to this scenario's normal stakes." +
+      " — " + descB + "." + bridgeRule +
+      " Make the two revelations land as a single discovery. Scale it as a " + CP_TIER_LABELS[scaleTier] + " revelation relative to this scenario's normal stakes." +
       twistEvidenceContext(threadA) + twistEvidenceContext(threadB) + memoryNote(threadA) + memoryNote(threadB) + psycheA + psycheB + adapt +
       " Let the story react honestly. Only if both parts actually land in this response, append the exact " +
       "hidden markers 【UT-TWIST:" + threadA.id + "】 and 【UT-TWIST:" + threadB.id +
@@ -3002,7 +3320,11 @@ var Library = (() => {
     try {
       let card = null;
       for (let i = 0; i < storyCards.length; i++) {
-        if (storyCards[i].title === title) { card = storyCards[i]; break; }
+        if (String(CE_cardIdentityName(storyCards[i])).toLowerCase() === String(title).toLowerCase()) { card = storyCards[i]; break; }
+      }
+      if (!card && keys) {
+        const sentinels = String(Array.isArray(keys) ? keys.join(",") : keys).split(",").map(function(x){ return x.trim(); }).filter(function(x){ return /^__[^_].*__$/.test(x); });
+        if (sentinels.length) card = storyCards.find(function(c){ return sentinels.some(function(k){ return CE_hasCardKey(c,k); }); }) || null;
       }
       if (!card) {
         // addStoryCard returns the new card's index, or false if a card
@@ -3019,11 +3341,13 @@ var Library = (() => {
             }) || null;
       }
       if (card) {
+        const finalKeys = keys || CE_cardKeysCore(card) || title.toLowerCase();
         card.title = title;
         card.type = type;
         card.entry = entry;
         card.description = notes;
-        if (keys) card.keys = keys;
+        card.keys = finalKeys;
+        CE_commitCoreStoryCard(card, finalKeys, entry, type);
       }
     } catch (e) {}
   }
@@ -3031,7 +3355,7 @@ var Library = (() => {
   function removeCardByTitle(title) {
     try {
       for (let i = 0; i < storyCards.length; i++) {
-        if (storyCards[i] && storyCards[i].title === title) { removeStoryCard(i); return; }
+        if (storyCards[i] && String(CE_cardIdentityName(storyCards[i])).toLowerCase() === String(title).toLowerCase()) { removeStoryCard(i); return; }
       }
     } catch (e) {}
   }
@@ -3066,6 +3390,27 @@ var Library = (() => {
     safeSetCard(title, "class", entry, notes, CP_ALWAYS_MATCH_KEYS);
   }
 
+  function extractResolvedTwistFact(thread, visibleText) {
+    if (!thread || !visibleText) return "";
+    const entity = String(thread.entity || "").trim();
+    const categoryText = CP_CATEGORIES[thread.category] || "";
+    const categorySig = twistEvidenceSignature(categoryText);
+    const sentences = splitSentences(String(visibleText).replace(/【[^】]*】/g, " "));
+    let best = { score:0, text:"" };
+    sentences.forEach(function(sentence){
+      const clean = twistClipEvidence(sentence, 300);
+      if (!clean || twistIsCounterEvidence(clean)) return;
+      let score = 0;
+      if (twistTextMentionsEntity(clean, entity)) score += 4;
+      const sig = twistEvidenceSignature(clean);
+      score += twistEvidenceOverlap(sig, categorySig) * 3;
+      if (/\b(?:actually|in truth|turns? out|reveals?|revealed|discovered|confirmed|was really|is really|had been|the truth|secret|real identity|behind it|responsible|connected)\b/i.test(clean)) score += 1.5;
+      if (/\b(?:might|maybe|could|perhaps|possibly|theory|suspect|guess)\b/i.test(clean)) score -= 2;
+      if (score > best.score) best = { score:score, text:clean };
+    });
+    return best.score >= 3.5 ? best.text : "";
+  }
+
   function createTwistStoryCard(c, cfg, thread, compoundWithEntity) {
     try {
       const title = "Twists and Turns — Established Facts";
@@ -3075,11 +3420,13 @@ var Library = (() => {
       const factLine = (t) => {
         const d = CP_CATEGORIES[t.category] || "a previously resolved revelation remains true";
         const entity = String(t.entity || "Unknown").trim() || "Unknown";
+        const exact = twistClipEvidence(t.fact || "", 260);
+        if (exact) return entity + ": " + exact + " (confirmed turn " + t.resolvedTurn + ").";
         return entity + ": " + d.charAt(0).toUpperCase() + d.slice(1) + " (turn " + t.resolvedTurn + ").";
       };
       const entry = recent.map(factLine).join(" ") + " Treat all of this as settled fact going forward.";
 
-      const keys = Array.from(new Set(recent.map(t => String(t.entity || "").trim()).filter(Boolean))).join(",");
+      const keys = [CE_TWIST_FACTS_SENTINEL].concat(Array.from(new Set(recent.map(t => String(t.entity || "").trim()).filter(Boolean)))).join(",");
 
       const notes = "ESTABLISHED FACTS\n\n" +
         "Carries the " + recent.length + " most recent resolved twists into the model's context, " +
@@ -3106,6 +3453,7 @@ var Library = (() => {
     const nextDescription = spliceConfigSection(card.description, CONFIG_SECTION_TWIST, renderTwistNotes(cfg, c));
     if (CW_cardEntryText(card) !== nextEntry) { card.entry = nextEntry; card.value = nextEntry; }
     if (card.description !== nextDescription) card.description = nextDescription;
+    CE_commitCoreStoryCard(card, CE_CONFIG_KEY_UNSAID, nextEntry, CE_CONFIG_CATEGORY);
   }
 
   function updateThreadsOverview(c) {
@@ -3180,10 +3528,10 @@ var Library = (() => {
     CP_COMPOUND_CHANCE, CP_WILDCARD_CHANCE, CP_CLUSTER_NAMES, CP_CATEGORY_CLUSTERS, CP_CATEGORY_TO_CLUSTER, CP_CATEGORY_LABELS, CP_MATURE_KEYS,
     initState, getConfig, pacingFor, effectivePacing, beginContextTurn, extractCommand, nextId, findEntityInSentence, findKnownEntityInSentence, eligibleCardTitles,
     splitSentences, findThread, findThreadFuzzy, createThread, tierFor, isEligible, priorTwistCountFor, scanForLooseThreads, scanStoryCardsForScenarioThreads,
-    rememberTwistEvidence, reinforceRelatedThreadsFromSentence, threadSemanticRelationScore, twistSemanticDomain, twistEvidenceContext,
-    twistEvidenceLevel, twistEvidenceCounts, twistGroundingScore, twistEvidenceQualityText,
-    scanPlotEssentialsForThreads, scanAuthorsNoteForThreads, pickForeshadowThread, pickMostBuiltUpBrewingThread, pickPayoffThread, pickCompoundPayoffThreads, pickWildcardEntity,
-    foreshadowHint, payoffHint, compoundPayoffHint, safeSetCard, createTwistStoryCard, safeLog, applyEntryConfig,
+    rememberTwistEvidence, rememberTwistCounterEvidence, reinforceRelatedThreadsFromSentence, threadSemanticRelationScore, twistSemanticDomain, twistEvidenceContext,
+    twistEvidenceLevel, twistEvidenceCounts, twistGroundingScore, twistEvidenceQualityText, twistIsCounterEvidence, twistIsMetaphoricalThreatLanguage, twistSentenceEligibleForDiscovery, twistCardHasOpenHook,
+    scanPlotEssentialsForThreads, scanAuthorsNoteForThreads, pickForeshadowThread, pickMostBuiltUpBrewingThread, pickPayoffThread, pickCompoundPayoffThreads, pickWildcardEntity, twistCompoundBridgeEvidence, twistThreadScenePriority,
+    foreshadowHint, payoffHint, compoundPayoffHint, extractResolvedTwistFact, safeSetCard, createTwistStoryCard, safeLog, applyEntryConfig,
     updateCacheEfficiencyWarning, updateNudgeCard, updateConfigCard, updateTwistLogCard, updateThreadsOverview, updateCategoryCatalog, reinforceFromCoreShift,
     psychologyContextForTwist, twistPressureForMind, absorbUnsaidSignal, applyTwistImpactToMind, bridgeCodexEvidenceToTwists, mindPriorityForThread,
     isMatureCategory, isCategoryAllowed, isEntityConfirmedAdult, isThreadAllowed,
@@ -4231,7 +4579,7 @@ function updateUnsaidBackupCard(cacheEfficient, instructionText) {
     "Active only while the host reports cache-efficient/optimized context mode. It mirrors the current " +
     "UNSAID control instruction through a Story Card as a redundant delivery path. The normal Context " +
     "instruction is still returned as well. This card removes itself when that mode is no longer reported.";
-  let card = storyCards.find(c => c.title === title);
+  let card = storyCards.find(c => String(CE_cardIdentityName(c)).toLowerCase() === String(title).toLowerCase());
   if (!card) {
     card = createOrFindCard(UNSAID_BACKUP_MATCH_KEYS, entry, "Class");
     if (card) { card.title = title; }
@@ -4642,18 +4990,26 @@ function buildUnsaidAliasIndex() {
   try {
     if (totalCards) {
       storyCards.forEach(card => {
-        if (!card || !card.title || isOwnCard(card.title)) return;
-        const aliases = storyCardAliasValues(card);
+        const cardName = CE_cardIdentityName(card);
+        if (!card || !cardName || isOwnCard(cardName)) return;
         if (partial) {
-          let relevant = wanted.has(normalizeUnsaidIdentity(card.title));
+          let relevant = wanted.has(normalizeUnsaidIdentity(cardName));
+          // Do not construct/dedupe the full alias array for thousands of
+          // irrelevant cards. Check raw triggers only until one active/tracked
+          // alias matches, then build the richer alias list for that card.
           if (!relevant) {
-            for (let i = 0; i < aliases.length; i++) {
-              if (wanted.has(normalizeUnsaidIdentity(aliases[i]))) { relevant = true; break; }
+            const rawKeys = Array.isArray(card.keys) ? card.keys.join(",") : String(card.keys || "");
+            if (rawKeys) {
+              const parts = rawKeys.split(/[,;|\n]+/);
+              for (let i = 0; i < parts.length && i < 24; i++) {
+                if (wanted.has(normalizeUnsaidIdentity(parts[i]))) { relevant = true; break; }
+              }
             }
           }
           if (!relevant) return;
         }
-        aliases.forEach(alias => addAlias(card.title, alias, card));
+        const aliases = storyCardAliasValues(card);
+        aliases.forEach(alias => addAlias(cardName, alias, card));
       });
     }
   } catch (e) {}
@@ -4730,8 +5086,9 @@ function resolveUnsaidCanonicalName(rawName) {
     if (typeof storyCards !== "undefined" && Array.isArray(storyCards)) {
       for (let i = 0; i < storyCards.length; i++) {
         const card = storyCards[i];
-        if (!card || !card.title || isOwnCard(card.title)) continue;
-        if (isSameCardEntity(card.title, raw)) fuzzy.push(card.title);
+        const cardName = CE_cardIdentityName(card);
+        if (!card || !cardName || isOwnCard(cardName)) continue;
+        if (isSameCardEntity(cardName, raw)) fuzzy.push(cardName);
         if (fuzzy.length > 1) break;
       }
     }
@@ -4856,7 +5213,7 @@ function codexCardIdentityCompatible(card, expectedName, expectedType) {
   const typeCompatible = wantedType
     ? rawType === wantedType || (wantedType === "character" && characterLike)
     : standard || characterLike;
-  const title = codexCleanIdentity(card.title || card.name || "");
+  const title = codexCleanIdentity(CE_cardIdentityName(card));
   const entry = String(card.entry || card.value || "");
   const nameLine = entry.match(/^\s*Name\s*:\s*([^\n\r]+)/im);
   if (nameLine && codexCleanIdentity(nameLine[1]) === wanted && typeCompatible) return true;
@@ -4996,10 +5353,22 @@ function levenshteinDistance(a, b) {
 
 function findConfigCardTolerant(title, maxDistance) {
   if (typeof storyCards === "undefined" || !storyCards) return null;
+  const wanted = String(title || "");
+  const lowWanted = wanted.toLowerCase();
   for (let i = 0; i < storyCards.length; i++) {
-    if (storyCards[i] && storyCards[i].title === title) return storyCards[i];
+    if (storyCards[i] && storyCards[i].title === wanted) return storyCards[i];
   }
-  const target = title.toLowerCase().replace(/[^a-z]/g, "");
+  // Documented-core fallback: title/notes are not guaranteed scripting fields.
+  // Unique inert trigger keys and stable Entry headers keep config identity
+  // durable even when the host reconstructs card objects between hooks.
+  for (let i = 0; i < storyCards.length; i++) {
+    const card = storyCards[i]; if (!card) continue;
+    const entry = CE_cardEntryCore(card);
+    if ((lowWanted.indexOf("codex") >= 0) && (CE_hasCardKey(card, CE_CONFIG_KEY_CODEX) || /^\s*==\s*CODEX\s*==/i.test(entry))) return card;
+    if ((lowWanted.indexOf("unspoken") >= 0 || lowWanted.indexOf("unsaid") >= 0) &&
+        (CE_hasCardKey(card, CE_CONFIG_KEY_UNSAID) || (/==\s*TWISTS AND TURNS\s*==/i.test(entry) && /==\s*UNSAID\s*==/i.test(entry)))) return card;
+  }
+  const target = wanted.toLowerCase().replace(/[^a-z]/g, "");
   const limit = typeof maxDistance === "number" ? maxDistance : 2;
   for (let i = 0; i < storyCards.length; i++) {
     const card = storyCards[i];
@@ -5251,13 +5620,13 @@ function renderTwistNotes(cfg, c) {
     "Controls how often the system looks for a foreshadowing beat. Low is slow-burn, medium is balanced, high is more active. It does not bypass logic/evidence gates.",
     "",
     "strictLogic  [true/false]  Default: true",
-    "When true, twists must be supported by established story/lore evidence. Recommended for grounded continuity and fewer random-feeling surprises.",
+    "When true, twists must be supported by distinct established story/lore evidence. Repeated wording does not count twice, explicit counter-evidence lowers grounding, and /twist only accelerates a supported reveal instead of inventing one.",
     "",
     "wildcard  [true/false]  Default: false",
     "Allows occasional unseeded surprise twists only when strictLogic=false. Keep false for tightly foreshadowed stories.",
     "",
     "compound  [true/false]  Default: true",
-    "Allows two compatible ready threads to pay off together as one connected reveal instead of always resolving separately.",
+    "Allows two compatible ready threads to pay off together. With strictLogic=true, the story must already contain an evidence-backed bridge between them; the model may not invent a hidden mastermind, family link or causal connection just to combine the reveals.",
     "",
     "mature  [true/false]  Default: false",
     "Opt-in for mature 18+ twist categories. Mature categories are only considered for characters with clear adult evidence. Turning this off keeps existing mature threads dormant rather than deleting them.",
@@ -5270,7 +5639,7 @@ function renderTwistNotes(cfg, c) {
     "",
     "━━━━━━━━━━ PAYOFF PACING ━━━━━━━━━━",
     "minSeeds  [1–200]  Default: 2",
-    "Minimum number of meaningful foreshadowing/evidence touches a thread needs before normal payoff eligibility.",
+    "Minimum number of genuinely distinct foreshadowing/evidence touches needed before normal payoff eligibility. One Story Card or repeated clue is one evidence source, not multiple seeds.",
     "",
     "minTurns  [1–200]  Default: 8",
     "Minimum age of a thread in turns before normal payoff eligibility. Higher values create longer setups.",
@@ -5313,8 +5682,8 @@ function renderTwistNotes(cfg, c) {
     "",
     "━━━━━━━━━━ TWIST COMMANDS ━━━━━━━━━━",
     "Commands are administrative controls, not story prose. Read-only/toggle commands stop cleanly; model-control commands use a dedicated generation. A command-looking string merely mentioned inside normal narration is ignored.",
-    "/twist [name] — force the next eligible payoff, optionally around one entity.",
-    "/plant <name> [categoryKey] — manually start a thread.",
+    "/twist [name] — accelerate the next supported payoff, optionally around one entity. Under strictLogic=true it refuses unsupported reveals; under non-strict logic wildcard behavior may be allowed by config.",
+    "/plant <name> [categoryKey] — manually start a plotting thread. Planting records author intent, not factual evidence; the story must still earn the reveal.",
     "/threads — write the spoiler-safe brewing overview card.",
     "/twistlog — toggle the visible resolved-twist log.",
     "/twisttypes — write the twist-category catalog.",
@@ -5541,7 +5910,7 @@ function ensureCodexConfigCard(sourceCard) {
       const legacyEnabled = configBool(legacy, "codex", /Enable Codex:\s*(true|false)/i);
       if (legacyEnabled !== null) seed.codexEnabled = legacyEnabled;
     }
-    const keys = "__crossed_echoes_config_codex__";
+    const keys = CE_CONFIG_KEY_CODEX;
     try {
       const idx = addStoryCard(keys, renderCodexSection(seed), CE_CONFIG_CATEGORY, CE_CONFIG_TITLE_CODEX, CONFIG_DEFAULT_CODEX_NOTES_SECTION);
       card = (typeof idx === "number" && storyCards[idx]) ? storyCards[idx] : null;
@@ -5549,9 +5918,10 @@ function ensureCodexConfigCard(sourceCard) {
     if (!card) card = storyCards.find(sc => sc && (sc.title === CE_CONFIG_TITLE_CODEX || sc.keys === keys)) || null;
   }
   if (card) {
-    card.title = CE_CONFIG_TITLE_CODEX; card.name = CE_CONFIG_TITLE_CODEX; card.type = CE_CONFIG_CATEGORY; card.keys = "";
+    card.title = CE_CONFIG_TITLE_CODEX; card.name = CE_CONFIG_TITLE_CODEX; card.type = CE_CONFIG_CATEGORY; card.keys = CE_CONFIG_KEY_CODEX;
     if (!CW_cardEntryText(card).trim()) { card.entry = renderCodexSection(UNSAID_DEFAULTS); card.value = card.entry; } else if (!card.entry) card.entry = CW_cardEntryText(card);
     if (String(card.description || card.notes || "") !== CONFIG_DEFAULT_CODEX_NOTES_SECTION) { card.description = CONFIG_DEFAULT_CODEX_NOTES_SECTION; card.notes = CONFIG_DEFAULT_CODEX_NOTES_SECTION; }
+    CE_commitCoreStoryCard(card, CE_CONFIG_KEY_CODEX, CW_cardEntryText(card), CE_CONFIG_CATEGORY);
   }
   return card;
 }
@@ -5632,7 +6002,7 @@ function ensureSharedConfigCard() {
 
     const initialEntry = twistSection.replace(/\s+$/, "") + "\n\n" + unsaidEntrySection;
     const initialDescription = twistNotesSection.replace(/\s+$/, "") + "\n\n" + unsaidNotesSection;
-    const cardKeys = "__crossed_echoes_config_unsaid__";
+    const cardKeys = CE_CONFIG_KEY_UNSAID;
     try {
       const idx = addStoryCard(cardKeys, initialEntry, CE_CONFIG_CATEGORY);
       card = (typeof idx === "number" && storyCards[idx]) ? storyCards[idx] : null;
@@ -5661,9 +6031,10 @@ function ensureSharedConfigCard() {
     card.title = CONFIG_CARD_TITLE;
     card.name = CONFIG_CARD_TITLE;
     card.type = CE_CONFIG_CATEGORY;
-    // Config cards are administrative; use an inert key so the card is not
-    // accidentally recalled into normal story context by its own title words.
-    card.keys = "";
+    // Keep an inert internal trigger rather than a blank key. It cannot occur in
+    // normal prose, but unlike title/notes it is part of AI Dungeon's documented
+    // persistent Story Card contract and therefore identifies this card next hook.
+    card.keys = CE_CONFIG_KEY_UNSAID;
     if (CW_cardEntryText(card).indexOf(CONFIG_SECTION_TWIST) === -1) {
       card.entry = spliceConfigSection(CW_cardEntryText(card), CONFIG_SECTION_TWIST, renderTwistSection(Object.assign({}, CP_DEFAULTS, (state.contingencyConfig || {}))));
       card.value = card.entry;
@@ -5691,6 +6062,7 @@ function ensureSharedConfigCard() {
       card.description = spliceConfigSection(String(card.description || card.notes || ""), CONFIG_SECTION_UNSAID, CONFIG_DEFAULT_UNSAID_NOTES_SECTION);
       card.notes = card.description;
     }
+    CE_commitCoreStoryCard(card, CE_CONFIG_KEY_UNSAID, CW_cardEntryText(card), CE_CONFIG_CATEGORY);
   }
   return card;
 }
@@ -5805,7 +6177,7 @@ function readUnsaidConfig() {
   // buried deep in a huge card library waits dozens of turns to join UNSAID.
   const adoptionCards = (typeof storyCards !== "undefined" && Array.isArray(storyCards)) ? storyCards : [];
   const tryAdoptCard = c => {
-    if (!c || !c.title || adoptedThisPass >= 20) return false;
+    if (!c || !CE_cardIdentityName(c) || adoptedThisPass >= 20) return false;
     if (isOwnCard(c.title)) return false;
     if (excludedCastNames.some(ex => isSameCardEntity(c.title, ex))) return false;
     if (cfg.cast.some(existing => isSameCardEntity(c.title, existing))) return false;
@@ -5831,8 +6203,9 @@ function readUnsaidConfig() {
     let hotInspected = 0;
     for (let i = 0; i < adoptionCards.length && hotInspected < 8 && adoptedThisPass < 20; i++) {
       const c = adoptionCards[i];
-      if (!c || !c.title) continue;
-      if (adoptionHotText.indexOf(String(c.title).toLowerCase()) === -1) continue;
+      const cardName = CE_cardIdentityName(c);
+      if (!c || !cardName) continue;
+      if (adoptionHotText.indexOf(String(cardName).toLowerCase()) === -1) continue;
       hotInspected++;
       tryAdoptCard(c);
     }
@@ -5891,11 +6264,13 @@ function readUnsaidConfig() {
     card.description = spliceConfigSection(card.description, CONFIG_SECTION_UNSAID, CONFIG_DEFAULT_UNSAID_NOTES_SECTION);
     card.notes = card.description;
   }
+  CE_commitCoreStoryCard(card, CE_CONFIG_KEY_UNSAID, CW_cardEntryText(card), CE_CONFIG_CATEGORY);
   if (codexCard) {
     const renderedCodexEntry = renderCodexSection(cfg);
     if (CW_cardEntryText(codexCard).replace(/\s+$/, "") !== renderedCodexEntry.replace(/\s+$/, "")) { codexCard.entry = renderedCodexEntry; codexCard.value = renderedCodexEntry; }
-    codexCard.type = CE_CONFIG_CATEGORY; codexCard.title = CE_CONFIG_TITLE_CODEX; codexCard.name = CE_CONFIG_TITLE_CODEX; codexCard.keys = "";
+    codexCard.type = CE_CONFIG_CATEGORY; codexCard.title = CE_CONFIG_TITLE_CODEX; codexCard.name = CE_CONFIG_TITLE_CODEX; codexCard.keys = CE_CONFIG_KEY_CODEX;
     if (String(codexCard.description || codexCard.notes || "") !== CONFIG_DEFAULT_CODEX_NOTES_SECTION) { codexCard.description = CONFIG_DEFAULT_CODEX_NOTES_SECTION; codexCard.notes = CONFIG_DEFAULT_CODEX_NOTES_SECTION; }
+    CE_commitCoreStoryCard(codexCard, CE_CONFIG_KEY_CODEX, CW_cardEntryText(codexCard), CE_CONFIG_CATEGORY);
   }
 
   return cfg;
@@ -6561,12 +6936,13 @@ function codexExistingCanonicalAlias(name, source) {
   try { observed = classifyCodexEntry(name, source || "") || ""; } catch (_) {}
   if (!/^(?:character|location|item|faction)$/.test(observed)) observed = "";
   var compatible = matches.filter(function(card){
-    if (!card || !card.title || isOwnCard(card.title)) return false;
+    const cardName = CE_cardIdentityName(card);
+      if (!card || !cardName || isOwnCard(cardName)) return false;
     var raw = String(card.type || "").trim().toLowerCase();
     if (observed) return raw === observed;
     return /^(?:character|location|item|faction)$/.test(raw);
   });
-  if (compatible.length === 1) return compatible[0].title;
+  if (compatible.length === 1) return CE_cardIdentityName(compatible[0]);
 
   // For a single-token character alias, prefer one unique Character whose
   // canonical title starts with that token. This is deliberately asymmetric:
@@ -6576,11 +6952,12 @@ function codexExistingCanonicalAlias(name, source) {
   if ((observed === "character" || !observed) && bits.length === 1 && bits[0].length >= 3) {
     var wanted = bits[0].toLowerCase().replace(/[“”"'‘’.,:;!?()[\]{}]/g, "");
     var chars = storyCards.filter(function(card){
-      if (!card || String(card.type || "").trim().toLowerCase() !== "character" || !card.title || isOwnCard(card.title)) return false;
-      var first = String(card.title).trim().split(/\s+/)[0].toLowerCase().replace(/[“”"'‘’.,:;!?()[\]{}]/g, "");
+      var cardName = CE_cardIdentityName(card);
+      if (!card || String(card.type || "").trim().toLowerCase() !== "character" || !cardName || isOwnCard(cardName)) return false;
+      var first = String(cardName).trim().split(/\s+/)[0].toLowerCase().replace(/[“”"'‘’.,:;!?()[\]{}]/g, "");
       return first === wanted;
     });
-    if (chars.length === 1) return chars[0].title;
+    if (chars.length === 1) return CE_cardIdentityName(chars[0]);
   }
   return "";
 }
@@ -7404,7 +7781,8 @@ function storyCardMatchesForEntity(name) {
   const wantedWordCount = aliasKey.split(" ").filter(Boolean).length;
   for (let i = 0; i < storyCards.length; i++) {
     const card = storyCards[i];
-    if (!card || !card.title || isOwnCard(card.title)) continue;
+    const cardName = CE_cardIdentityName(card);
+    if (!card || !cardName || isOwnCard(cardName)) continue;
     const aliases = storyCardAliasValues(card);
     let aliasHit = false;
     for (let j = 0; j < aliases.length; j++) {
@@ -7414,11 +7792,11 @@ function storyCardMatchesForEntity(name) {
       exactAlias.push(card);
       continue;
     }
-    if (!isSameCardEntity(card.title, name)) continue;
-    const cardWordCount = clean(card.title).split(" ").filter(Boolean).length;
+    if (!isSameCardEntity(cardName, name)) continue;
+    const cardWordCount = clean(cardName).split(" ").filter(Boolean).length;
     if (cardWordCount >= wantedWordCount) fuzzyTitle.push(card);
   }
-  const exactTitleMatches = exactAlias.filter(card => clean(card.title) === aliasKey);
+  const exactTitleMatches = exactAlias.filter(card => clean(CE_cardIdentityName(card)) === aliasKey);
   const result = exactTitleMatches.length ? exactTitleMatches : (exactAlias.length ? exactAlias : fuzzyTitle);
   UNSAID_ENTITY_LOOKUP_CACHE[aliasKey] = result.slice();
   return result;
@@ -8041,8 +8419,9 @@ function findCodexCandidates(threshold, excludeNames, maxAttempts, maxCount) {
   try {
     if (typeof storyCards !== "undefined" && Array.isArray(storyCards)) {
       storyCards.forEach(card => {
-        if (!card || !card.title || isOwnCard(card.title)) return;
-        const simple = String(card.title)
+        const cardName = CE_cardIdentityName(card);
+        if (!card || !cardName || isOwnCard(cardName)) return;
+        const simple = String(cardName)
           .toLowerCase()
           .replace(/[“”"'‘’.,:;!?()[\]{}\-‐‑–—]/g, " ")
           .replace(/\s+/g, " ")
@@ -8313,8 +8692,8 @@ function codexExactStoryCardIdentityExists(name, type) {
   const wanted = clean(name);
   if (!wanted) return false;
   for (let i=0;i<storyCards.length;i++) {
-    const card=storyCards[i]; if(!card||!card.title||isOwnCard(card.title)) continue;
-    if (clean(card.title)===wanted && codexCardIdentityCompatible(card,name,type)) return true;
+    const card=storyCards[i], cardName=CE_cardIdentityName(card); if(!card||!cardName||isOwnCard(cardName)) continue;
+    if (clean(cardName)===wanted && codexCardIdentityCompatible(card,name,type)) return true;
     const aliases=storyCardAliasValues(card);
     if (aliases.some(function(a){return clean(a)===wanted;}) && codexCardIdentityCompatible(card,name,type)) return true;
   }
@@ -8742,8 +9121,9 @@ function buildStatusReport(cfg) {
     // one full Story Card scan per cast member.
     const exactTitleIndex = {};
     storyCards.forEach(card => {
-      if (!card || !card.title) return;
-      const key = normalizeUnsaidIdentity(card.title);
+      const cardName = CE_cardIdentityName(card);
+      if (!card || !cardName) return;
+      const key = normalizeUnsaidIdentity(cardName);
       if (!key) return;
       if (!exactTitleIndex[key]) exactTitleIndex[key] = [];
       exactTitleIndex[key].push(card);
@@ -8759,7 +9139,7 @@ function buildStatusReport(cfg) {
       if (matches.length === 0) {
         lines.push(`  ${name} → no matching Story Card found`);
       } else if (matches.length === 1) {
-        lines.push(`  ${name} → "${matches[0].title}" (type: "${matches[0].type || ""}")`);
+        lines.push(`  ${name} → "${CE_cardIdentityName(matches[0])}" (type: "${matches[0].type || ""}")`);
       } else {
         lines.push(`  ${name} → ${matches.length} matching cards; ambiguous, so automatic writes are paused for this name`);
       }
@@ -10155,6 +10535,10 @@ let CW_RUNTIME_CONFIG_CARD = undefined;
 let CW_RUNTIME_SCENE_SCORES = null;
 let CW_RUNTIME_PROFILE_CACHE = null;
 let CW_RUNTIME_ENV_CACHE = null;
+// Player identity can be consulted hundreds of times while a large Story Card
+// relationship graph is being rebuilt. Cache it for this isolated hook instead
+// of rescanning the whole library for every foundation edge.
+let CW_RUNTIME_PLAYER_NAMES = null;
 let CW_RUNTIME_LINK_CACHE = null;
 let CW_RUNTIME_PAIR_KEYS = null;
 let CW_RUNTIME_PAIR_INDEX = null;
@@ -10797,6 +11181,7 @@ function CW_cleanName(name) {
 }
 
 function CW_playerNames() {
+  if (CW_RUNTIME_PLAYER_NAMES) return CW_RUNTIME_PLAYER_NAMES.slice();
   const names = ["you"];
   function addName(raw) {
     const clean = CW_cleanName(String(raw || ""));
@@ -10828,13 +11213,14 @@ function CW_playerNames() {
       if (!card || !/^(?:character|npc)$/i.test(String(card.type || ""))) continue;
       const entry = CW_cardEntryText(card);
       if (!/(?:^|\n)\s*(?:Arc\s+Role|Role)\s*:\s*(?:PRIMARY\s*\/\s*)?PROTAGONIST\b|(?:^|\n)\s*PLAYER\s*CHARACTER\s*:/im.test(entry)) continue;
-      const title = CW_cleanName(card.title || card.name || "");
+      const title = CW_cleanName(CE_cardIdentityName(card));
       if (title) explicit.push(title);
     }
     const unique = explicit.filter(function(x,i,a){ return a.findIndex(function(y){return CW_key(y)===CW_key(x);})===i; });
     if (unique.length === 1) addName(unique[0]);
   }
-  return names.filter(function (x, i, arr) { return x && arr.indexOf(x) === i; });
+  CW_RUNTIME_PLAYER_NAMES = names.filter(function (x, i, arr) { return x && arr.indexOf(x) === i; });
+  return CW_RUNTIME_PLAYER_NAMES.slice();
 }
 
 function CW_isPlayerName(name) {
@@ -10858,6 +11244,7 @@ function CW_recentHistoryText(limit) {
 
 const CW_CONFIG_TITLE = CE_CONFIG_TITLE_CROSSED;
 const CW_CONFIG_MARKER = "CWCFG8";
+const CW_CONFIG_KEYS = CE_CONFIG_KEY_CROSSED;
 
 function CW_cardKeysText(card) {
   if (!card) return "";
@@ -10885,10 +11272,11 @@ function CW_configCard() {
     const type = String(c.type || "").trim().toLowerCase();
     const keys = CW_cardKeysText(c).toLowerCase();
     const notes = String(c.description || c.notes || "");
+    const entry = CE_cardEntryCore(c);
     if (title === CW_CONFIG_TITLE.toLowerCase() || title === "crossed wires config") return (CW_RUNTIME_CONFIG_CARD = c);
     if (type === "crossed wires config") return (CW_RUNTIME_CONFIG_CARD = c); // v2/v3 migration
-    if (keys.includes("__crossed_wires_config__")) return (CW_RUNTIME_CONFIG_CARD = c); // v2/v3 migration
-    if (notes.includes(CW_CONFIG_MARKER)) return (CW_RUNTIME_CONFIG_CARD = c);
+    if (keys.includes("__crossed_wires_config__") || CE_hasCardKey(c, CW_CONFIG_KEYS) || keys.includes("__cw_config_bootstrap_8__")) return (CW_RUNTIME_CONFIG_CARD = c);
+    if (notes.includes(CW_CONFIG_MARKER) || /^\s*Crossed Wires Settings/i.test(entry)) return (CW_RUNTIME_CONFIG_CARD = c);
   }
   return (CW_RUNTIME_CONFIG_CARD = null);
 }
@@ -11117,11 +11505,11 @@ function CW_writeConfigCard(card, cfg) {
   const notes = CW_configNotes();
   try {
     if (typeof updateStoryCard === "function") {
-      updateStoryCard(index, "", entry, CE_CONFIG_CATEGORY, CW_CONFIG_TITLE, notes);
+      updateStoryCard(index, CW_CONFIG_KEYS, entry, CE_CONFIG_CATEGORY, CW_CONFIG_TITLE, notes);
     }
   } catch (e) {
     try {
-      if (typeof updateStoryCard === "function") updateStoryCard(index, "", entry, CE_CONFIG_CATEGORY);
+      if (typeof updateStoryCard === "function") updateStoryCard(index, CW_CONFIG_KEYS, entry, CE_CONFIG_CATEGORY);
     } catch (fallbackError) {
       if (typeof log === "function") log("Crossed Wires: config card API update fallback: " + fallbackError);
     }
@@ -11129,7 +11517,7 @@ function CW_writeConfigCard(card, cfg) {
   // Current AI Dungeon exposes title/name and notes/description in newer builds.
   // Keep mutable-field fallbacks for sandboxes that only honor the older update call.
   const current = storyCards[index] || card;
-  current.keys = "";
+  current.keys = CW_CONFIG_KEYS;
   current.entry = entry;
   current.type = CE_CONFIG_CATEGORY;
   current.title = CW_CONFIG_TITLE;
@@ -11170,11 +11558,11 @@ function CW_ensureConfigCard() {
   try {
     // Newer AI Dungeon builds accept name/title and notes after the documented
     // keys/entry/type arguments. Older builds simply use the first three.
-    const result = addStoryCard("__cw_config_bootstrap_8__", entry, CE_CONFIG_CATEGORY, CW_CONFIG_TITLE, notes);
+    const result = addStoryCard(CW_CONFIG_KEYS, entry, CE_CONFIG_CATEGORY, CW_CONFIG_TITLE, notes);
     if (Number.isFinite(Number(result))) createdIndex = Number(result);
   } catch (e) {
     try {
-      const result = addStoryCard("__cw_config_bootstrap_8__", entry, CE_CONFIG_CATEGORY);
+      const result = addStoryCard(CW_CONFIG_KEYS, entry, CE_CONFIG_CATEGORY);
       if (Number.isFinite(Number(result))) createdIndex = Number(result);
     } catch (fallbackError) {
       if (typeof log === "function") log("Crossed Wires: could not create config card: " + fallbackError);
@@ -11193,12 +11581,12 @@ function CW_ensureConfigCard() {
   const index = storyCards.indexOf(card);
   if (index >= 0) {
     try {
-      if (typeof updateStoryCard === "function") updateStoryCard(index, "", entry, CE_CONFIG_CATEGORY, CW_CONFIG_TITLE, notes);
+      if (typeof updateStoryCard === "function") updateStoryCard(index, CW_CONFIG_KEYS, entry, CE_CONFIG_CATEGORY, CW_CONFIG_TITLE, notes);
     } catch (e) {
-      try { if (typeof updateStoryCard === "function") updateStoryCard(index, "", entry, CE_CONFIG_CATEGORY); } catch (_) {}
+      try { if (typeof updateStoryCard === "function") updateStoryCard(index, CW_CONFIG_KEYS, entry, CE_CONFIG_CATEGORY); } catch (_) {}
     }
   }
-  card.keys = "";
+  card.keys = CW_CONFIG_KEYS;
   card.entry = entry;
   card.type = CE_CONFIG_CATEGORY;
   card.title = CW_CONFIG_TITLE;
@@ -11235,7 +11623,7 @@ function CW_profileSources(baseContext) {
     for (let i = 0; i < storyCards.length && included < 24; i++) {
       const c = storyCards[i];
       if (!c || c === configCard) continue;
-      const title = String(c.title || c.name || "").trim();
+      const title = String(CE_cardIdentityName(c)).trim();
       const keys = CW_cardKeysText(c).split(/[,;]/).map(function (x) { return x.trim(); }).filter(Boolean);
       const signals = [title].concat(keys).filter(Boolean);
       const relevant = signals.some(function (signal) { return signal.length >= 3 && liveText.indexOf(signal.toLowerCase()) >= 0; });
@@ -11813,7 +12201,7 @@ function CW_storyCardCharacterIndex() {
   if (typeof storyCards === "undefined" || !Array.isArray(storyCards)) return {chars:chars, aliases:{}};
   for (const card of storyCards) {
     if (!card || !/^(?:character|npc)$/i.test(String(card.type||""))) continue;
-    const title=CW_cleanName(card.title||card.name||""); if(!title)continue;
+    const title=CW_cleanName(CE_cardIdentityName(card)); if(!title)continue;
     const entry=CW_cardEntryText(card), aliases=[title], explicitAliases=[];
     const nm=/^\s*Name\s*:\s*([^\n\r]+)/im.exec(entry);
     let nameField="";
@@ -11852,7 +12240,7 @@ function CW_storyCardFoundationSignature() {
   const parts=[];
   for(const card of storyCards){
     if(!card||!/^(?:character|npc)$/i.test(String(card.type||"")))continue;
-    const title=CW_cleanName(card.title||card.name||""); if(!title)continue;
+    const title=CW_cleanName(CE_cardIdentityName(card)); if(!title)continue;
     parts.push(CW_key(title)+"|"+CW_relationshipField(CW_cardEntryText(card)));
   }
   const players=(typeof info!=="undefined"&&Array.isArray(info.characterNames)?info.characterNames:[]).map(CW_key).sort().join(",");
@@ -11880,7 +12268,14 @@ function CW_rebuildStoryCardFoundations(turn) {
       if(!spec) continue;
       const scopedClause=CW_foundationScopedClause(clause,spec);
       const targets=[],seen={};
+      // Fast rejection before compiling/testing a boundary regex. A large
+      // relationship library can contain hundreds of aliases; almost all are
+      // absent from any one clause. Normalized substring rejection turns the
+      // old O(clauses × aliases × regex-compilation) hot path into a handful of
+      // boundary checks without changing matching semantics.
+      const scopedClauseKey=CW_key(scopedClause);
       for(const aliasKey of aliasEntries){
+        if(scopedClauseKey.indexOf(aliasKey)<0) continue;
         if(!CW_wordPresent(scopedClause,aliasKey)) continue;
         const canonical=index.aliases[aliasKey];
         if(!CW_foundationAliasAllowed(scopedClause,aliasKey,canonical,spec)) continue;
@@ -12082,7 +12477,7 @@ function CW_seedFromCharacterCards(turn) {
     if (type !== "character" && type !== "npc") continue;
 
     const candidates = [];
-    const titleName = CW_cleanName(card.title || card.name || "");
+    const titleName = CW_cleanName(CE_cardIdentityName(card));
     if (titleName) candidates.push(titleName);
     const rawKeys = CW_cardKeysText(card).split(/[,;]/).map(function (x) { return x.trim(); }).filter(Boolean);
     for (const k of rawKeys) {
@@ -14302,7 +14697,7 @@ const ECHO_VEIL = (() => {
     title: CE_CONFIG_TITLE_ECHO,
     type: CE_CONFIG_CATEGORY,
     // Deliberately inert trigger: the config Entry is for the script/user, not model context.
-    keys: "__ECHO_VEIL_CONFIG__",
+    keys: CE_CONFIG_KEY_ECHO,
     marker: "ECHO VEIL CONFIG"
   };
 
@@ -14695,10 +15090,11 @@ const ECHO_VEIL = (() => {
       const c = storyCards[i] || {};
       const rawKeys = Array.isArray(c.keys) ? c.keys.join(",") : String(c.keys || "");
       const keyMatch = rawKeys.toLowerCase().split(",").map(x => x.trim()).includes(wantedKey);
-      const title = String(c.title || c.name || "").trim();
+      const title = String(CE_cardIdentityName(c)).trim();
       const legacyTitle = title === "ECHO VEIL CONFIG" || title === "Configure ECHO VEIL";
       const markerMatch = String(c.description || c.notes || "").indexOf("ECHO VEIL CONFIG — OPTION NOTES") >= 0;
-      if (keyMatch || title === CONFIG_CARD.title || legacyTitle || markerMatch) return i;
+      const entryMatch = /^\s*ECHO VEIL CONFIG\b/i.test(CE_cardEntryCore(c));
+      if (keyMatch || title === CONFIG_CARD.title || legacyTitle || markerMatch || entryMatch) return i;
     }
     return -1;
   }
@@ -14768,19 +15164,19 @@ const ECHO_VEIL = (() => {
 
     const wantedEntry = withConfigHelp(entry);
     const rawKeys = Array.isArray(card.keys) ? card.keys.join(",") : String(card.keys || "");
-    const keyChanged = rawKeys.trim() !== "";
+    const keyChanged = rawKeys.trim().toLowerCase() !== CONFIG_CARD.keys.toLowerCase();
     const helpChanged = wantedEntry !== entry;
     const notes = configNotesText();
     const titleChanged = String(card.title || card.name || "") !== CONFIG_CARD.title;
     const typeChanged = String(card.type || "") !== CONFIG_CARD.type;
     const notesChanged = String(card.description || card.notes || "") !== notes;
     if ((changed || keyChanged || helpChanged || titleChanged || typeChanged || notesChanged) && typeof updateStoryCard === "function") {
-      try { updateStoryCard(index, "", wantedEntry, CONFIG_CARD.type, CONFIG_CARD.title, notes); RUNTIME_CARD_INDEX_CACHE = null; } catch (_) {
-        try { updateStoryCard(index, "", wantedEntry, CONFIG_CARD.type); RUNTIME_CARD_INDEX_CACHE = null; } catch (__) {}
+      try { updateStoryCard(index, CONFIG_CARD.keys, wantedEntry, CONFIG_CARD.type, CONFIG_CARD.title, notes); RUNTIME_CARD_INDEX_CACHE = null; } catch (_) {
+        try { updateStoryCard(index, CONFIG_CARD.keys, wantedEntry, CONFIG_CARD.type); RUNTIME_CARD_INDEX_CACHE = null; } catch (__) {}
       }
     }
     const current = storyCards[index] || card;
-    current.keys = "";
+    current.keys = CONFIG_CARD.keys;
     current.entry = wantedEntry;
     current.type = CONFIG_CARD.type;
     current.title = CONFIG_CARD.title;
@@ -16688,7 +17084,7 @@ const ECHO_VEIL = (() => {
     for (const card of storyCards) {
       if (!card) continue;
       const type=String(card.type||"").toLowerCase();
-      const title=String(card.title||card.name||"").trim();
+      const title=String(CE_cardIdentityName(card)).trim();
       if (!title || /config/i.test(type) || /^CROSSED ECHOES — Config —/i.test(title)) continue;
       if (type && !/character|npc|person/.test(type)) continue;
       let notes="";
@@ -17882,7 +18278,7 @@ const ECHO_VEIL = (() => {
     } catch(_){}
     try {
       if(typeof storyCards!=="undefined"&&Array.isArray(storyCards)){
-        const c=storyCards.find(function(card){return card&&CE_sameName(card.title||card.name||"",clean);});
+        const c=storyCards.find(function(card){return card&&CE_sameName(CE_cardIdentityName(card),clean);});
         if(c){
           const type=String(c.type||"").toLowerCase();
           if(/^(?:character|npc|faction|organization|organisation|group)$/.test(type))return true;
@@ -18668,8 +19064,9 @@ const ECHO_VEIL = (() => {
     extractEntities(String(s.meta&&s.meta.lastInputText||"")).forEach(n=>active.add(String(n).toLowerCase()));
     const out=[];
     for(const card of storyCards){
-      if(!card||!card.title||isOwnCard(card.title)) continue;
-      const name=String(card.title), low=name.toLowerCase();
+      const cardName=CE_cardIdentityName(card);
+      if(!card||!cardName||isOwnCard(cardName)) continue;
+      const name=String(cardName), low=name.toLowerCase();
       if(active.size && !Array.from(active).some(a=>a===low||low.includes(a)||a.includes(low))) continue;
       const powers=storyCardField(card,["Powers","Abilities"]), current=storyCardField(card,["CURRENT","Current","Status","CURRENT STATUS"]), role=storyCardField(card,["Arc Role","Role"]), rule=storyCardField(card,["Rule","Knowledge Rule"]);
       if(!(powers||current||role||rule)) continue;
@@ -19326,24 +19723,24 @@ function CE_renderManagedEntityNotes(name,card,kind){var common=["Auto-managed d
 function CE_findWritableEntityCard(name){
   try{
     if(!name||typeof storyCards==="undefined"||!Array.isArray(storyCards))return null;
-    var wanted=String(name||"").trim().toLowerCase(),card=storyCards.find(function(c){return c&&!(typeof isOwnCard==="function"&&isOwnCard(c.title))&&String(c.title||c.name||"").trim().toLowerCase()===wanted;})||null;
+    var wanted=String(name||"").trim().toLowerCase(),card=storyCards.find(function(c){var cn=CE_cardIdentityName(c);return c&&cn&&!(typeof isOwnCard==="function"&&isOwnCard(cn))&&String(cn).trim().toLowerCase()===wanted;})||null;
     if(!card&&typeof findStoryCardForEntity==="function")card=findStoryCardForEntity(name);
     if(card&&typeof codexCardIdentityCompatible==="function"&&!codexCardIdentityCompatible(card,name,""))return null;
-    return card&&!(typeof isOwnCard==="function"&&isOwnCard(card.title))?card:null;
+    return card&&!(typeof isOwnCard==="function"&&isOwnCard(CE_cardIdentityName(card)))?card:null;
   }catch(_){return null;}
 }
 function CE_syncEntityCard(name){try{
   var card=CE_findWritableEntityCard(name);if(!card)return false;
   var kind=typeof codexKindFromExistingCard==="function"?codexKindFromExistingCard(card,name):String(card.type||"").toLowerCase();
   if(!["character","location","item","faction"].includes(kind)){var raw=String(card.type||"").toLowerCase();if(/character|npc|person/.test(raw))kind="character";else if(/location|place/.test(raw))kind="location";else if(/item|object/.test(raw))kind="item";else if(/faction|group|organization|organisation/.test(raw))kind="faction";else return false;}
-  var displayName=String(card.title||card.name||name).trim()||name;
+  var displayName=String(CE_cardIdentityName(card)||name).trim()||name;
   var base=CE_publicStoryCardNotes(card),managed=CE_renderManagedEntityNotes(displayName,card,kind),next=(base?base+"\n\n":"")+CE_CARD_NOTES_START+"\n"+managed;
   if(String(card.description||card.notes||"")!==next){card.description=next;card.notes=next;}return true;
 }catch(_){return false;}}
 function CE_syncCrossedWiresCardSection(name){
   try{
     var card=CE_findWritableEntityCard(name);if(!card||!/^(?:character|npc)$/i.test(String(card.type||"")))return false;
-    var raw=String(card.description||card.notes||""),display=String(card.title||card.name||name).trim()||name,nextSection="❤️ CROSSED WIRES\n"+CE_crossedCardSection(display);
+    var raw=String(card.description||card.notes||""),display=String(CE_cardIdentityName(card)||name).trim()||name,nextSection="❤️ CROSSED WIRES\n"+CE_crossedCardSection(display);
     // Fast path for existing managed Character cards. Relationship migrations
     // should not recompute ECHO/TWISTS/UNSAID/CODEX diagnostics just to replace
     // one stale Crossed Wires paragraph.
@@ -19382,7 +19779,7 @@ function CE_echoTwistEntity(t){
   // in the ECHO evidence and already typed by Story Cards/CODEX; never attach an
   // actorless theory to whichever NPC happens to be in the room.
   var source=String(t&&((t.rawEvidence||t.summary||t.title))||"").toLowerCase(),candidates=[];
-  try{(storyCards||[]).forEach(function(card){if(!card)return;var n=String(card.title||card.name||"").trim();if(!n||source.indexOf(n.toLowerCase())<0)return;var k="";try{k=typeof codexKindFromExistingCard==="function"?codexKindFromExistingCard(card,n):String(card.type||"").toLowerCase();}catch(_){}if(["location","item","faction"].indexOf(k)>=0)candidates.push(n);});}catch(_){}
+  try{(storyCards||[]).forEach(function(card){if(!card)return;var n=String(CE_cardIdentityName(card)).trim();if(!n||source.indexOf(n.toLowerCase())<0)return;var k="";try{k=typeof codexKindFromExistingCard==="function"?codexKindFromExistingCard(card,n):String(card.type||"").toLowerCase();}catch(_){}if(["location","item","faction"].indexOf(k)>=0)candidates.push(n);});}catch(_){}
   try{var trusted=state.unsaid&&state.unsaid.codex&&state.unsaid.codex.trustedEntities||{};Object.keys(trusted).forEach(function(n){if(["location","item","faction"].indexOf(String(trusted[n]||"").toLowerCase())>=0&&source.indexOf(String(n).toLowerCase())>=0)candidates.push(n);});}catch(_){}
   candidates=candidates.filter(Boolean).sort(function(a,b){return b.length-a.length;});
   return candidates.length?candidates[0]:null;
@@ -19405,7 +19802,7 @@ function CE_relationshipPresentationQueue(cw){
     var queue=[],recent="";try{recent=typeof CW_recentHistoryText==="function"?CW_recentHistoryText():"";}catch(_){}
     if(typeof storyCards!=="undefined"&&Array.isArray(storyCards))storyCards.forEach(function(card,idx){
       if(!card||!/^(?:character|npc)$/i.test(String(card.type||"")))return;
-      var title=String(card.title||card.name||"").trim();if(!title)return;
+      var title=String(CE_cardIdentityName(card)).trim();if(!title)return;
       var rel="";try{rel=typeof CW_relationshipField==="function"?CW_relationshipField(typeof CW_cardEntryText==="function"?CW_cardEntryText(card):String(card.entry||card.value||"")):"";}catch(_){}
       var stale=/Relationship tracking ready; no mature directional bond is established yet\.|Relationship tracking ready; no relationship history yet\./i.test(String(card.description||card.notes||""));
       if(!(rel||participants[title.toLowerCase()]))return;
@@ -19584,12 +19981,16 @@ function UN_init() {
 function UN_configCard() {
   try {
     if (typeof storyCards === "undefined" || !Array.isArray(storyCards)) return null;
-    return storyCards.find(function(c){ return c && (
-      c.title === CE_CONFIG_TITLE_INTEGRATION ||
-      c.title === "CROSSED ECHOES — The Unspoken Veil — Integration" ||
-      c.title === "THREADBOUND — Integration" ||
-      c.title === "UNIFIED NARRATIVE — Integration"
-    ); }) || null;
+    return storyCards.find(function(c){
+      if (!c) return false;
+      const entry = CE_cardEntryCore(c);
+      return c.title === CE_CONFIG_TITLE_INTEGRATION ||
+        c.title === "CROSSED ECHOES — The Unspoken Veil — Integration" ||
+        c.title === "THREADBOUND — Integration" ||
+        c.title === "UNIFIED NARRATIVE — Integration" ||
+        CE_hasCardKey(c, CE_CONFIG_KEY_INTEGRATION) ||
+        /^\s*CROSSED ECHOES INTEGRATION/i.test(entry);
+    }) || null;
   } catch (e) { return null; }
 }
 
@@ -19783,7 +20184,7 @@ function UN_ensureConfigCard() {
     var cfg = UN_readConfig();
     var card = UN_configCard();
     if (!card && typeof Library !== "undefined" && Library.safeSetCard) {
-      Library.safeSetCard(CE_CONFIG_TITLE_INTEGRATION, CE_CONFIG_CATEGORY, UN_renderConfig(cfg), UN_configNotes(), "__crossed_echoes_integration__");
+      Library.safeSetCard(CE_CONFIG_TITLE_INTEGRATION, CE_CONFIG_CATEGORY, UN_renderConfig(cfg), UN_configNotes(), CE_CONFIG_KEY_INTEGRATION);
       card = UN_configCard();
     }
     if (card) {
@@ -19792,10 +20193,13 @@ function UN_ensureConfigCard() {
         card.name = CE_CONFIG_TITLE_INTEGRATION;
       }
       card.type = CE_CONFIG_CATEGORY;
-      // Administrative config cards should not be recalled as lore.
-      card.keys = "";
+      // The inert sentinel is part of the documented persistent core fields and
+      // cannot naturally trigger in story prose, so it survives isolated hooks
+      // without spending model context.
+      card.keys = CE_CONFIG_KEY_INTEGRATION;
       if (!card.entry || card.entry.length > 1900 || !/^CROSSED ECHOES INTEGRATION/m.test(card.entry)) card.entry = UN_renderConfig(cfg);
       if (!card.description || card.description.indexOf("CROSSED ECHOES — THE UNSPOKEN VEIL — INTEGRATION OPTIONS") < 0) card.description = UN_configNotes();
+      CE_commitCoreStoryCard(card, CE_CONFIG_KEY_INTEGRATION, card.entry, CE_CONFIG_CATEGORY);
     }
   } catch (e) { UN_error("config",e); }
 }
@@ -19995,7 +20399,7 @@ function UN_identityIndex() {
       var k=UN_identityKind(card.type),raw=Array.isArray(card.keys)?card.keys.join(","):String(card.keys||"");
       if(!k)return;
       var keys=raw.split(",").map(function(x){return String(x||"").trim();}).filter(Boolean).slice(0,12);
-      var canonical=String(card.title||keys[0]||"").trim();if(!canonical)return;bind(canonical,canonical,k);keys.forEach(function(a){bind(a,canonical,k);});
+      var canonical=String(CE_cardIdentityName(card)||keys[0]||"").trim();if(!canonical)return;bind(canonical,canonical,k);keys.forEach(function(a){bind(a,canonical,k);});
     });
   } catch(e) {}
   try {
@@ -20066,10 +20470,11 @@ function UN_knownEntityNames() {
   }catch(e){}
   try{
     UN_boundedStoryCardSample(400).slice().reverse().forEach(function(c){
-      if(!c||!c.title||/^CROSSED ECHOES — Config/i.test(c.title))return;
+      var cardName=CE_cardIdentityName(c);
+      if(!c||!cardName||/^CROSSED ECHOES — Config/i.test(cardName))return;
       var ty=String(c.type||"").toLowerCase();
       if(ty&&!/(?:character|npc|person|location|place|item|object|faction|group|organi[sz]ation)/.test(ty))return;
-      add(c.title);
+      add(cardName);
       if(out.length>=220)return;
       var raw=Array.isArray(c.keys)?c.keys.join(","):String(c.keys||"");
       raw.split(",").slice(0,6).forEach(function(k){k=String(k||"").trim();if(k&&k.length>1&&out.length<220)add(k);});
@@ -20901,8 +21306,8 @@ function CEW_cardType(card){
   if(/(?:^|\n)\s*(?:Function|Owner|Capabilities|Properties|Material|Manufacturer)\s*:/i.test(src)&&/(?:^|\n)\s*(?:Name|Type|Status)\s*:/i.test(src))return "item";
   return "";
 }
-function CEW_cardFor(name){try{var list=storyCards||[];for(var i=0;i<list.length;i++){var c=list[i];if(c&&CEW_same(c.title||c.name,name))return c;}}catch(_){}return null;}
-function CEW_canonicalName(raw){var name=String(raw||"").trim();if(!name)return name;try{var list=storyCards||[];for(var i=0;i<list.length;i++){var c=list[i];if(!c||!c.title)continue;if(CEW_same(c.title,name)||CEW_same(c.name,name))return String(c.title||c.name);var keys=Array.isArray(c.keys)?c.keys:String(c.keys||"").split(",");for(var j=0;j<keys.length;j++)if(CEW_key(keys[j])===CEW_key(name))return String(c.title||c.name);}}catch(_){}try{var r=resolveUnsaidCanonicalName(name);if(r&&r!==name)return r;}catch(_){}return name;}
+function CEW_cardFor(name){try{var list=storyCards||[];for(var i=0;i<list.length;i++){var c=list[i];if(c&&CEW_same(CE_cardIdentityName(c),name))return c;}}catch(_){}return null;}
+function CEW_canonicalName(raw){var name=String(raw||"").trim();if(!name)return name;try{var list=storyCards||[];for(var i=0;i<list.length;i++){var c=list[i],cn=CE_cardIdentityName(c);if(!c||!cn)continue;if(CEW_same(cn,name))return cn;var keys=Array.isArray(c.keys)?c.keys:String(c.keys||"").split(",");for(var j=0;j<keys.length;j++)if(CEW_key(keys[j])===CEW_key(name))return cn;}}catch(_){}try{var r=resolveUnsaidCanonicalName(name);if(r&&r!==name)return r;}catch(_){}return name;}
 function CEW_publicCardText(card){if(!card)return "";var notes="";try{notes=typeof CE_publicStoryCardNotes==="function"?CE_publicStoryCardNotes(card):String(card.description||"");}catch(_){notes=String(card.description||"");}return [card.entry,notes].filter(Boolean).join("\n");}
 function CEW_extractField(text,labels){var src=String(text||"");for(var i=0;i<labels.length;i++){var rx=new RegExp("(?:^|\\n)\\s*"+labels[i]+"\\s*:\\s*([^\\n]{2,260})","i"),m=src.match(rx);if(m)return CEW_clip(m[1],220);}return "";}
 
@@ -21006,7 +21411,7 @@ function CEW_syncEntities(text){
   var present=[],objects=[],loc="";
   try{var ev=state.echoVeil||{},scene=ev.scene||{};loc=String(scene.location||"");if(loc)CEW_upsertEntity(loc,"location",{seen:true,mentioned:true,presence:"present",importance:4,source:"echo-scene"});Object.keys(scene.cast||{}).forEach(function(k){var c=scene.cast[k]||{},n=c.name||k;present.push(n);CEW_upsertEntity(n,"character",{seen:true,mentioned:true,presence:"present",location:loc,importance:5,source:"echo-cast"});});Object.keys(scene.objects||{}).forEach(function(k){var o=scene.objects[k]||{},n=o.name||k;objects.push(n);CEW_upsertEntity(n,"item",{seen:true,mentioned:true,presence:"present",location:loc,importance:3,source:"echo-object"});});Object.keys(ev.entities||{}).forEach(function(k){var x=ev.entities[k]||{},n=x.name||k;if(!n)return;var type=String(x.kind||"").toLowerCase()==="group"?"faction":"character";var recent=Number(x.lastSeen||-999)>=now-2;CEW_upsertEntity(n,type,{seen:recent,mentioned:recent,presence:recent?"recent":"unknown",importance:recent?2:0,source:"echo-entity"});});}catch(_){}
   // Story Cards supply typed durable entities and safe established goals/status.
-  try{(storyCards||[]).forEach(function(card){if(!card||/^CROSSED ECHOES|^Twists and Turns|^UNSAID/i.test(String(card.title||"")))return;var name=String(card.title||card.name||"").trim(),type=CEW_cardType(card);if(!name||!type)return;var mentioned=false;try{mentioned=new RegExp("(^|[^\\p{L}\\p{N}])"+name.replace(/[.*+?^${}()|[\]\\]/g,"\\$&")+"(?=$|[^\\p{L}\\p{N}])","iu").test(src);}catch(_){mentioned=src.toLowerCase().indexOf(name.toLowerCase())>=0;}var pub=CEW_publicCardText(card),goal=CEW_extractField(pub,["Goal","Goals","Objective","Objectives","Current Goal","Current Objective","Motive","Motives"]),status=CEW_extractField(pub,["CURRENT","Current","Status","CURRENT STATUS","Current Status"]);if(!mentioned&&type!=="faction"&&!(cfg.offscreenSimulation!==false&&type==="character"&&(goal||status)))return;var e=CEW_upsertEntity(name,type,{mentioned:mentioned,presence:present.some(function(x){return CEW_same(x,name);})?"present":(mentioned?"recent":"offscreen"),goal:goal,status:status,importance:mentioned?3:((goal||status)?1:0),source:"story-card"});if(type==="faction"&&e)CEW_syncFactionFromEntity(e,card);});}catch(_){}
+  try{(storyCards||[]).forEach(function(card){if(!card||/^CROSSED ECHOES|^Twists and Turns|^UNSAID/i.test(String(card.title||"")))return;var name=String(CE_cardIdentityName(card)).trim(),type=CEW_cardType(card);if(!name||!type)return;var mentioned=false;try{mentioned=new RegExp("(^|[^\\p{L}\\p{N}])"+name.replace(/[.*+?^${}()|[\]\\]/g,"\\$&")+"(?=$|[^\\p{L}\\p{N}])","iu").test(src);}catch(_){mentioned=src.toLowerCase().indexOf(name.toLowerCase())>=0;}var pub=CEW_publicCardText(card),goal=CEW_extractField(pub,["Goal","Goals","Objective","Objectives","Current Goal","Current Objective","Motive","Motives"]),status=CEW_extractField(pub,["CURRENT","Current","Status","CURRENT STATUS","Current Status"]);if(!mentioned&&type!=="faction"&&!(cfg.offscreenSimulation!==false&&type==="character"&&(goal||status)))return;var e=CEW_upsertEntity(name,type,{mentioned:mentioned,presence:present.some(function(x){return CEW_same(x,name);})?"present":(mentioned?"recent":"offscreen"),goal:goal,status:status,importance:mentioned?3:((goal||status)?1:0),source:"story-card"});if(type==="faction"&&e)CEW_syncFactionFromEntity(e,card);});}catch(_){}
   // Anything previously present but absent from a known current cast becomes
   // off-screen rather than being silently teleported back by a name-drop.
   if(present.length){Object.keys(w.entities).forEach(function(k){var e=w.entities[k];if(e.type==="character"&&e.presence==="present"&&!present.some(function(n){return CEW_same(n,e.name);})&&Number(e.lastSeen)<now)e.presence="offscreen";});}

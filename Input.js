@@ -91,9 +91,21 @@ var twistsModifier = (text) => {
         }
         const name = cleanCommandEntity(parts.slice(1).join(" "));
         if (name) {
-          let thread = c.threads.find(t => isSameCardEntity(t.entity, name) && Library.isThreadAllowed(t, cfg));
-          if (!thread) {
+          const candidates = c.threads
+            .filter(t => isSameCardEntity(t.entity, name) && Library.isThreadAllowed(t, cfg))
+            .sort((a,b) => Library.twistGroundingScore(b) - Library.twistGroundingScore(a) || b.seedTouches - a.seedTouches);
+          let thread = candidates[0] || null;
+
+          // In strict mode /twist is a pacing override, not a canon-invention
+          // command. The player can reveal a supported thread early, but the
+          // command cannot manufacture a secret that has zero story evidence.
+          if (cfg.strictLogic !== false && (!thread || Library.twistGroundingScore(thread) < 0.90)) {
+            pushMessage(`🌀 Strict Logic blocked an unsupported forced twist around ${name}. Plant/develop the thread first, or turn strictLogic off if you intentionally want a wildcard reveal.`);
+            return stopControl();
+          }
+          if (!thread && cfg.strictLogic === false) {
             thread = Library.createThread(c, name, null, c.turn - cfg.minTurnsForPayoff, cfg);
+            if (thread) { thread.source = "forced"; thread.wildcard = true; }
           }
 
           if (!thread) {
@@ -103,11 +115,18 @@ var twistsModifier = (text) => {
             thread.tier = Library.tierFor(thread.seedTouches);
             thread.status = "ready";
             c.forceEntity = thread.id;
-            pushMessage(`🌀 Forcing a twist around ${name}...`);
+            pushMessage(`🌀 Forcing a twist around ${thread.entity}...`);
           }
         } else {
+          if (cfg.strictLogic !== false) {
+            const supported = c.threads.some(t => Library.isThreadAllowed(t, cfg) && Library.twistGroundingScore(t) >= 0.90);
+            if (!supported) {
+              pushMessage("🌀 Strict Logic found no evidence-backed twist to force yet. Use /plant to choose a direction, let the story establish a clue, or turn strictLogic off for deliberate wildcard twists.");
+              return stopControl();
+            }
+          }
           c.forceEntity = "any";
-          pushMessage("🌀 Forcing the next twist...");
+          pushMessage("🌀 Forcing the next supported twist...");
         }
         if (!c.forceEntity) return stopControl();
         text = "(A quiet moment passes.)";
