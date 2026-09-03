@@ -1422,6 +1422,9 @@ var modifier = (text) => {
     var afterUnsaid = unsaidModifier(afterTwists.text);
     var visible = afterUnsaid && typeof afterUnsaid.text !== "undefined" ? afterUnsaid.text : afterTwists.text;
     if (typeof CW_onOutput === "function") visible = CW_onOutput(visible);
+    // Salvage only explicit, visible NPC behaviour when the private UNSAID
+    // protocol is absent. This never infers or writes hidden feelings/motives.
+    if (typeof observeUnsaidVisibleBehavior === "function") observeUnsaidVisibleBehavior(visible);
     if (typeof ECHO_VEIL !== "undefined" && ECHO_VEIL.output) visible = ECHO_VEIL.output(visible);
     if (typeof CE_stripVisibleScriptArtifacts === "function") visible = CE_stripVisibleScriptArtifacts(visible);
     if (typeof CEW_onOutput === "function") CEW_onOutput(visible);

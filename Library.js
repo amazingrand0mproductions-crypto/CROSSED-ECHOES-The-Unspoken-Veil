@@ -8973,6 +8973,8 @@ function syncMindToCard(name, allowCoreShift, useJson) {
       feelingHistory: mind.feelingHistory || [],
       lastThought: mind.lastThoughtText || null,
       thoughtHistory: Array.isArray(mind.thoughtHistory) ? mind.thoughtHistory.slice(-THOUGHT_HISTORY_LIMIT) : [],
+      observations: Array.isArray(mind.observations) ? mind.observations.slice(-6).map(x=>({turn:Number(x.turn||0),cue:String(x.cue||"behavior").slice(0,40),text:String(x.text||"").slice(0,240)})) : [],
+      lastObservedAgo: typeof mind.lastObservedTurn === "number" ? Math.max(0,state.unsaid.turn-mind.lastObservedTurn) : null,
       want: mind.want || null,
       relations,
       revealCount: mind.revealCount || 0,
@@ -9078,6 +9080,8 @@ function forgetMentionTracking(name) {
   if (state.unsaid.codex.strongReasons) delete state.unsaid.codex.strongReasons[name];
 }
 
+var UNSAID_OBSERVATION_ONLY_MIND_CAP = 48;
+
 function createMind() {
   return {
     core: null,
@@ -9094,6 +9098,10 @@ function createMind() {
     // prompt reject semantic rephrasings of the last few reveals without
     // growing state forever.
     thoughtHistory: [],
+    // Public, observable behaviour is tracked separately from private psychology.
+    // These records never become feelings, motives or secrets by inference.
+    observations: [],
+    lastObservedTurn: null,
     relations: {},
     relationOrder: [],
     relationHistory: {},
@@ -9125,6 +9133,15 @@ function ensureAdaptiveMindShape(mind) {
   mind.thoughtOrder = mind.thoughtOrder.filter(key =>
     typeof key === "string" && Object.prototype.hasOwnProperty.call(mind.thoughtBank, key)
   );
+  if (!Array.isArray(mind.observations)) mind.observations = [];
+  mind.observations = mind.observations
+    .filter(x => x && typeof x === "object" && typeof x.text === "string" && x.text.trim())
+    .slice(-6);
+  if (typeof mind.lastObservedTurn !== "number") {
+    mind.lastObservedTurn = mind.observations.length && typeof mind.observations[mind.observations.length - 1].turn === "number"
+      ? mind.observations[mind.observations.length - 1].turn
+      : null;
+  }
 }
 
 function adaptiveMindKeyFor(thought, about, isCoreShift, feeling, revealCount) {
@@ -9260,6 +9277,18 @@ function loadMindFromCard(card) {
       } else if (mind.lastThoughtText) {
         mind.thoughtHistory = [mind.lastThoughtText];
       }
+      if (Array.isArray(parsed.observations)) {
+        mind.observations=parsed.observations.filter(x=>x&&typeof x.text==="string"&&x.text.trim()).slice(-6).map(x=>({
+          turn: typeof x.turn==="number" ? x.turn : state.unsaid.turn,
+          cue: String(x.cue||"behavior").slice(0,40),
+          text: String(x.text||"").replace(/\s+/g," ").trim().slice(0,240)
+        }));
+      }
+      if (typeof parsed.lastObservedAgo === "number" && isFinite(parsed.lastObservedAgo) && parsed.lastObservedAgo >= 0) {
+        mind.lastObservedTurn=state.unsaid.turn-parsed.lastObservedAgo;
+      } else if (mind.observations.length) {
+        mind.lastObservedTurn=mind.observations[mind.observations.length-1].turn;
+      }
       if (typeof parsed.want === "string") mind.want = parsed.want;
       if (typeof parsed.revealCount === "number" && parsed.revealCount >= 0) mind.revealCount = Math.floor(parsed.revealCount);
       if (typeof parsed.lastRevealAgo === "number" && isFinite(parsed.lastRevealAgo) && parsed.lastRevealAgo >= 0) {
@@ -9325,6 +9354,7 @@ function loadMindFromCard(card) {
         !!mind.feeling ||
         !!mind.want ||
         !!mind.lastThoughtText ||
+        (mind.observations && mind.observations.length > 0) ||
         (mind.revealCount || 0) > 0 ||
         (mind.coreHistory && mind.coreHistory.length > 0) ||
         mind.relationOrder.length > 0 ||
@@ -9616,6 +9646,130 @@ function pickUnsaidThinker(names, currentTurn, recentText) {
   return names[names.length - 1];
 }
 
+
+// Visible-behaviour continuity is deliberately distinct from UNSAID's private
+// thought protocol. It records only what the published model output actually
+// shows an NPC doing. No hidden cause, emotion, attraction or motive is inferred.
+function unsaidObservableCue(sentence) {
+  const s=String(sentence||"").replace(/\s+/g," ").trim();
+  if (!s || s.length < 12) return "";
+  const cues=[
+    ["reassurance", /\b(?:reassur(?:es|ed|ing)|comfort(?:s|ed|ing)|gives? (?:him|her|them|you) (?:a )?(?:small |gentle |warm )?reassuring smile|squeez(?:es|ed) (?:his|her|their|your) hand)\b/i],
+    ["warmth", /\b(?:hug(?:s|ged|ging)|embrac(?:es|ed|ing)|pulls? (?:him|her|them|you) into (?:a )?(?:brief |tight |gentle )?(?:hug|embrace)|smiles? (?:softly|warmly|gently)|expression (?:softens|warms)|softens? (?:at|toward|towards))\b/i],
+    ["protective", /\b(?:steps? in front of|moves? in front of|shields?|covers?|pulls? (?:him|her|them|you) (?:back|behind)|places? (?:himself|herself|themself|themselves) between|protective stance|stands? protectively)\b/i],
+    ["fear/startle", /\b(?:flinch(?:es|ed|ing)|recoil(?:s|ed|ing)|startl(?:es|ed|ing)|freezes? (?:in place|for a moment|mid-|at)|goes? still)\b/i],
+    ["tension", /\b(?:jaw (?:tightens|clenches)|clenches? (?:his|her|their) jaw|shoulders? (?:tense|tighten|stiffen)|frown(?:s|ed|ing)|scowl(?:s|ed|ing)|bristl(?:es|ed|ing)|glar(?:es|ed|ing)|voice (?:hardens|sharpens)|snaps? (?:back|at))\b/i],
+    ["hesitation", /\b(?:hesitat(?:es|ed|ing)|falters?|pauses? (?:before|for a beat|for a moment)|looks? away|breaks? eye contact|words? (?:catch|die|trail off))\b/i],
+    ["relief/easing", /\b(?:shoulders? (?:ease|drop|relax)|relax(?:es|ed|ing)|exhal(?:es|ed|ing)|lets? out (?:a )?(?:slow |long )?breath|tension (?:leaves|eases|drains))\b/i],
+    ["grief/distress", /\b(?:tears? (?:well|gather|spill|run)|cries?|sobs?|voice (?:cracks|breaks)|wipes? (?:at )?(?:his|her|their) eyes)\b/i],
+    ["affectionate contact", /\b(?:takes? (?:his|her|their|your) hand|holds? (?:his|her|their|your) hand|rests? (?:his|her|their) hand on|touches? (?:his|her|their|your) (?:arm|shoulder|cheek)|leans? (?:into|against) (?:him|her|them|you))\b/i]
+  ];
+  for (const [label,re] of cues) if (re.test(s)) return label;
+  return "";
+}
+
+function unsaidObservationCandidateNames() {
+  const out=[],seen=new Set();
+  const add=name=>{
+    name=String(name||"").trim();
+    if(!name || /^you$/i.test(name)) return;
+    const key=name.toLowerCase();
+    if(seen.has(key)) return;
+    // Never create behavioural evidence for player aliases.
+    try {
+      const blocked=excludedNames(UNSAID_DEFAULTS)||[];
+      if(blocked.some(x=>isSameCardEntity(x,name))) return;
+    } catch (_) {}
+    const card=findStoryCardForEntity(name);
+    if(card && (!isCharacterLikeCard(name,card) || codexKindFromExistingCard(card,name)!=="character")) return;
+    seen.add(key);out.push(name);
+  };
+  try {(state.unsaid&&state.unsaid.lastActiveCast||[]).slice(0,20).forEach(add);} catch(_){}
+  try {
+    const cast=state.echoVeil&&state.echoVeil.scene&&state.echoVeil.scene.cast||{};
+    Object.keys(cast).forEach(k=>add((cast[k]||{}).name||k));
+  } catch(_){}
+  try {
+    const npcs=state.crossedWires&&state.crossedWires.npcs||{};
+    Object.keys(npcs).filter(k=>Number((npcs[k]||{}).lastMentionTurn||-999)>=Number(state.unsaid&&state.unsaid.turn||0)-2)
+      .slice(-20).forEach(k=>add((npcs[k]||{}).name||k));
+  } catch(_){}
+  return out.slice(0,24);
+}
+
+
+function pruneUnsaidObservableOnlyMinds() {
+  const minds=state.unsaid&&state.unsaid.minds||{};
+  const removable=Object.keys(minds).filter(name=>{
+    const m=minds[name];if(!m)return false;ensureAdaptiveMindShape(m);
+    const privateState=!!(m.core||m.feeling||m.want||m.lastThoughtText||(m.revealCount||0)>0||(m.coreHistory&&m.coreHistory.length)||(m.relationOrder&&m.relationOrder.length)||(m.thoughtOrder&&m.thoughtOrder.length)||(m.recentTwistImpacts&&m.recentTwistImpacts.length));
+    return !privateState && m.observations && m.observations.length;
+  });
+  if(removable.length<=UNSAID_OBSERVATION_ONLY_MIND_CAP)return 0;
+  removable.sort((a,b)=>Number((minds[a]||{}).lastObservedTurn||-999)-Number((minds[b]||{}).lastObservedTurn||-999));
+  const count=removable.length-UNSAID_OBSERVATION_ONLY_MIND_CAP;
+  removable.slice(0,count).forEach(name=>{delete minds[name];});
+  return count;
+}
+
+function observeUnsaidVisibleBehavior(text, cfgOverride) {
+  initUnsaid();
+  const cfg=cfgOverride||UNSAID_DEFAULTS;
+  if(cfg.enabled===false) return 0;
+  let src=String(text||"");
+  if(!src.trim()) return 0;
+  // Ignore any private/control protocol if another parser has not removed it yet.
+  src=src.replace(/\[\[(?:UNSAID|CW_[A-Z_]+|CE_[A-Z_]+)[\s\S]*?\]\]/gi," ")
+         .replace(/\[\[CARD_[A-Z_]+[\s\S]*?\]\]/gi," ");
+  const names=unsaidObservationCandidateNames();
+  const aliases=state.unsaid&&state.unsaid.aliases||{};
+  const clauses=src.split(/(?<=[.!?])\s+|\n+/).map(x=>x.trim()).filter(Boolean).slice(0,28);
+  let added=0;
+  for(const sentence of clauses){
+    const cue=unsaidObservableCue(sentence);
+    if(!cue) continue;
+    const localNames=names.slice();
+    // First-sight visible behaviour can occur before UNSAID has a mind/cast
+    // record. Resolve only name-shaped sentence tokens that map to an existing
+    // Character Story Card; unresolved proper nouns are ignored.
+    const proper=sentence.match(/\b[A-ZÀ-ÖØ-ÞĀ-ſΑ-ΩА-ЯЁ][\p{L}\p{N}'’.-]*(?:\s+[A-ZÀ-ÖØ-ÞĀ-ſΑ-ΩА-ЯЁ][\p{L}\p{N}'’.-]*){0,3}\b/gu)||[];
+    proper.slice(0,8).forEach(raw=>{
+      raw=String(raw||"").replace(/[’']s$/i,"");
+      const resolved=resolveUnsaidCanonicalName(raw);
+      if(!resolved || localNames.some(n=>isSameCardEntity(n,resolved))) return;
+      const card=findStoryCardForEntity(resolved);
+      if(card && isCharacterLikeCard(resolved,card) && codexKindFromExistingCard(card,resolved)==="character") localNames.push(resolved);
+    });
+    if(!localNames.length) continue;
+    const owners=[];
+    for(const name of localNames){
+      const forms=(typeof aliasesForUnsaidCharacter==="function"?aliasesForUnsaidCharacter(name):[name].concat((aliases[name]||[]))).filter(Boolean).sort((a,b)=>b.length-a.length);
+      if(forms.some(form=>{
+        try{return new RegExp("(^|[^\\p{L}\\p{N}])"+String(form).replace(/[.*+?^${}()|[\]\\]/g,"\\$&")+"(?=$|[^\\p{L}\\p{N}])","iu").test(sentence);}
+        catch(_){return sentence.toLowerCase().includes(String(form).toLowerCase());}
+      })) owners.push(name);
+    }
+    // Require exactly one clearly named NPC. Pronoun-only attribution would
+    // guess who performed the behaviour and is therefore intentionally ignored.
+    if(owners.length!==1) continue;
+    const name=owners[0];
+    const clean=String(sentence).replace(/\s+/g," ").trim().slice(0,240);
+    if(!clean) continue;
+    if(!state.unsaid.minds[name]) state.unsaid.minds[name]=createMind();
+    const mind=state.unsaid.minds[name];ensureAdaptiveMindShape(mind);
+    const duplicate=mind.observations.some(o=>o && (String(o.text||"")===clean || thoughtSimilarity(String(o.text||""),clean)>=0.92));
+    if(duplicate) continue;
+    mind.observations.push({turn:Number(state.unsaid.turn||0),cue,text:clean});
+    mind.observations=mind.observations.slice(-6);
+    mind.lastObservedTurn=Number(state.unsaid.turn||0);
+    // This is activity/continuity evidence, not a private reveal.
+    mind.lastTurn=Math.max(Number(mind.lastTurn||0),Number(state.unsaid.turn||0));
+    added++;
+  }
+  if(added)pruneUnsaidObservableOnlyMinds();
+  return added;
+}
+
 function compactContinuityValue(value, maxLen) {
   const clean = String(value || "").replace(/\s+/g, " ").trim();
   const limit = Math.max(30, Number(maxLen) || 140);
@@ -9633,6 +9787,10 @@ function unsaidContinuityScore(name, mind, baseText) {
   if (mind.thoughtBank.private_commitment) score += 4;
   if (mind.want) score += 3;
   if (mind.core) score += 2;
+  if (mind.observations && mind.observations.length) {
+    const age=Math.max(0,Number(state.unsaid&&state.unsaid.turn||0)-Number(mind.lastObservedTurn||0));
+    score += age<=1 ? 3 : age<=3 ? 2 : 1;
+  }
   if (mind.relationOrder && mind.relationOrder.length) score += 2;
   if (typeof UN_relationshipPressureScore === "function") score += Math.min(4, UN_relationshipPressureScore(name));
   if (typeof UN_echoEntityPressureScore === "function") score += Math.min(3, UN_echoEntityPressureScore(name));
@@ -9650,7 +9808,7 @@ function buildBehaviorContinuityInstruction(activeNames, baseText, cfgOverride) 
   if (cfg.behavioralContinuity === false || !Array.isArray(activeNames) || !activeNames.length) return "";
   const cap = Math.max(1, Math.min(4, Number(cfg.behavioralContinuityCharacters) || UNSAID_DEFAULTS.behavioralContinuityCharacters));
   const candidates = activeNames.map(name => ({ name, mind: state.unsaid.minds[name] }))
-    .filter(x => x.mind && (x.mind.core || x.mind.want || (x.mind.thoughtOrder && x.mind.thoughtOrder.length) || (x.mind.relationOrder && x.mind.relationOrder.length)))
+    .filter(x => x.mind && (x.mind.core || x.mind.want || (x.mind.thoughtOrder && x.mind.thoughtOrder.length) || (x.mind.relationOrder && x.mind.relationOrder.length) || (x.mind.observations && x.mind.observations.length)))
     .sort((a, b) => unsaidContinuityScore(b.name, b.mind, baseText) - unsaidContinuityScore(a.name, a.mind, baseText))
     .slice(0, cap);
   if (!candidates.length) return "";
@@ -9659,11 +9817,11 @@ function buildBehaviorContinuityInstruction(activeNames, baseText, cfgOverride) 
   candidates.forEach(({ name, mind }) => {
     ensureAdaptiveMindShape(mind);
     const parts = [];
-    if (mind.thoughtBank.current_plan) parts.push(`plan: ${compactContinuityValue(mind.thoughtBank.current_plan, 120)}`);
-    if (mind.thoughtBank.current_goal) parts.push(`goal: ${compactContinuityValue(mind.thoughtBank.current_goal, 110)}`);
-    if (mind.thoughtBank.private_commitment) parts.push(`commitment: ${compactContinuityValue(mind.thoughtBank.private_commitment, 100)}`);
-    if (!parts.length && mind.want) parts.push(`want: ${compactContinuityValue(mind.want, 110)}`);
-    if (parts.length < 2 && mind.core) parts.push(`core: ${compactContinuityValue(mind.core, 105)}`);
+    if (mind.thoughtBank.current_plan) parts.push(`PRIVATE plan: ${compactContinuityValue(mind.thoughtBank.current_plan, 120)}`);
+    if (mind.thoughtBank.current_goal) parts.push(`PRIVATE goal: ${compactContinuityValue(mind.thoughtBank.current_goal, 110)}`);
+    if (mind.thoughtBank.private_commitment) parts.push(`PRIVATE commitment: ${compactContinuityValue(mind.thoughtBank.private_commitment, 100)}`);
+    if (!parts.length && mind.want) parts.push(`PRIVATE want: ${compactContinuityValue(mind.want, 110)}`);
+    if (parts.length < 2 && mind.core) parts.push(`PRIVATE core: ${compactContinuityValue(mind.core, 105)}`);
 
     // Add only one relation, preferring another character who is in this scene.
     let relationTarget = null;
@@ -9674,14 +9832,18 @@ function buildBehaviorContinuityInstruction(activeNames, baseText, cfgOverride) 
       if (!relationTarget) relationTarget = mind.relationOrder[mind.relationOrder.length - 1];
     }
     if (relationTarget && mind.relations && mind.relations[relationTarget]) {
-      parts.push(`toward ${relationTarget}: ${compactContinuityValue(mind.relations[relationTarget], 70)}`);
+      parts.push(`PRIVATE toward ${relationTarget}: ${compactContinuityValue(mind.relations[relationTarget], 70)}`);
+    }
+    if (mind.observations && mind.observations.length && parts.length < 3) {
+      const ob=mind.observations[mind.observations.length-1];
+      if(ob && ob.text) parts.push(`OBSERVED ${ob.cue||"behavior"}: ${compactContinuityValue(ob.text, 125)}`);
     }
     if (parts.length) lines.push(`${name} — ${parts.slice(0, 3).join("; ")}`);
   });
   if (!lines.length) return "";
 
-  const prefix = `\n[UNSAID behavioral continuity — narrator-only. Let these established private motives subtly affect what active NPCs choose, avoid, notice, hesitate over, or pursue:\n`;
-  const suffix = `\nPRIVATE-SAFETY RULE: Do not quote/expose these notes as narration, dialogue, or mind-reading. Other characters do not know them unless the visible story revealed them. Use only what matters naturally now. Never append an UNSAID thought marker because of this note alone.]\n`;
+  const prefix = `\n[UNSAID behavioral continuity — narrator-only. PRIVATE items are established inner state; OBSERVED items are public story evidence only. Let continuity subtly affect active NPC behaviour without inventing a hidden cause:\n`;
+  const suffix = `\nPRIVATE-SAFETY RULE: Never quote/expose PRIVATE notes as narration, dialogue, or mind-reading. Other characters do not know PRIVATE items unless the visible story revealed them. OBSERVED items may be remembered as visible behaviour but do not prove a motive or feeling. Use only what matters naturally now. Never append an UNSAID thought marker because of this note alone.]\n`;
   const roomForLines = Math.max(80, UNSAID_CONTINUITY_MAX_CHARS - prefix.length - suffix.length);
   let body = lines.join("\n");
   if (body.length > roomForLines) body = body.slice(0, Math.max(20, roomForLines - 1)).replace(/\s+$/, "") + "…";
@@ -9810,6 +9972,10 @@ function buildAndFitThoughtInstruction(chosen, active, baseText, allowCoreShift,
   if (target && mind && mind.relations && mind.relations[target]) continuity.push(`toward ${target}=${mind.relations[target]}`);
   const adaptiveDigest = (mind && cfg.adaptiveMindEnabled !== false) ? adaptiveMindDigest(mind, target, 3) : "";
   if (adaptiveDigest) continuity.push(`memory=${compactContinuityValue(adaptiveDigest, 220)}`);
+  if (mind && mind.observations && mind.observations.length) {
+    const ob=mind.observations[mind.observations.length-1];
+    if(ob&&ob.text) continuity.push(`visible behavior="${compactContinuityValue(ob.text, 150)}" (public evidence only; infer no hidden cause unless the requested private thought supports it)`);
+  }
 
   const recentThoughtAngles = mind
     ? ((Array.isArray(mind.thoughtHistory) && mind.thoughtHistory.length) ? mind.thoughtHistory.slice(-2) : (mind.lastThoughtText ? [mind.lastThoughtText] : []))
@@ -15655,15 +15821,26 @@ const ECHO_VEIL = (() => {
 
     if (!CFG.ingestStoryCardProfiles || typeof storyCards === "undefined" || !Array.isArray(storyCards)) { RUNTIME_CARD_INDEX_CACHE = s.cardIndex; return s.cardIndex; }
 
-    let sig = "";
+    // Stream the Story Card fingerprint instead of concatenating one giant
+    // signature string. Large adventures can contain thousands of cards and
+    // AI Dungeon's hook sandbox is memory-capped.
+    let rolling = 2166136261 >>> 0, fingerprintCount = 0;
+    const mixFingerprint = value => {
+      const x=hash(String(value||""));
+      rolling ^= (Number(x)||0) >>> 0;
+      rolling = Math.imul(rolling,16777619) >>> 0;
+      rolling ^= (fingerprintCount + 0x9e3779b9) >>> 0;
+      rolling = Math.imul(rolling,16777619) >>> 0;
+      fingerprintCount++;
+    };
     for (let i = 0; i < storyCards.length; i++) {
       const c = storyCards[i] || {};
       if (String(c.type||"").trim().toUpperCase() === CONFIG_CARD.type) continue;
       const keys = Array.isArray(c.keys) ? c.keys.join(",") : String(c.keys || "");
       const entry = String(c.entry || "");
-      sig += String(c.id || i) + "|" + String(c.type || "") + "|" + keys + "|" + entry.length + "|" + hash(entry.slice(0, 512) + "|" + entry.slice(-512)) + ";";
+      mixFingerprint(String(c.id || i) + "|" + String(c.type || "") + "|" + keys + "|" + entry.length + "|" + hash(entry.slice(0, 512) + "|" + entry.slice(-512)));
     }
-    const h = hash(sig);
+    const h = String(rolling>>>0) + ":" + fingerprintCount;
     if (s.cardIndex.hash === h) { RUNTIME_CARD_INDEX_CACHE = s.cardIndex; return s.cardIndex; }
 
     const aliases = {}, aliasOwners = {}, ambiguousAliases = {}, seeds = [], profiles = {}, locationAliases = {}, locationAliasOwners = {}, ambiguousLocationAliases = {}, locations = [], objectAliases = {}, objectAliasOwners = {}, ambiguousObjectAliases = {}, objects = [], objectProfiles = {};
@@ -18539,6 +18716,50 @@ const ECHO_VEIL = (() => {
     return src;
   }
 
+
+  function previousModelOutputText(excludeText) {
+    if (typeof history === "undefined" || !Array.isArray(history)) return "";
+    const current=String(excludeText||"").trim();
+    // Official AI Dungeon history types distinguish AI continuations from
+    // player "story" actions. Only continue is safe as a prior-model source.
+    // Some host revisions may expose the in-flight continuation in history;
+    // skip a whole-output self match so anti-loop never eats its own response.
+    for (let i=history.length-1;i>=0;i--) {
+      const h=history[i]||{},candidate=String(h.text||"").trim();
+      if(String(h.type||"").toLowerCase()!=="continue" || !candidate) continue;
+      if(current && (candidate===current || (Math.abs(candidate.length-current.length)<=6 && candidate.length>=120 && tokenOverlap(candidate,current)>=0.995))) continue;
+      return String(h.text||"");
+    }
+    return "";
+  }
+
+  function crossTurnOutputDedupe(text) {
+    if (!CFG.enableAntiLoop) return String(text||"");
+    const src=String(text||""), prev=previousModelOutputText(src);
+    if(!src.trim()||!prev.trim()) return src;
+    const current=src.split(/\n\s*\n/).map(x=>x.trim()).filter(Boolean);
+    const old=prev.split(/\n\s*\n/).map(x=>x.trim()).filter(Boolean);
+    if(!current.length||!old.length) return src;
+    const isNear=(a,b,strict)=>a===b || (a.length>=120&&b.length>=120&&tokenOverlap(a,b)>=(strict?0.98:0.94));
+    let repeated=0;
+    while(repeated<current.length && repeated<3){
+      const p=current[repeated];
+      const hit=old.some(q=>isNear(p,q,p.length>=280));
+      if(!hit)break;
+      repeated++;
+    }
+    // One paragraph is stripped only if extremely long and virtually exact;
+    // otherwise require two repeats. This preserves callbacks and refrains.
+    if(repeated===1){
+      const p=current[0];
+      const exactish=p.length>=280 && old.some(q=>isNear(p,q,true));
+      if(!exactish)return src;
+    }
+    if(repeated<1)return src;
+    const remain=current.slice(repeated).join("\\n\\n").trim();
+    return remain.length>=50 ? remain : src;
+  }
+
   function sanitizeLeakage(text) {
     const original = String(text || "");
     let out = original;
@@ -18767,6 +18988,7 @@ const ECHO_VEIL = (() => {
     let clean=sanitizeLeakage(text);
     clean=repairOutputSpacing(clean);
     clean=outputDedupe(clean);
+    clean=crossTurnOutputDedupe(clean);
     clean=enforceKnowledgeFirewallOnOutput(clean);
     rememberAssignments(clean);
 
@@ -18962,7 +19184,8 @@ function CE_unsaidCardSection(name) {
   try {
     var minds=(state.unsaid&&state.unsaid.minds)||{}, key=Object.keys(minds).find(function(k){return CE_sameName(k,name);}), m=key?minds[key]:null;
     if(!m) return "Tracking ready. No durable private state has been recorded yet.";
-    var lines=[];
+    if(typeof ensureAdaptiveMindShape==="function")ensureAdaptiveMindShape(m);
+    var lines=[],hasPrivate=!!(m.core||m.feeling||m.want||m.lastThoughtText||(m.thoughtOrder&&m.thoughtOrder.length)||(m.relationOrder&&m.relationOrder.length));
     if(m.core) lines.push("Core truth: "+CE_noteClip(m.core,240));
     if(m.feeling) lines.push("Current feeling: "+CE_noteClip(m.feeling,150));
     if(m.want) lines.push("Current want: "+CE_noteClip(m.want,180));
@@ -18970,6 +19193,12 @@ function CE_unsaidCardSection(name) {
     if(Number(m.tensionLevel||0)>0) lines.push("Identity tension: "+Math.round(Number(m.tensionLevel||0))+" / "+(typeof TENSION_THRESHOLD!=="undefined"?TENSION_THRESHOLD:"threshold"));
     var order=Array.isArray(m.thoughtOrder)?m.thoughtOrder.slice(-3):[];
     if(order.length&&m.thoughtBank){var memory=order.map(function(k){return k+": "+CE_noteClip(m.thoughtBank[k],120);}).filter(Boolean);if(memory.length){lines.push("Recent private memories:");memory.forEach(function(x,i){lines.push("  "+(i+1)+". "+x);});}}
+    var obs=Array.isArray(m.observations)?m.observations.slice(-3):[];
+    if(obs.length){
+      if(!hasPrivate)lines.push("No durable private thought has been inferred from these actions.");
+      lines.push("Observable continuity — public evidence, not mind-reading:");
+      obs.forEach(function(x,i){lines.push("  "+(i+1)+". ["+String(x.cue||"behavior")+"] "+CE_noteClip(x.text,190)+(typeof x.turn==="number"?" (turn "+x.turn+")":""));});
+    }
     return lines.length?lines.join("\n"):"Tracking active; no new private state this turn.";
   } catch(_){return "Tracking available.";}
 }
@@ -19008,7 +19237,7 @@ function CE_echoCardSection(name) {
   try {
     var ev=state.echoVeil||{},lines=[],actorMatch=function(a){return Array.isArray(a)&&a.some(function(x){return CE_sameName(x,name);});};
     var ent=null;Object.keys(ev.entities||{}).some(function(k){var e=ev.entities[k];if(e&&CE_sameName(e.name||k,name)){ent=e;return true;}return false;});
-    if(ent){if(Number(ent.lastSeen)>=0)lines.push("Last seen: turn "+ent.lastSeen);var presence=ent.states&&ent.states.presence&&ent.states.presence.value;if(presence)lines.push("Presence: "+presence);}
+    if(ent){if(Number(ent.lastSeen)>=0)lines.push("Last seen: turn "+ent.lastSeen);var presence=ent.states&&ent.states.presence&&ent.states.presence.value,now=Number(ev.turn||ev.meta&&ev.meta.turn||state.unsaid&&state.unsaid.turn||0),age=Math.max(0,now-Number(ent.lastSeen||0));if(presence==="present"&&age>3)lines.push("Presence: not assumed current (last confirmed "+age+" turns ago)");else if(presence)lines.push("Presence: "+presence);}
     var threads=(ev.threads||[]).filter(function(t){return t&&!t.resolved&&actorMatch(t.actors);}).sort(function(a,b){return Number(b.lastTouched||0)-Number(a.lastTouched||0);});
     var seen={},live=[],hyp=[];
     threads.forEach(function(t){var key=(String(t.domain||"")+"|"+String(t.title||t.type||"story")).toLowerCase();if(seen[key])return;seen[key]=true;if(String(t.epistemic||"established")==="hypothesis")hyp.push(t);else live.push(t);});
@@ -19737,6 +19966,20 @@ function UN_identityKind(rawType) {
   if(/faction|organization|organisation|group|guild|team|clan|agency|crew|family|order|alliance|syndicate|company|corporation|government/.test(t))return "faction";
   return "";
 }
+
+function UN_boundedStoryCardSample(cap) {
+  var cards=(typeof storyCards!=="undefined"&&Array.isArray(storyCards))?storyCards:[];
+  cap=Math.max(40,Number(cap)||400);
+  if(cards.length<=cap)return cards.slice();
+  // Keep stable foundational lore while always seeing the newest/adopted tail.
+  // Active entities from engine state are indexed separately below, so this
+  // avoids a full-library scan on every hot Input/Context hook.
+  var head=Math.max(24,Math.floor(cap*.34)), tail=Math.max(24,cap-head), out=[];
+  for(var i=0;i<head&&i<cards.length;i++)out.push(cards[i]);
+  var start=Math.max(head,cards.length-tail);
+  for(var j=start;j<cards.length;j++)out.push(cards[j]);
+  return out;
+}
 function UN_identityIndex() {
   if(UN_RUNTIME.identityIndex)return UN_RUNTIME.identityIndex;
   var owner={},ambiguous={},kind={},kindAmbiguous={};
@@ -19747,7 +19990,7 @@ function UN_identityIndex() {
     if(!Object.prototype.hasOwnProperty.call(owner,c))owner[c]=c;
   }
   try {
-    (storyCards||[]).slice(0,400).forEach(function(card){
+    UN_boundedStoryCardSample(480).forEach(function(card){
       if(!card||/^CROSSED ECHOES — Config/i.test(String(card.title||"")))return;
       var k=UN_identityKind(card.type),raw=Array.isArray(card.keys)?card.keys.join(","):String(card.keys||"");
       if(!k)return;
@@ -19794,30 +20037,45 @@ function UN_cleanActionText(text) {
   return s;
 }
 function UN_knownEntityNames() {
-  // This list sits on the hot Input path. Keep dedupe O(n): calling the full
-  // cross-engine identity resolver for every pair becomes quadratic in large
-  // Story Card libraries and can burn the script budget before turn one.
+  // The Input hot path prioritizes entities that are actually active/recent,
+  // then fills spare capacity from a bounded head+tail Story Card sample. This
+  // keeps late-story cards visible in huge adventures without scanning every
+  // card or letting hundreds of archive aliases crowd active cast out.
   var out=[],seen={};
   function add(n){
     n=String(n||"").trim();if(!n||n.toLowerCase()==="you")return;
     var key=n.toLocaleLowerCase();if(seen[key])return;seen[key]=1;out.push(n);
   }
   try{
-    (storyCards||[]).slice(0,320).forEach(function(c){
+    var ev=state.echoVeil||{};
+    Object.keys(ev.scene&&ev.scene.cast||{}).forEach(function(k){add((ev.scene.cast[k]||{}).name||k);});
+    if(ev.scene&&ev.scene.location)add(ev.scene.location);
+    Object.keys(ev.scene&&ev.scene.objects||{}).forEach(function(k){add((ev.scene.objects[k]||{}).name||k);});
+    Object.keys(ev.entities||{}).sort(function(a,b){return Number((ev.entities[b]||{}).lastSeen||-999)-Number((ev.entities[a]||{}).lastSeen||-999);})
+      .slice(0,80).forEach(function(k){add((ev.entities[k]||{}).name||k);});
+  }catch(e){}
+  try{
+    var cw=state.crossedWires&&state.crossedWires.npcs||{};
+    Object.keys(cw).sort(function(a,b){return Math.max(Number((cw[b]||{}).lastMentionTurn||-999),Number((cw[b]||{}).lastSeen||-999))-Math.max(Number((cw[a]||{}).lastMentionTurn||-999),Number((cw[a]||{}).lastSeen||-999));})
+      .slice(0,70).forEach(function(k){add((cw[k]||{}).name||k);});
+  }catch(e){}
+  try{
+    var c=state.unsaid&&state.unsaid.codex||{};
+    Object.keys(c.lastMentionTurn||{}).sort(function(a,b){return Number(c.lastMentionTurn[b]||-999)-Number(c.lastMentionTurn[a]||-999);}).slice(0,70).forEach(add);
+    (state.unsaid&&state.unsaid.lastActiveCast||[]).slice(0,20).forEach(add);
+  }catch(e){}
+  try{
+    UN_boundedStoryCardSample(400).slice().reverse().forEach(function(c){
       if(!c||!c.title||/^CROSSED ECHOES — Config/i.test(c.title))return;
       var ty=String(c.type||"").toLowerCase();
-      // Lore/reference cards with no entity type are useful to the model but
-      // should not make the player-intent matcher inspect hundreds of titles.
       if(ty&&!/(?:character|npc|person|location|place|item|object|faction|group|organi[sz]ation)/.test(ty))return;
       add(c.title);
+      if(out.length>=220)return;
       var raw=Array.isArray(c.keys)?c.keys.join(","):String(c.keys||"");
-      raw.split(",").slice(0,8).forEach(function(k){k=String(k||"").trim();if(k&&k.length>1)add(k);});
+      raw.split(",").slice(0,6).forEach(function(k){k=String(k||"").trim();if(k&&k.length>1&&out.length<220)add(k);});
     });
   }catch(e){}
-  try{var ev=state.echoVeil||{};Object.keys(ev.scene&&ev.scene.cast||{}).forEach(function(k){add((ev.scene.cast[k]||{}).name||k);});if(ev.scene&&ev.scene.location)add(ev.scene.location);Object.keys(ev.scene&&ev.scene.objects||{}).forEach(function(k){add((ev.scene.objects[k]||{}).name||k);});Object.keys(ev.entities||{}).slice(-80).forEach(function(k){add((ev.entities[k]||{}).name||k);});}catch(e){}
-  try{var cw=state.crossedWires&&state.crossedWires.npcs||{};Object.keys(cw).slice(-80).forEach(function(k){add((cw[k]||{}).name||k);});}catch(e){}
-  try{var c=state.unsaid&&state.unsaid.codex||{};Object.keys(c.lastMentionTurn||{}).sort(function(a,b){return Number(c.lastMentionTurn[b]||-999)-Number(c.lastMentionTurn[a]||-999);}).slice(0,80).forEach(add);}catch(e){}
-  return out.slice(0,180);
+  return out.slice(0,220);
 }
 function UN_entityTypeEvidence(name) {
   var scores={character:0,location:0,item:0,faction:0},sources=[];function add(k,w,src){if(scores[k]===undefined)return;scores[k]+=Number(w)||0;sources.push(src+":"+k);}
