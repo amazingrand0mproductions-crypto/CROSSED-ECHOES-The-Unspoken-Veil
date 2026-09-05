@@ -724,6 +724,9 @@ CE_CACHE_STRESS=1 node second_dawn_codex_replay_test.js
 node second_dawn_twist_replay_test.js
 CE_LIBRARY_FILL=4980 node second_dawn_codex_replay_test.js
 CE_LIBRARY_FILL=4980 CE_CACHE_STRESS=1 node second_dawn_codex_replay_test.js
+node adversarial_hardening_tests.js
+node capacity_ceiling_stress_test.js
+CE_CACHE_STRESS=1 node capacity_ceiling_stress_test.js
 node world_engine_long_stress_test.js
 CE_CACHE_STRESS=1 node world_engine_long_stress_test.js
 node fluidity_stress_test.js
@@ -732,7 +735,7 @@ node relationship_foundation_stress_test.js
 CE_CACHE_STRESS=1 node relationship_foundation_stress_test.js
 ```
 
-Current verification: **175/175 core integration/regression tests pass**, **23/23 dedicated TWISTS hardening tests pass**, **31/31 WORLD ENGINE tests pass**, and a new **6/6 official-host compatibility suite passes**. The host suite intentionally discards non-documented Story Card fields between isolated hooks, proving that the five config cards, setting changes, titleless entity identity, Established Facts and player/model history attribution survive on AI Dungeon's documented `id / keys / entry / type` contract. The live **324-card SECOND DAWN** export still reconstructs **191 directional relationship foundations** in Standard and Optimized Context. Its CODEX replay preserves manual canon such as unresolved **Sovereign Zero**, resolves **Mira → Mira Vail**, creates **Klaus Von Heisler** and **Symmetry Cell**, and rejects bare-title junk such as **Dr**. A live-library capacity replay padded to **4,980 pre-existing Story Cards** passes in both modes; after the performance hardening its measured p95 is about **1.35 s Standard** and **1.32 s Optimized**, leaving materially more headroom below the host's 2-second hook limit. The speedup comes from eliminating redundant whole-library player-identity scans during relationship bootstrap and avoiding heavyweight alias parsing for irrelevant cards—not from disabling continuity features.
+Current verification: **175/175 core integration/regression tests pass**, **23/23 dedicated TWISTS hardening tests pass**, **31/31 WORLD ENGINE tests pass**, **6/6 official-host compatibility tests pass**, and **6/6 adversarial hardening tests pass** (including 100 malformed persisted-state recoveries). The host suite intentionally discards non-documented Story Card fields between isolated hooks, proving that the five config cards, setting changes, titleless entity identity, Established Facts and player/model history attribution survive on AI Dungeon's documented `id / keys / entry / type` contract. The live **324-card SECOND DAWN** export still reconstructs **191 directional relationship foundations** in Standard and Optimized Context. Its CODEX replay preserves manual canon such as unresolved **Sovereign Zero**, resolves **Mira → Mira Vail**, creates **Klaus Von Heisler** and **Symmetry Cell**, and rejects bare-title junk such as **Dr**. A live-library capacity replay padded to **4,980 pre-existing Story Cards** passes in both modes and still finishes at 4,987 cards with the intended entities intact. A separate **exact 5,000-card hard-cap test** stays read-only across full Input/Context/Output turns and preserves unrelated lore; its measured p95 was about **1.42 s Standard** and **1.58 s Optimized** in the release harness, below the host's 2-second hook limit. The speedup comes from eliminating redundant whole-library player-identity scans during relationship bootstrap and avoiding heavyweight alias parsing for irrelevant cards—not from disabling continuity features.
 
 
 ---

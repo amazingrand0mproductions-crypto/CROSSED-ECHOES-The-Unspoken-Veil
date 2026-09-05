@@ -65,6 +65,73 @@ function CE_commitCoreStoryCard(card, keys, entry, type) {
   return apiOk || index >= 0;
 }
 
+// Story Card capacity/write safety ------------------------------------------------
+// AI Dungeon currently caps an adventure at 5,000 Story Cards. A refused
+// addStoryCard() call returns false in supported hosts. Because Number(false)
+// is 0, older helper paths that coerced the return value could accidentally
+// interpret a refusal as index 0 and overwrite the first user card. All new
+// card creation flows go through this guard and only trust an observed append
+// or a *real numeric* index returned by the host.
+var CE_STORY_CARD_HARD_CAP = 5000;
+var CE_RESERVED_CONFIG_KEYS = [
+  "__crossed_echoes_config_unsaid__",
+  "__crossed_echoes_config_codex__",
+  "__crossed_echoes_config_crossed_wires__",
+  "__echo_veil_config__",
+  "__crossed_echoes_integration__"
+];
+function CE_storyCardCount() {
+  try { return (typeof storyCards !== "undefined" && Array.isArray(storyCards)) ? storyCards.length : 0; }
+  catch (_) { return 0; }
+}
+function CE_missingRequiredConfigCount() {
+  try {
+    if (typeof storyCards === "undefined" || !Array.isArray(storyCards)) return CE_RESERVED_CONFIG_KEYS.length;
+    var missing = 0;
+    for (var i = 0; i < CE_RESERVED_CONFIG_KEYS.length; i++) {
+      var key = CE_RESERVED_CONFIG_KEYS[i], found = false;
+      for (var j = 0; j < storyCards.length; j++) {
+        if (CE_hasCardKey(storyCards[j], key)) { found = true; break; }
+      }
+      if (!found) missing++;
+    }
+    return missing;
+  } catch (_) { return CE_RESERVED_CONFIG_KEYS.length; }
+}
+function CE_isRequiredConfigWrite(keys) {
+  var raw = Array.isArray(keys) ? keys.join(",") : String(keys || "");
+  var parts = raw.split(",").map(function(x){ return x.trim().toLowerCase(); });
+  return CE_RESERVED_CONFIG_KEYS.some(function(k){ return parts.indexOf(String(k).toLowerCase()) >= 0; });
+}
+function CE_cardWriteCapacityAllows(keys, options) {
+  options = options || {};
+  var count = CE_storyCardCount();
+  if (count >= CE_STORY_CARD_HARD_CAP) return false;
+  if (options.allowReserved === true || CE_isRequiredConfigWrite(keys)) return true;
+  var missingConfigs = CE_missingRequiredConfigCount();
+  return count < Math.max(0, CE_STORY_CARD_HARD_CAP - missingConfigs);
+}
+function CE_tryAddStoryCard(keys, entry, type, name, notes, options) {
+  var out = { ok:false, card:null, index:-1, result:null, reason:"unavailable", before:CE_storyCardCount(), after:CE_storyCardCount() };
+  if (typeof storyCards === "undefined" || !Array.isArray(storyCards) || typeof addStoryCard !== "function") return out;
+  if (!CE_cardWriteCapacityAllows(keys, options)) { out.reason = "capacity"; return out; }
+  var before = storyCards.length, result = false;
+  out.before = before;
+  try { result = addStoryCard(keys, entry, type, name, notes); }
+  catch (e) { out.reason = "exception"; out.error = e && e.message ? e.message : String(e || "addStoryCard failed"); return out; }
+  out.result = result; out.after = storyCards.length;
+  var card = null, index = -1;
+  // An observable append is the safest source of truth across host wrappers.
+  if (storyCards.length > before && storyCards[before]) { card = storyCards[before]; index = before; }
+  // Only accept an actual numeric result. Never coerce false/null/strings.
+  if (!card && typeof result === "number" && Number.isFinite(result) && Math.floor(result) === result && result >= 0 && storyCards[result]) {
+    card = storyCards[result]; index = result;
+  }
+  if (!card) { out.reason = result === false ? "refused" : "unobserved"; return out; }
+  out.ok = true; out.card = card; out.index = index; out.reason = "created";
+  return out;
+}
+
 var CE_CONFIG_KEY_UNSAID = "__crossed_echoes_config_unsaid__";
 var CE_CONFIG_KEY_CODEX = "__crossed_echoes_config_codex__";
 var CE_CONFIG_KEY_CROSSED = "__crossed_echoes_config_crossed_wires__";
@@ -2066,7 +2133,7 @@ var Library = (() => {
             ? richMatches.slice(1).concat(richMatches.slice(0, 1))
             : richMatches;
           for (const m of ordered) {
-            const normalized = normalizeCodexCandidate(m[0], sentence);
+            const normalized = normalizeCodexCandidate(m[2] || m[0], sentence);
             if (!normalized) continue;
             const firstWord = normalized.split(/\s+/)[0].toLowerCase();
             if (CP_STOPWORDS.has(firstWord) && normalized.indexOf(" ") === -1) continue;
@@ -3332,10 +3399,8 @@ var Library = (() => {
         // of guessing from array length, which silently found nothing when
         // a same-keys card existed under a different title.
         const cardKeys = keys || title.toLowerCase();
-        const idx = addStoryCard(cardKeys, entry, type);
-        card = (typeof idx === "number" && storyCards[idx])
-          ? storyCards[idx]
-          : storyCards.find(c => {
+        const added = CE_tryAddStoryCard(cardKeys, entry, type, title, notes, { allowReserved: CE_isRequiredConfigWrite(cardKeys) });
+        card = added.card || storyCards.find(c => {
               const raw = Array.isArray(c && c.keys) ? c.keys.join(",") : String(c && c.keys || "");
               return raw.toLowerCase() === String(cardKeys || "").toLowerCase();
             }) || null;
@@ -4131,8 +4196,14 @@ var SENTENCE_ABBREVIATIONS = new Set([
 var CODEX_NAME_TOKEN = `[A-ZÀ-ÖØ-ÞĀ-ſΑ-ΫА-ЯЁ][${NAME_ALPHANUM}]*(?:['\u2019-][${NAME_ALPHANUM}]+)*`;
 var CODEX_NAME_CONNECTOR = `(?:of|the|de|del|da|di|du|la|le|el|al|van|von|der|den|bin|ibn)`;
 var CODEX_NAME_PHRASE = `${CODEX_NAME_TOKEN}(?:(?:\\s+${CODEX_NAME_CONNECTOR}\\s+|\\s+)${CODEX_NAME_TOKEN}){0,4}`;
+// JavaScript's \b is ASCII-oriented, so names whose first/last letter is
+// Greek, Cyrillic or Latin Extended can fail even though the token grammar
+// accepts those letters. Use explicit letter/digit edges instead. Apostrophes
+// and quote marks deliberately count as boundaries so quoted names such as
+// ‘Symmetry Cell’ remain discoverable.
+var CODEX_NAME_EDGE_CLASS = NAME_ALPHANUM;
 var CODEX_TITLE_ABBREV_REGEX = new RegExp(
-  `\\b(?:(?:${[...SENTENCE_ABBREVIATIONS].filter(w => w.length > 1).join("|")})\\.\\s+)?${CODEX_NAME_PHRASE}\\b`,
+  `(^|[^${CODEX_NAME_EDGE_CLASS}])((?:(?:${[...SENTENCE_ABBREVIATIONS].filter(w => w.length > 1).join("|")})\.\s+)?${CODEX_NAME_PHRASE})(?=$|[^${CODEX_NAME_EDGE_CLASS}])`,
   "g"
 );
 
@@ -5294,13 +5365,10 @@ function createOrFindCard(keys, initialEntry, type, expectedName) {
 
   for (let a = 0; a < attempts.length; a++) {
     const writeKeys = attempts[a];
-    const before = storyCards.length;
-    let result;
-    try { result = addStoryCard(writeKeys, initialEntry, type); }
-    catch (e) { lastError = e && e.message ? e.message : "addStoryCard threw"; result = false; }
-
-    let card = storyCards.length > before && storyCards[before] ? storyCards[before] : null;
-    if (!card && typeof result === "number" && storyCards[result]) card = storyCards[result];
+    const added = CE_tryAddStoryCard(writeKeys, initialEntry, type, expectedName || "", undefined, { allowReserved:false });
+    const result = added.result;
+    if (added.reason === "exception") lastError = added.error || "addStoryCard threw";
+    let card = added.card;
     if (card) {
       if (track) {
         const h = codexWriteHealthState();
@@ -5911,10 +5979,8 @@ function ensureCodexConfigCard(sourceCard) {
       if (legacyEnabled !== null) seed.codexEnabled = legacyEnabled;
     }
     const keys = CE_CONFIG_KEY_CODEX;
-    try {
-      const idx = addStoryCard(keys, renderCodexSection(seed), CE_CONFIG_CATEGORY, CE_CONFIG_TITLE_CODEX, CONFIG_DEFAULT_CODEX_NOTES_SECTION);
-      card = (typeof idx === "number" && storyCards[idx]) ? storyCards[idx] : null;
-    } catch (_) {}
+    const added = CE_tryAddStoryCard(keys, renderCodexSection(seed), CE_CONFIG_CATEGORY, CE_CONFIG_TITLE_CODEX, CONFIG_DEFAULT_CODEX_NOTES_SECTION, { allowReserved:true });
+    card = added.card;
     if (!card) card = storyCards.find(sc => sc && (sc.title === CE_CONFIG_TITLE_CODEX || sc.keys === keys)) || null;
   }
   if (card) {
@@ -6003,10 +6069,8 @@ function ensureSharedConfigCard() {
     const initialEntry = twistSection.replace(/\s+$/, "") + "\n\n" + unsaidEntrySection;
     const initialDescription = twistNotesSection.replace(/\s+$/, "") + "\n\n" + unsaidNotesSection;
     const cardKeys = CE_CONFIG_KEY_UNSAID;
-    try {
-      const idx = addStoryCard(cardKeys, initialEntry, CE_CONFIG_CATEGORY);
-      card = (typeof idx === "number" && storyCards[idx]) ? storyCards[idx] : null;
-    } catch (e) {}
+    const added = CE_tryAddStoryCard(cardKeys, initialEntry, CE_CONFIG_CATEGORY, CONFIG_CARD_TITLE, initialDescription, { allowReserved:true });
+    card = added.card;
     if (!card) card = storyCards.find(sc => sc.keys === cardKeys) || null;
     if (!card) {
       for (let i = 0; i < storyCards.length; i++) {
@@ -7023,7 +7087,15 @@ function collectCodexCandidates(source) {
     var key = clean.toLowerCase();
     if (!seen[key]) { seen[key] = true; out.push(clean); }
   }
-  (text.match(CODEX_TITLE_ABBREV_REGEX) || []).forEach(add);
+  // Use exec rather than String.match so the explicit-edge regex can return
+  // just capture group 2 (the name) without its leading boundary character.
+  try {
+    var richRx = new RegExp(CODEX_TITLE_ABBREV_REGEX.source, "g"), rm;
+    while ((rm = richRx.exec(text)) !== null) {
+      add(rm[2] || rm[0]);
+      if (rm[0] === "") richRx.lastIndex++;
+    }
+  } catch (_) {}
 
   // Quoted/codename identity cues recover stylized or deliberately lowercase
   // entities that capitalization-only scanning can never see ("eXile", "noir-7").
@@ -11553,28 +11625,8 @@ function CW_ensureConfigCard() {
 
   const entry = CW_defaultConfigEntry();
   const notes = CW_configNotes();
-  const before = storyCards.length;
-  let createdIndex = null;
-  try {
-    // Newer AI Dungeon builds accept name/title and notes after the documented
-    // keys/entry/type arguments. Older builds simply use the first three.
-    const result = addStoryCard(CW_CONFIG_KEYS, entry, CE_CONFIG_CATEGORY, CW_CONFIG_TITLE, notes);
-    if (Number.isFinite(Number(result))) createdIndex = Number(result);
-  } catch (e) {
-    try {
-      const result = addStoryCard(CW_CONFIG_KEYS, entry, CE_CONFIG_CATEGORY);
-      if (Number.isFinite(Number(result))) createdIndex = Number(result);
-    } catch (fallbackError) {
-      if (typeof log === "function") log("Crossed Wires: could not create config card: " + fallbackError);
-      return null;
-    }
-  }
-
-  // The scripting API returns an index, but historical builds have differed in
-  // how creators interpreted it. If a card was appended, the pre-call length is
-  // unambiguous and prevents us from ever overwriting an unrelated Story Card.
-  let card = storyCards.length > before ? storyCards[before] : null;
-  if (!card && createdIndex != null && storyCards[createdIndex]) card = storyCards[createdIndex];
+  const added = CE_tryAddStoryCard(CW_CONFIG_KEYS, entry, CE_CONFIG_CATEGORY, CW_CONFIG_TITLE, notes, { allowReserved:true });
+  let card = added.card;
   if (!card) card = CW_configCard();
   if (!card) return null;
 
@@ -15196,13 +15248,10 @@ const ECHO_VEIL = (() => {
       // This makes config bootstrap resilient to wrappers/legacy runtimes that
       // return a different numeric value while still supporting the documented
       // index contract. Never upgrade an unrelated Story Card by accident.
-      const before = (typeof storyCards !== "undefined" && Array.isArray(storyCards)) ? storyCards.length : 0;
-      const added = addStoryCard(CONFIG_CARD.keys, configCardTemplate(), CONFIG_CARD.type, CONFIG_CARD.title, configNotesText());
+      const added = CE_tryAddStoryCard(CONFIG_CARD.keys, configCardTemplate(), CONFIG_CARD.type, CONFIG_CARD.title, configNotesText(), { allowReserved:true });
       RUNTIME_CARD_INDEX_CACHE = null;
-      if (added === false) return upgradeConfigCard(findConfigCardIndex());
-      let created = -1;
-      if (typeof storyCards !== "undefined" && Array.isArray(storyCards) && storyCards.length > before && storyCards[before]) created = before;
-      if (created < 0 && Number.isFinite(Number(added)) && storyCards[Number(added)]) created = Number(added);
+      if (!added.ok) return upgradeConfigCard(findConfigCardIndex());
+      let created = added.index;
       if (created < 0) created = findConfigCardIndex();
       return upgradeConfigCard(created);
     } catch (_) {
