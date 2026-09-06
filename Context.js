@@ -2,6 +2,7 @@
 var contextRuntimeToken = typeof utBeginRuntimePhase === "function" ? utBeginRuntimePhase("context") : null;
 
 try {
+  if (typeof CE_bootstrapRequiredConfigCards === "function") CE_bootstrapRequiredConfigCards("context");
   initUnsaid();
   if (typeof CE_noteCacheCompatibleSeen === "function") CE_noteCacheCompatibleSeen();
   checkCacheEfficientWarning();
@@ -12,8 +13,6 @@ try {
 var twistsModifier = (text) => {
   try {
     const { c, cfg } = Library.initState();
-    if (!state.memory) state.memory = {};
-
     const matureWasEnabled = c.lastMatureEnabled;
     Library.applyEntryConfig(cfg);
     if (matureWasEnabled === false && cfg.allowMatureTwists) {
@@ -841,6 +840,9 @@ var modifier = (text) => {
       }
     }
     var finalResult = unsaidModifier(working);
+    if (finalResult && typeof finalResult.text !== "undefined" && typeof CE_appendManagedContextHints === "function") {
+      finalResult.text = CE_appendManagedContextHints(finalResult.text);
+    }
     return finalResult;
   } catch (e) {
     if (typeof utRecordRuntimeError === "function") utRecordRuntimeError("Context/unified", e);

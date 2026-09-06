@@ -1,12 +1,11 @@
 var outputRuntimeToken = typeof utBeginRuntimePhase === "function" ? utBeginRuntimePhase("output") : null;
 
 try {
+  if (typeof CE_bootstrapRequiredConfigCards === "function") CE_bootstrapRequiredConfigCards("output");
   initUnsaid();
 } catch (e) {
   if (typeof log === "function") log("UNSAID init/Output error: " + (e && e.message));
 }
-
-if (!state.memory) state.memory = {};
 
 var twistsModifier = (text) => {
   try {

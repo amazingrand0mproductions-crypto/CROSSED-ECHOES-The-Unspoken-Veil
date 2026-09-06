@@ -111,23 +111,55 @@ function CE_cardWriteCapacityAllows(keys, options) {
   var missingConfigs = CE_missingRequiredConfigCount();
   return count < Math.max(0, CE_STORY_CARD_HARD_CAP - missingConfigs);
 }
+function CE_requestedStoryCardPrimaryKey(keys) {
+  var raw = Array.isArray(keys) ? keys.join(",") : String(keys || "");
+  var parts = raw.split(/[,;]/).map(function(x){ return x.trim(); }).filter(Boolean);
+  return parts.length ? parts[0] : "";
+}
+function CE_addedStoryCardMatchesRequest(card, keys) {
+  if (!card) return false;
+  var primary = CE_requestedStoryCardPrimaryKey(keys);
+  if (!primary) return false;
+  // Required config writes use inert sentinel keys, so accepting the wrong
+  // numeric index here can corrupt an unrelated config card. Generic writes
+  // likewise require their canonical first trigger to be present.
+  return CE_hasCardKey(card, primary);
+}
 function CE_tryAddStoryCard(keys, entry, type, name, notes, options) {
   var out = { ok:false, card:null, index:-1, result:null, reason:"unavailable", before:CE_storyCardCount(), after:CE_storyCardCount() };
   if (typeof storyCards === "undefined" || !Array.isArray(storyCards) || typeof addStoryCard !== "function") return out;
   if (!CE_cardWriteCapacityAllows(keys, options)) { out.reason = "capacity"; return out; }
   var before = storyCards.length, result = false;
   out.before = before;
-  try { result = addStoryCard(keys, entry, type, name, notes); }
+  try {
+    // Published/attachable Scripts must stay on the documented helper
+    // contract. Metadata is assigned only after the core card is observed.
+    result = addStoryCard(keys, entry, type);
+  }
   catch (e) { out.reason = "exception"; out.error = e && e.message ? e.message : String(e || "addStoryCard failed"); return out; }
   out.result = result; out.after = storyCards.length;
   var card = null, index = -1;
-  // An observable append is the safest source of truth across host wrappers.
-  if (storyCards.length > before && storyCards[before]) { card = storyCards[before]; index = before; }
-  // Only accept an actual numeric result. Never coerce false/null/strings.
-  if (!card && typeof result === "number" && Number.isFinite(result) && Math.floor(result) === result && result >= 0 && storyCards[result]) {
+  // An observable append is the safest source of truth across host wrappers,
+  // but it still has to contain the requested canonical/sentinel key.
+  if (storyCards.length > before && storyCards[before] && CE_addedStoryCardMatchesRequest(storyCards[before], keys)) {
+    card = storyCards[before]; index = before;
+  }
+  // A numeric return is only a candidate index. Never trust it unless the card
+  // at that index proves it is the card we asked the host to create.
+  if (!card && typeof result === "number" && Number.isFinite(result) && Math.floor(result) === result && result >= 0 && storyCards[result] && CE_addedStoryCardMatchesRequest(storyCards[result], keys)) {
     card = storyCards[result]; index = result;
   }
-  if (!card) { out.reason = result === false ? "refused" : "unobserved"; return out; }
+  if (!card) {
+    out.reason = result === false ? "refused" : ((typeof result === "number") ? "identity-mismatch" : "unobserved");
+    return out;
+  }
+  // Extended metadata is best-effort only; durable identity lives in
+  // id/keys/entry/type. September 2026 hosts preserve script card metadata,
+  // but no subsystem is allowed to depend on that for cross-hook identity.
+  try {
+    if (name) { card.title = String(name); card.name = String(name); }
+    if (notes != null) { card.description = String(notes); card.notes = String(notes); }
+  } catch (_) {}
   out.ok = true; out.card = card; out.index = index; out.reason = "created";
   if (typeof CE_noteExpectedStoryCardWrite === "function") CE_noteExpectedStoryCardWrite(keys, name);
   return out;
@@ -466,11 +498,16 @@ function utRuntimeHealthReport() {
   const aliasCount = Object.keys(unsaidState.aliases || {}).reduce((sum, name) => sum + (Array.isArray(unsaidState.aliases[name]) ? unsaidState.aliases[name].length : 0), 0);
   const storyCardCount = (typeof storyCards !== "undefined" && Array.isArray(storyCards)) ? storyCards.length : 0;
   const candidateCount = Object.keys(codexState.mentionCounts || {}).length;
+  const cfgBoot = (state && state.crossedEchoesConfigBootstrap) || {};
+  const cfgMissing = Array.isArray(cfgBoot.lastMissing) ? cfgBoot.lastMissing : [];
+  const protectedMemoryMode = "READ-ONLY (published-script safe)";
   return [
     "UNSPOKEN TURNS — Runtime Health",
     `Adaptive governor: ${utRuntimeGovernorEnabled() ? "ON" : "OFF"}`,
     `Configured work ceiling: ${utRuntimeBudgetMs()} ms · effective caps: input ≤ ${Math.min(utRuntimeBudgetMs(), UT_PHASE_BUDGET_CAP_MS.input)} ms, context ≤ ${Math.min(utRuntimeBudgetMs(), UT_PHASE_BUDGET_CAP_MS.context)} ms, output ≤ ${Math.min(utRuntimeBudgetMs(), UT_PHASE_BUDGET_CAP_MS.output)} ms`,
     `Working set: ${storyCardCount} Story Cards · ${candidateCount} Codex candidates · ${mindNames.length} minds · ${adaptiveSlots} adaptive slots · ${aliasCount} manual aliases`,
+    `Published-script memory mode: ${protectedMemoryMode} · Plot Essentials/Author's Note are read only`,
+    `Required config cards: ${cfgMissing.length ? "MISSING " + cfgMissing.join(", ") : "5/5 present"}${cfgBoot.codexPresent === false ? " · CODEX missing" : ""}`,
     "",
     "Hook timings:", ...phaseLines,
     "",
@@ -1660,34 +1697,48 @@ var CP_STOPWORDS = new Set([
   "Apparently", "Eventually", "Recently", "Long"
 ].map(w => w.toLowerCase()));
 
-// Managed front-memory segments. Each subsystem owns only its own marked
-// line, so enabling/disabling one feature can never wipe user-authored front
-// memory or the other subsystem's hint.
+// Published/attachable Script compatibility (August 2026+).
+// Attached Scripts may read Plot Essentials / Author's Note, but host policy
+// protects those components from script writes. Therefore CROSSED ECHOES never
+// mutates state.memory (including frontMemory). Short-lived narrator hints live
+// in this script's private state and are appended to the Context return instead.
 var FRONT_MEMORY_MARKER = "[UNSAID hint]";
 var TWIST_FRONT_MEMORY_MARKER = "[TWISTS hint]";
 
-function setManagedFrontMemorySegment(marker, body) {
-  if (typeof state === "undefined") return;
-  if (!state.memory || typeof state.memory !== "object") state.memory = {};
-
-  const current = typeof state.memory.frontMemory === "string"
-    ? state.memory.frontMemory
-    : "";
-  const kept = current
-    .split("\n")
-    .filter(line => line.trim().indexOf(marker) !== 0)
-    .join("\n")
-    .replace(/^\n+|\n+$/g, "");
-
-  const compactBody = body == null ? "" : String(body).replace(/\s+/g, " ").trim();
-  const segment = compactBody ? `${marker} ${compactBody}` : "";
-  state.memory.frontMemory = kept && segment
-    ? `${kept}\n\n${segment}`
-    : (kept || segment);
+function CE_contextHintState() {
+  if (typeof state === "undefined" || !state) return null;
+  if (!state.crossedEchoesContextHints || typeof state.crossedEchoesContextHints !== "object") {
+    state.crossedEchoesContextHints = { unsaid:"", twists:"" };
+  }
+  return state.crossedEchoesContextHints;
 }
-
+function setManagedFrontMemorySegment(marker, body) {
+  var h = CE_contextHintState();
+  if (!h) return;
+  var compactBody = body == null ? "" : String(body).replace(/\s+/g, " ").trim();
+  if (marker === TWIST_FRONT_MEMORY_MARKER) h.twists = compactBody.slice(0, 900);
+  else h.unsaid = compactBody.slice(0, 500);
+}
 function syncTwistFrontMemoryHint(hint) {
   setManagedFrontMemorySegment(TWIST_FRONT_MEMORY_MARKER, hint || "");
+}
+function CE_managedContextHintPacket() {
+  var h = CE_contextHintState();
+  if (!h) return "";
+  var lines = [];
+  if (h.unsaid) lines.push(FRONT_MEMORY_MARKER + " " + h.unsaid);
+  if (h.twists) lines.push(TWIST_FRONT_MEMORY_MARKER + " " + h.twists);
+  return lines.length ? "\n\n" + lines.join("\n") : "";
+}
+function CE_appendManagedContextHints(text) {
+  var base = String(text == null ? "" : text);
+  var packet = CE_managedContextHintPacket();
+  if (!packet) return base;
+  if (typeof CE_isCacheEfficientContext === "function" && CE_isCacheEfficientContext() && typeof CE_appendCompleteContextSuffix === "function") {
+    var appended = CE_appendCompleteContextSuffix(base, packet, 0);
+    return appended && appended.appended ? appended.text : base;
+  }
+  return base + packet;
 }
 
 var Library = (() => {
@@ -6059,7 +6110,20 @@ var CONFIG_DEFAULT_UNSAID_NOTES_SECTION = renderUnsaidNotes();
 var CONFIG_DEFAULT_CODEX_NOTES_SECTION = renderCodexNotes();
 
 function ensureCodexConfigCard(sourceCard) {
-  let card = findConfigCardTolerant(CE_CONFIG_TITLE_CODEX) || findConfigCardTolerant("UNSAID Codex Config") || findConfigCardTolerant("Codex Config");
+  // CODEX identity is deliberately strict. Never fuzzy-match legacy names here:
+  // "UNSAID Codex Config" was close enough to the shared UNSPOKEN TURNS title
+  // to be misidentified on some libraries, which could convert that card into
+  // CODEX. Durable sentinel/header identity or an exact legacy title is required.
+  let card = null;
+  if (typeof storyCards !== "undefined" && Array.isArray(storyCards)) {
+    card = storyCards.find(function(sc){
+      if (!sc) return false;
+      if (CE_hasCardKey(sc, CE_CONFIG_KEY_CODEX)) return true;
+      var title=String(sc.title || sc.name || "").trim();
+      if (title===CE_CONFIG_TITLE_CODEX || title==="UNSAID Codex Config" || title==="Codex Config") return true;
+      return /^\s*==\s*CODEX\s*==/i.test(CE_cardEntryCore(sc));
+    }) || null;
+  }
   if (!card) {
     const seed = { ...UNSAID_DEFAULTS };
     const source = sourceCard || findConfigCardTolerant(CONFIG_CARD_TITLE) || findConfigCardTolerant("UNSAID Config");
@@ -11696,7 +11760,7 @@ function CW_writeConfigCard(card, cfg) {
   const notes = CW_configNotes();
   try {
     if (typeof updateStoryCard === "function") {
-      updateStoryCard(index, CW_CONFIG_KEYS, entry, CE_CONFIG_CATEGORY, CW_CONFIG_TITLE, notes);
+      updateStoryCard(index, CW_CONFIG_KEYS, entry, CE_CONFIG_CATEGORY);
     }
   } catch (e) {
     try {
@@ -11752,7 +11816,7 @@ function CW_ensureConfigCard() {
   const index = storyCards.indexOf(card);
   if (index >= 0) {
     try {
-      if (typeof updateStoryCard === "function") updateStoryCard(index, CW_CONFIG_KEYS, entry, CE_CONFIG_CATEGORY, CW_CONFIG_TITLE, notes);
+      if (typeof updateStoryCard === "function") updateStoryCard(index, CW_CONFIG_KEYS, entry, CE_CONFIG_CATEGORY);
     } catch (e) {
       try { if (typeof updateStoryCard === "function") updateStoryCard(index, CW_CONFIG_KEYS, entry, CE_CONFIG_CATEGORY); } catch (_) {}
     }
@@ -15388,7 +15452,7 @@ const ECHO_VEIL = (() => {
     const typeChanged = String(card.type || "") !== CONFIG_CARD.type;
     const notesChanged = String(card.description || card.notes || "") !== notes;
     if ((changed || keyChanged || helpChanged || titleChanged || typeChanged || notesChanged) && typeof updateStoryCard === "function") {
-      try { updateStoryCard(index, CONFIG_CARD.keys, wantedEntry, CONFIG_CARD.type, CONFIG_CARD.title, notes); RUNTIME_CARD_INDEX_CACHE = null; } catch (_) {
+      try { updateStoryCard(index, CONFIG_CARD.keys, wantedEntry, CONFIG_CARD.type); RUNTIME_CARD_INDEX_CACHE = null; } catch (_) {
         try { updateStoryCard(index, CONFIG_CARD.keys, wantedEntry, CONFIG_CARD.type); RUNTIME_CARD_INDEX_CACHE = null; } catch (__) {}
       }
     }
@@ -20406,6 +20470,99 @@ function UN_ensureConfigCard() {
       CE_commitCoreStoryCard(card, CE_CONFIG_KEY_INTEGRATION, card.entry, CE_CONFIG_CATEGORY);
     }
   } catch (e) { UN_error("config",e); }
+}
+
+
+// -----------------------------------------------------------------------------
+// Published / attachable Script config bootstrap
+// -----------------------------------------------------------------------------
+// The August 2026 Script content type gives every attached script private state
+// and protects scenario Plot Essentials / Author's Note from writes. Config
+// cards therefore form CROSSED ECHOES' only persistent user-editable settings
+// surface. All five sentinel cards are verified independently every hook; CODEX
+// is no longer created merely as a side effect of UNSAID config parsing.
+function CE_requiredConfigPresence() {
+  var out = {};
+  CE_RESERVED_CONFIG_KEYS.forEach(function(k){ out[k] = false; });
+  try {
+    if (typeof storyCards !== "undefined" && Array.isArray(storyCards)) {
+      for (var i=0;i<storyCards.length;i++) {
+        var c=storyCards[i]; if(!c)continue;
+        for (var j=0;j<CE_RESERVED_CONFIG_KEYS.length;j++) {
+          var key=CE_RESERVED_CONFIG_KEYS[j];
+          if(!out[key] && CE_hasCardKey(c,key)) out[key]=true;
+        }
+      }
+    }
+  } catch (_) {}
+  return out;
+}
+function CE_configBootstrapState() {
+  if (typeof state === "undefined" || !state) return null;
+  if (!state.crossedEchoesConfigBootstrap || typeof state.crossedEchoesConfigBootstrap !== "object") {
+    state.crossedEchoesConfigBootstrap = { runs:0, failures:0, lastMissing:[], lastWarnAction:-999999, lastPhase:"", codexPresent:false };
+  }
+  return state.crossedEchoesConfigBootstrap;
+}
+function CE_repairSharedConfigNotesPollution(card) {
+  if (!card || !CE_hasCardKey(card, CE_CONFIG_KEY_UNSAID)) return false;
+  var notes=String(card.description || card.notes || "");
+  if (notes.indexOf(CONFIG_SECTION_CODEX) < 0) return false;
+  // Config Notes are documentation only. A prior host-compatibility bug could
+  // write the CODEX guide onto the shared UNSPOKEN TURNS card after adopting a
+  // wrong numeric addStoryCard result. Rebuild the intended two guide sections.
+  var twistCfg=Object.assign({}, CP_DEFAULTS, (state && state.contingencyConfig) || {});
+  var rebuilt=renderTwistNotes(twistCfg, (state && state.contingency) || null).replace(/\s+$/, "") + "\n\n" + CONFIG_DEFAULT_UNSAID_NOTES_SECTION;
+  try { card.description=rebuilt; card.notes=rebuilt; } catch (_) {}
+  return true;
+}
+function CE_bootstrapRequiredConfigCards(phase) {
+  var bs=CE_configBootstrapState();
+  if (bs) { bs.runs=Number(bs.runs||0)+1; bs.lastPhase=String(phase||""); }
+  try { CE_hydrateStoryCardCompat(); } catch (_) {}
+  var before=CE_requiredConfigPresence();
+  var shared=null;
+  try {
+    if (!before[CE_CONFIG_KEY_UNSAID]) shared=ensureSharedConfigCard();
+    else shared=findConfigCardTolerant(CE_CONFIG_TITLE_UNSAID) || (storyCards||[]).find(function(c){return CE_hasCardKey(c,CE_CONFIG_KEY_UNSAID);}) || null;
+  } catch (_) {}
+  try { if (shared) CE_repairSharedConfigNotesPollution(shared); } catch (_) {}
+
+  // CODEX is deliberately checked immediately after the shared card. It is a
+  // mandatory standalone config surface and must not depend on later UNSAID
+  // parsing, a hidden model response, or another subsystem running first.
+  var mid=CE_requiredConfigPresence();
+  try { if (!mid[CE_CONFIG_KEY_CODEX]) ensureCodexConfigCard(shared); } catch (_) {}
+  mid=CE_requiredConfigPresence();
+  try { if (!mid[CE_CONFIG_KEY_CROSSED] && typeof CW_ensureConfigCard === "function") CW_ensureConfigCard(); } catch (_) {}
+  mid=CE_requiredConfigPresence();
+  try { if (!mid[CE_CONFIG_KEY_ECHO] && typeof ECHO_VEIL !== "undefined" && ECHO_VEIL && ECHO_VEIL.api && typeof ECHO_VEIL.api.ensureConfigCard === "function") ECHO_VEIL.api.ensureConfigCard(); } catch (_) {}
+  mid=CE_requiredConfigPresence();
+  try { if (!mid[CE_CONFIG_KEY_INTEGRATION] && typeof UN_ensureConfigCard === "function") UN_ensureConfigCard(); } catch (_) {}
+
+  var after=CE_requiredConfigPresence();
+  var missing=CE_RESERVED_CONFIG_KEYS.filter(function(k){return !after[k];});
+  if (bs) {
+    bs.lastMissing=missing.slice();
+    bs.codexPresent=!!after[CE_CONFIG_KEY_CODEX];
+    if (missing.length) bs.failures=Number(bs.failures||0)+1;
+  }
+  if (missing.length && typeof pushMessage === "function") {
+    var now=(typeof info!=="undefined"&&info&&Number.isFinite(Number(info.actionCount)))?Number(info.actionCount):0;
+    if (!bs || now-Number(bs.lastWarnAction||-999999)>=4) {
+      if (bs) bs.lastWarnAction=now;
+      var labels=missing.map(function(k){
+        if(k===CE_CONFIG_KEY_CODEX)return "CODEX";
+        if(k===CE_CONFIG_KEY_UNSAID)return "UNSPOKEN TURNS";
+        if(k===CE_CONFIG_KEY_CROSSED)return "CROSSED WIRES";
+        if(k===CE_CONFIG_KEY_ECHO)return "ECHO VEIL";
+        if(k===CE_CONFIG_KEY_INTEGRATION)return "INTEGRATION";
+        return k;
+      });
+      pushMessage("⚠️ CROSSED ECHOES could not persist required config Story Card(s): " + labels.join(", ") + ". The script will retry automatically. If this continues, enable Gameplay → Memory System → Memory Bank and run /unsaid health; you can also import CONFIG_CARD_IMPORTS.json as a manual fallback.");
+    }
+  }
+  return { ok:missing.length===0, missing:missing, presence:after };
 }
 
 function UN_error(where,e) {

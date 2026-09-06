@@ -3,6 +3,12 @@ var inputRuntimeToken = typeof utBeginRuntimePhase === "function" ? utBeginRunti
 state.message = "";
 
 try {
+  if (typeof CE_bootstrapRequiredConfigCards === "function") CE_bootstrapRequiredConfigCards("input");
+} catch (e) {
+  if (typeof log === "function") log("CROSSED ECHOES config bootstrap/Input error: " + (e && e.message));
+}
+
+try {
   initUnsaid();
 } catch (e) {
   if (typeof log === "function") log("UNSAID init/Input error: " + (e && e.message));
