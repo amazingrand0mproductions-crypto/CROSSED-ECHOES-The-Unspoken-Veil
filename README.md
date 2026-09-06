@@ -18,6 +18,26 @@ The systems keep their own jobs. **WORLD ENGINE** sits above them as a bounded o
 
 ---
 
+
+## 🧪 REAL-PLAY FIX — NEXT CLASS AUDIT (6 September 2026)
+
+This build was hardened against an actual 374-card **LEGACY: NEXT CLASS** playthrough that exposed failures not caught by the earlier synthetic suites. It supersedes **ULTIMATE HARDENED** for real play.
+
+Key corrections:
+
+- **CODEX persistence watchdog:** a Story Card write that appears successful but disappears on the next isolated hook is now detected, reported to the player and temporarily backed off instead of failing silently.
+- **Direct scaffold delivery:** strongly and repeatedly typed visible venues/locations can create a provisional card without requiring formal “named/called” wording. `The Anchor` now survives as **The Anchor — Location** through real Output hooks.
+- **Crossed Wires identity safety:** ambiguous high-stakes bare first names no longer create marriages/parentage/family links without reciprocal identity support. This fixes the false **Elena Ruiz ↔ Marek Drazic marriage** caused by historical “Elena” lore.
+- **Visible relationship fallback:** observable NPC actions can become relationship history even when the hidden `CW_PERSON` protocol is missing. Hidden tags are accelerators, not prerequisites.
+- **Entity-local TWISTS:** the Callum Reed knowledge discrepancy can seed a grounded **Forbidden Knowledge** thread around Callum instead of spraying a generic “Ulterior Motive around Ezra” across unrelated cards.
+- **Metaphor protection:** phrases such as “a laugh disguised as something else” no longer count as Hidden Identity evidence.
+- **UNSAID observable continuity:** guarded/rehearsed/evasive visible behaviour can persist without inventing private thoughts.
+- **Diagnostics:** unrelated global twist threads are no longer pasted into every entity card.
+
+New regression gate: **8/8 NEXT CLASS real-play tests PASS**. The supplied minimal regression fixture is `NEXT_CLASS_REALPLAY_FIXTURE.json`; the user’s full private adventure export is not bundled.
+
+---
+
 ## ✨ What CROSSED ECHOES does
 
 ### 🧠 NPCs have an inner life

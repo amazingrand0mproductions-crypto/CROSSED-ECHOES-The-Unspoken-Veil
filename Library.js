@@ -129,7 +129,73 @@ function CE_tryAddStoryCard(keys, entry, type, name, notes, options) {
   }
   if (!card) { out.reason = result === false ? "refused" : "unobserved"; return out; }
   out.ok = true; out.card = card; out.index = index; out.reason = "created";
+  if (typeof CE_noteExpectedStoryCardWrite === "function") CE_noteExpectedStoryCardWrite(keys, name);
   return out;
+}
+
+
+function CE_storyCardWriteWatchState() {
+  if (typeof state === "undefined" || !state) return null;
+  if (!state.crossedEchoesWriteWatch || typeof state.crossedEchoesWriteWatch !== "object") {
+    state.crossedEchoesWriteWatch = { pending: [], failures: 0, lastWarnAction: -999999, lastReason: "" };
+  }
+  if (!Array.isArray(state.crossedEchoesWriteWatch.pending)) state.crossedEchoesWriteWatch.pending = [];
+  return state.crossedEchoesWriteWatch;
+}
+function CE_storyCardWriteIdentityExists(rec) {
+  try {
+    if (!rec || typeof storyCards === "undefined" || !Array.isArray(storyCards)) return false;
+    var expectedKey=String(rec.key||"").toLowerCase(), expectedName=String(rec.name||"").trim();
+    return storyCards.some(function(card){
+      if(!card)return false;
+      if(expectedKey && CE_hasCardKey(card, expectedKey)) return true;
+      if(expectedName){
+        var cn=typeof CE_cardIdentityName==="function"?CE_cardIdentityName(card):String(card.title||card.name||"");
+        if(cn && typeof CE_sameName==="function" && CE_sameName(cn,expectedName)) return true;
+        var keys=Array.isArray(card.keys)?card.keys.join(","):String(card.keys||"");
+        if(keys.split(/[,;]/).some(function(k){return String(k||"").trim().toLowerCase()===expectedName.toLowerCase();})) return true;
+      }
+      return false;
+    });
+  }catch(_){return false;}
+}
+function CE_noteExpectedStoryCardWrite(keys,name) {
+  try {
+    var w=CE_storyCardWriteWatchState(); if(!w)return;
+    var raw=Array.isArray(keys)?keys.join(","):String(keys||"");
+    var first=raw.split(/[,;]/).map(function(x){return x.trim();}).filter(Boolean)[0]||"";
+    var now=(typeof info!=="undefined"&&info&&Number.isFinite(Number(info.actionCount)))?Number(info.actionCount):0;
+    var phase=(typeof UT_ACTIVE_RUNTIME_PHASE!=="undefined"&&UT_ACTIVE_RUNTIME_PHASE&&UT_ACTIVE_RUNTIME_PHASE.name)||"unknown";
+    var rec={key:first,name:String(name||first||"").trim(),action:now,phase:phase};
+    w.pending=w.pending.filter(function(x){return !(String(x.key||"").toLowerCase()===String(rec.key||"").toLowerCase()&&String(x.name||"").toLowerCase()===String(rec.name||"").toLowerCase());});
+    w.pending.push(rec); if(w.pending.length>12)w.pending=w.pending.slice(-12);
+  }catch(_){}
+}
+function CE_verifyExpectedStoryCardWrites(currentPhase) {
+  try {
+    var w=CE_storyCardWriteWatchState(); if(!w||!w.pending.length)return 0;
+    var now=(typeof info!=="undefined"&&info&&Number.isFinite(Number(info.actionCount)))?Number(info.actionCount):0;
+    var phase=String(currentPhase||""); var keep=[],failed=[];
+    w.pending.forEach(function(rec){
+      if(!rec)return;
+      if(Number(rec.action)===now && String(rec.phase||"")===phase){keep.push(rec);return;}
+      if(CE_storyCardWriteIdentityExists(rec))return;
+      failed.push(rec);
+    });
+    w.pending=keep;
+    if(!failed.length)return 0;
+    w.failures=Number(w.failures||0)+failed.length;
+    w.lastReason="Story Card write disappeared between isolated hooks";
+    if(state.unsaid&&state.unsaid.codex){
+      state.unsaid.codex.autoPauseUntil=Math.max(Number(state.unsaid.codex.autoPauseUntil||0),Number(state.unsaid.turn||0)+3);
+      if(state.unsaid.codex.writeHealth){state.unsaid.codex.writeHealth.lastStatus="persistence-failed";state.unsaid.codex.writeHealth.lastReason=w.lastReason;state.unsaid.codex.writeHealth.failures=Number(state.unsaid.codex.writeHealth.failures||0)+failed.length;}
+    }
+    if(now-Number(w.lastWarnAction||-999999)>=2){
+      w.lastWarnAction=now;
+      if(typeof pushMessage==="function") pushMessage("⚠️ CROSSED ECHOES detected that a Story Card write did not persist between AI Dungeon hooks. Automatic CODEX/card writes are temporarily backing off instead of pretending they succeeded. Check that scripts and the adventure Memory system permit scripted Story Card writes.");
+    }
+    return failed.length;
+  }catch(_){return 0;}
 }
 
 var CE_CONFIG_KEY_UNSAID = "__crossed_echoes_config_unsaid__";
@@ -320,6 +386,7 @@ function utBeginRuntimePhase(name) {
 
   const token = { name: phaseName, started: utClockNow(), budget: Math.max(300, budget) };
   UT_ACTIVE_RUNTIME_PHASE = token;
+  try { if (typeof CE_verifyExpectedStoryCardWrites === "function") CE_verifyExpectedStoryCardWrites(phaseName); } catch (_) {}
   return token;
 }
 
@@ -1225,7 +1292,7 @@ var CP_SCENARIO_HINT_PATTERNS = [
   { rx: /\b(vessel for|host (?:body|to)|possessed by|carries something not (?:its|his|her|their) own)\b/i, cat: "theVessel" },
   { rx: /\b(hereditary curse|runs in the (?:family|bloodline)|passed down through blood)\b/i, cat: "inheritedTrait" },
   { rx: /\b(secretly|in truth|unbeknownst to|hidden agenda)\b/i, cat: "ulteriorMotive" },
-  { rx: /\b(true identity|disguised as|masquerading as|not what (he|she|they) seem)\b/i, cat: "hiddenIdentity" },
+  { rx: /\b(true identity|masquerading as|not what (he|she|they) seem|disguised as (?:an? |the )?(?:person|man|woman|guard|soldier|doctor|officer|student|teacher|worker|civilian|agent|someone|somebody))\b/i, cat: "hiddenIdentity" },
   { rx: /\b(exiled|banished|forbidden|sealed away)\b/i, cat: "buriedPast" },
   { rx: /\b(cursed|prophecy (foretells|speaks of)|rumored to)\b/i, cat: "theWarningWasReal" },
   { rx: /\b(?:believed to be dead.{0,60}(?:but|yet).{0,45}(?:alive|returned|sighting|signal)|vanished decades ago.{0,45}(?:new sighting|message|signal|returned)|long[- ]lost.{0,35}(?:returned|appeared|contacted))\b/i, cat: "fakedDefeat" },
@@ -2989,6 +3056,18 @@ var Library = (() => {
     if (!text) return null;
     if (!twistSentenceEligibleForDiscovery(text, sourceTag || "scenario")) return null;
     const safeCfg = cfg || CP_DEFAULTS;
+    // Knowledge discrepancy is a safer interpretation than generic ulterior
+    // motive when an established character conceals/downplays a capability and
+    // demonstrates unexplained specialist knowledge. It asks what they know;
+    // it does not decide they are a traitor or villain.
+    if (/\b(?:knowledge discrepancy|how (?:does|did|would|could) [^.!?]{0,40} know|since when (?:are|is|was|were) [^.!?]{0,45}(?:expert|knowledgeable)|knew [^.!?]{0,35}(?:without being told|despite never being told)|knows? [^.!?]{0,35}(?:too much|more than expected))\b/i.test(text) &&
+        /\b(?:spatial|temporal|chronal|mechanics|system|technical|classified|forbidden|specialist|power|ability|technopath|telemetry|resonance)\b/i.test(text)) {
+      if (isCategoryAllowed("forbiddenKnowledge", entity, safeCfg, text)) return "forbiddenKnowledge";
+    }
+    if (/\b(?:no powers?|unpowered)\b[\s\S]{0,260}\b(?:technopath|power|ability|shut down|controlled|commanded)\b/i.test(text) &&
+        /\b(?:unknown|why|hid|hidden|downplayed|lied|discrepancy|not been told)\b/i.test(text)) {
+      if (isCategoryAllowed("forbiddenKnowledge", entity, safeCfg, text)) return "forbiddenKnowledge";
+    }
     for (const p of CP_ALL_THREAD_PATTERNS) {
       if (!p.rx.test(text)) continue;
       if (!isCategoryAllowed(p.cat, entity, safeCfg, text)) continue;
@@ -4467,12 +4546,25 @@ function normalizeCodexCandidate(raw, source) {
   name = codexStripLeadingAbbreviatedTitle(rawIdentityName);
   let words = name.split(/\s+/).filter(Boolean);
 
+  // Preserve a leading article when the story is clearly using it as part of
+  // a named venue/location (for example, "The Anchor"). Ordinary sentence
+  // openers still lose "The" below. This must be decided from local visible
+  // prose, not from capitalization alone.
+  const preserveLeadingTheLocation = /^The\s+/i.test(rawIdentityName) && (function(){
+    if (operationalExplicit && String(operationalExplicit).toLowerCase() === "location") return true;
+    const n = escapeForRegex(rawIdentityName);
+    const src = String(source || "");
+    return new RegExp("(?:at|inside|outside|into|from|near|toward|towards|beside|behind|above|below|within|located\\s+(?:at|in)|situated\\s+(?:at|in)|tucked\\s+into|a\\s+short\\s+walk\\s+from)\\s+(?:the\\s+)?" + n + "(?=\\s|[,.;:!?—-]|$)", "i").test(src) ||
+      new RegExp(n + "\\s+(?:is|was)\\s+(?:a|an|the|located|situated|tucked)\\b", "i").test(src);
+  })();
+
   // Sentence-openers and titles can be captured together with the real
   // proper noun ("Which Harlan", "Captain Reyes"). Strip them only when
   // the complete phrase was not explicitly named as an entity.
   if (!originalExplicit) {
     while (words.length > 1 &&
       (CODEX_STOPWORDS.has(codexStopKey(words[0])) || CODEX_TITLE_WORDS.has(codexStopKey(words[0])))) {
+      if (preserveLeadingTheLocation && codexStopKey(words[0]) === "the") break;
       words.shift();
     }
     while (words.length > 1 &&
@@ -6742,6 +6834,7 @@ function strongCodexNonCharacterEvidence(name, text) {
     if (new RegExp(`\\b(?:enters?|entered|visits?|visited|walks?\\s+into|walked\\s+into|steps?\\s+into|stepped\\s+into|arrives?\\s+at|arrived\\s+at|goes?\\s+to|went\\s+to|heads?\\s+to|headed\\s+to|leaves?|left)\\s+(?:the\\s+)?${n}\\b`, "i").test(source)) scores.location += 5;
     if (new RegExp(`\\b(?:in|inside|outside|into|through|near|around|toward|towards|from|within|across|beneath|above|at)\\s+(?:the\\s+)?${n}\\b`, "i").test(source)) scores.location += 1;
     if (new RegExp(`\\b${n}\\b\\s+(?:lies?|sits?|stands?|is\\s+located|is\\s+situated|can\\s+be\\s+found)\\s+(?:in|near|on|beside|within|outside|north|south|east|west)\\b`, "i").test(source)) scores.location += 3;
+    if (new RegExp(`\\b(?:the\\s+)?${n}\\b[^\\n.!?]{0,140}\\b(?:tucked\\s+into|located\\s+in|situated\\s+in|on\\s+the\\s+(?:ground|first|second|third)\\s+floor|a\\s+short\\s+walk\\s+from)\\b`, "i").test(source)) scores.location += 6;
     // Route/directions grammar catches road names without generic suffixes.
     if (new RegExp(`\\b(?:head|drive|walk|go|travel|continue|proceed)(?:ed|ing|s)?(?:\\s+(?:north|south|east|west|straight|back))?\\s+(?:on|along|down|up|toward|towards)\\s+(?:the\\s+)?${n}\\b`, "i").test(source)) scores.location += 5;
     if (new RegExp(`\\b(?:turn|veer|bear)(?:ed|ing|s)?\\s+(?:left|right)?\\s*(?:onto|on|into)\\s+(?:the\\s+)?${n}\\b`, "i").test(source)) scores.location += 5;
@@ -7084,6 +7177,14 @@ function collectCodexCandidates(source) {
       .replace(/^[\s"'“”‘’([{<]+|[\s"'“”‘’)\]}>.,:;!?]+$/g, "")
       .replace(/\s+/g, " ").trim();
     if (!clean || clean.length < 2 || clean.length > 80) return;
+    // Preserve a definite article when it is part of a named venue/place.
+    if(!/^The\s+/i.test(clean)){
+      try{
+        var esc=clean.replace(/[.*+?^${}()|[\]\\]/g,"\\$&");
+        var art=new RegExp("\\bThe\\s+"+esc+"\\b[^\\n.!?]{0,140}\\b(?:caf[eé]|coffee\\s+shop|pub|bar|restaurant|student[- ]run|venue|building|located|tucked|ground\\s+floor)","i");
+        if(art.test(text)) clean="The "+clean;
+      }catch(_){}
+    }
     var key = clean.toLowerCase();
     if (!seen[key]) { seen[key] = true; out.push(clean); }
   }
@@ -8677,8 +8778,20 @@ function codexDirectScaffoldEligibility(name, type, cfg, source) {
   if (!(codex.trustedEntities && codex.trustedEntities[name] === type)) return false;
   const margin = codexTypeVoteMargin(name, type);
   const operationalMatch = !!(operational && operational.type === type);
-  const typed = reasons.indexOf("typed-" + type) >= 0 || reasons.some(function(r){ return String(r).indexOf("explicit-input-") === 0 || String(r) === (operational && operational.reason); });
+  const typed = reasons.indexOf("typed-" + type) >= 0 || reasons.indexOf("echo-" + type) >= 0 || reasons.some(function(r){ return String(r).indexOf("explicit-input-") === 0 || String(r) === (operational && operational.reason); });
+  // Real-play safety: a venue/place/object/group can become strongly and
+  // repeatedly typed by visible prose/ECHO without using a formal "named X"
+  // phrase. Treat that independent semantic evidence as a valid direct-
+  // scaffold gate once the shared tracker agrees on the same non-character
+  // type. This is still strict: strongCodexNonCharacterEvidence requires
+  // explicit local role/location language and does not fire on capitalization
+  // alone.
+  const semantic = typeof strongCodexNonCharacterEvidence === "function"
+    ? strongCodexNonCharacterEvidence(name, combinedEvidence)
+    : null;
+  const semanticMatch = !!(semantic && semantic.type === type && Number(semantic.score || 0) >= 5 && Number(semantic.margin || 0) >= 2);
   if (operationalMatch && strong >= 7) return true;
+  if (semanticMatch && strong >= Math.max(5, CODEX_FAST_TRACK_NONCHAR_SCORE - 1) && margin >= 0) return true;
   return (explicit || typed) && strong >= Math.max(5, CODEX_FAST_TRACK_NONCHAR_SCORE - 1) && margin >= 1;
 }
 
@@ -10111,7 +10224,8 @@ function unsaidObservableCue(sentence) {
     ["protective", /\b(?:steps? in front of|moves? in front of|shields?|covers?|pulls? (?:him|her|them|you) (?:back|behind)|places? (?:himself|herself|themself|themselves) between|protective stance|stands? protectively)\b/i],
     ["fear/startle", /\b(?:flinch(?:es|ed|ing)|recoil(?:s|ed|ing)|startl(?:es|ed|ing)|freezes? (?:in place|for a moment|mid-|at)|goes? still)\b/i],
     ["tension", /\b(?:jaw (?:tightens|clenches)|clenches? (?:his|her|their) jaw|shoulders? (?:tense|tighten|stiffen)|frown(?:s|ed|ing)|scowl(?:s|ed|ing)|bristl(?:es|ed|ing)|glar(?:es|ed|ing)|voice (?:hardens|sharpens)|snaps? (?:back|at))\b/i],
-    ["hesitation", /\b(?:hesitat(?:es|ed|ing)|falters?|pauses? (?:before|for a beat|for a moment)|looks? away|breaks? eye contact|words? (?:catch|die|trail off))\b/i],
+    ["hesitation", /\b(?:hesitat(?:es|ed|ing)|falters?|pauses? (?:before|for a beat|for a moment)|doesn['’]?t answer (?:right away|immediately)|does not answer (?:right away|immediately)|looks? away|breaks? eye contact|words? (?:catch|die|trail off))\b/i],
+    ["guarded/evasive", /\b(?:expression (?:becomes|turns|shifts to|is) (?:more )?(?:careful|guarded|closed)|careful expression|guarded expression|smooth,? almost rehearsed|sounds? rehearsed|explanation (?:is|sounds?) (?:smooth|rehearsed)|deciding how much to say|changes? the subject|deflects?|evades?|evasive|tension in (?:his|her|their) shoulders|sets? .{0,20} down (?:a little )?too carefully)\b/i],
     ["relief/easing", /\b(?:shoulders? (?:ease|drop|relax)|relax(?:es|ed|ing)|exhal(?:es|ed|ing)|lets? out (?:a )?(?:slow |long )?breath|tension (?:leaves|eases|drains))\b/i],
     ["grief/distress", /\b(?:tears? (?:well|gather|spill|run)|cries?|sobs?|voice (?:cracks|breaks)|wipes? (?:at )?(?:his|her|their) eyes)\b/i],
     ["affectionate contact", /\b(?:takes? (?:his|her|their|your) hand|holds? (?:his|her|their|your) hand|rests? (?:his|her|their) hand on|touches? (?:his|her|their|your) (?:arm|shoulder|cheek)|leans? (?:into|against) (?:him|her|them|you))\b/i]
@@ -12299,6 +12413,26 @@ function CW_storyCardFoundationSignature() {
   return players+"\n"+parts.sort().join("\n");
 }
 
+
+function CW_highStakesFoundationRole(role){return ["romantic","ex","parent","child","sibling","relative","family"].indexOf(String(role||""))>=0;}
+function CW_reciprocalFoundationSupports(index, subject, target, role) {
+  if(!index||!subject||!target)return false;
+  var subjectKey=CW_key(subject), targetKey=CW_key(target);
+  var recs=(index.chars||[]).filter(function(r){return CW_key(r.title)===targetKey;});
+  for(var i=0;i<recs.length;i++){
+    var rel=String(recs[i].relationship||""); if(!rel)continue;
+    var clauses=rel.split(/\s*;\s*/).filter(Boolean);
+    for(var j=0;j<clauses.length;j++){
+      var spec=CW_foundationRoleSpec(clauses[j]); if(!spec)continue;
+      var scoped=CW_foundationScopedClause(clauses[j],spec);
+      var mentionsSubject=CW_wordPresent(scoped,subject)||CW_wordPresent(scoped,String(subject).split(/\s+/)[0]);
+      if(!mentionsSubject)continue;
+      var inv=CW_ROLE_INVERSE[String(role||"")]||String(role||"");
+      if(spec.role===inv||spec.role===role||CW_isFamilyRole(spec.role)&&CW_isFamilyRole(role))return true;
+    }
+  }
+  return false;
+}
 function CW_rebuildStoryCardFoundations(turn) {
   if (typeof storyCards === "undefined" || !Array.isArray(storyCards)) return false;
   const cw=state.crossedWires, now=Number(turn)||0;
@@ -12332,6 +12466,13 @@ function CW_rebuildStoryCardFoundations(turn) {
         const canonical=index.aliases[aliasKey];
         if(!CW_foundationAliasAllowed(scopedClause,aliasKey,canonical,spec)) continue;
         if(!canonical || canonical===subject || (subject!=="YOU" && CW_key(canonical)===CW_key(subject))) continue;
+        // Bare first-name aliases are dangerous for high-stakes family/romance
+        // foundations (Marek's deceased wife Elena vs current student Elena Ruiz).
+        // When the clause does not name the canonical full identity, require the
+        // target Character card to reciprocally support the bond.
+        if(CW_highStakesFoundationRole(spec.role) && aliasKey.indexOf(" ")<0 && String(canonical).indexOf(" ")>0 && !CW_wordPresent(scopedClause,canonical)) {
+          if(!CW_reciprocalFoundationSupports(index,subject,canonical,spec.role)) continue;
+        }
         // A Story Card that says "future Kyle", "alternate Kyle", etc. is
         // describing a distinct continuity identity. Do not silently attach
         // that relationship to primary YOU just because the base name matches.
@@ -14032,6 +14173,25 @@ function CW_visibleKnownNpcs(sentence) {
     const canonical = CW_resolveNpcName(npc.name) || npc.name;
     const ck = CW_key(canonical);
     if (!seen[ck]) { seen[ck] = true; hits.push(canonical); }
+  }
+  // First-sight fallback: visible relationship actions may feature an NPC that
+  // has not yet emitted a hidden CW_PERSON tag. Resolve only names that already
+  // map to a Character Story Card; never invent a new person from capitalization.
+  if (hits.length < 3) {
+    try {
+      const proper = String(sentence||"").match(/\b[A-ZÀ-ÖØ-ÞĀ-ſΑ-ΩА-ЯЁ][\p{L}\p{N}'’.-]*(?:\s+[A-ZÀ-ÖØ-ÞĀ-ſΑ-ΩА-ЯЁ][\p{L}\p{N}'’.-]*){0,3}\b/gu) || [];
+      proper.slice(0,8).forEach(function(raw){
+        raw=String(raw||"").replace(/[’']s$/i,"");
+        var resolved=typeof resolveUnsaidCanonicalName==="function"?resolveUnsaidCanonicalName(raw):raw;
+        if(!resolved||CW_isPlayerName(resolved))return;
+        var card=typeof findStoryCardForEntity==="function"?findStoryCardForEntity(resolved):null;
+        if(!card||!isCharacterLikeCard(resolved,card))return;
+        var canonical=CW_cleanName(CE_cardIdentityName(card)||resolved); if(!canonical)return;
+        var ck=CW_key(canonical); if(seen[ck])return;
+        CW_registerNpc(canonical, CW_turn(), CW_detectAdultFromEntry(CW_cardEntryText(card)));
+        seen[ck]=true; hits.push(canonical);
+      });
+    } catch (_) {}
   }
   return hits;
 }
@@ -19738,17 +19898,7 @@ function CE_twistsCardSection(name){
     };
 
     if(!threads.length){
-      var elsewhere=(c.threads||[]).filter(function(t){return t&&t.status!=="resolved"&&t.entity&&!CE_sameName(t.entity,name);})
-        .sort(function(a,b){return (b.status==="ready"?2:0)-(a.status==="ready"?2:0)||(b.storyEvidenceTouches||0)-(a.storyEvidenceTouches||0)||(b.seedTouches||0)-(a.seedTouches||0);})
-        .slice(0,2);
-      if(!elsewhere.length) return "No twist is tied to this entity yet. TWISTS AND TURNS is still watching for evidence-backed contradictions, delayed consequences, secrets, temporal anomalies, multiversal mismatches, power changes and other scenario-fit seeds.";
-      var o=["No twist is tied specifically to this entity right now.","Other story arcs are still developing elsewhere:"];
-      elsewhere.forEach(function(t,i){
-        var stateText=t.status==="ready"?"has matured enough to surface naturally":"is still developing";
-        o.push((i+1)+". "+labelFor(t)+" around "+String(t.entity||"the wider story")+" "+stateText+".");
-      });
-      o.push("These are wider story arcs, not facts about this card's entity.");
-      return o.join("\n");
+      return "No twist is tied to this entity yet. TWISTS AND TURNS is still watching this entity for evidence-backed contradictions, delayed consequences, secrets, temporal anomalies, multiversal mismatches, power changes and other scenario-fit seeds.";
     }
 
     var out=["DEVELOPING TWISTS — readable long-arc tracker"];
