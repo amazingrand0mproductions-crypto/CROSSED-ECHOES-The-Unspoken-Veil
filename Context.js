@@ -788,6 +788,7 @@ var modifier = (text) => {
   var originalText = text;
   try {
     if (typeof UN_resetHookCaches === "function") UN_resetHookCaches("context");
+    if (typeof CEFH_prepareContext === "function") CEFH_prepareContext(originalText);
 
     // Manual UNSAID/Codex generations own the whole model call. They are
     // administrative workers, not story turns, so skip the other directors.
@@ -843,6 +844,24 @@ var modifier = (text) => {
     if (finalResult && typeof finalResult.text !== "undefined" && typeof CE_appendManagedContextHints === "function") {
       finalResult.text = CE_appendManagedContextHints(finalResult.text);
     }
+    // Canon Sentinel is deliberately LAST. Every established director keeps its
+    // reserved budget first; Sentinel uses only true remaining headroom and can
+    // shrink/yield without starving ECHO, Crossed Wires, WORLD ENGINE or UNSAID.
+    if (finalResult && typeof finalResult.text !== "undefined" && typeof CECS_onContext === "function") {
+      var canonPacket = CECS_onContext(originalText);
+      if (canonPacket) {
+        var canonBudget = canonPacket.length + 4;
+        try {
+          if (typeof info !== "undefined" && info && Number.isFinite(Number(info.maxChars))) {
+            canonBudget = Math.max(0, Math.floor(Number(info.maxChars)) - String(finalResult.text || "").length);
+          }
+        } catch (_) {}
+        if (typeof CECS_fitPacketToBudget === "function") canonPacket = CECS_fitPacketToBudget(canonPacket, canonBudget);
+        if (canonPacket) finalResult.text += canonPacket;
+        else if (typeof utSkipRuntimeTask === "function") utSkipRuntimeTask("canon-sentinel-no-final-headroom");
+      }
+    }
+    if (finalResult && typeof finalResult.text !== "undefined" && typeof CEFH_maintenance === "function") CEFH_maintenance("context-final", finalResult.text);
     return finalResult;
   } catch (e) {
     if (typeof utRecordRuntimeError === "function") utRecordRuntimeError("Context/unified", e);

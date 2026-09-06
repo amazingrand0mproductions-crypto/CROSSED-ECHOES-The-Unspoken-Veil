@@ -2669,7 +2669,7 @@ var Library = (() => {
     else best.hypothesisTouches = Math.min(200, Number(best.hypothesisTouches || 0) + 1);
     best.lastSeedTurn = c.turn;
     best.tier = tierFor(best.seedTouches);
-    if (isEligible(best, c, cfg)) best.status = "ready";
+    if (isEligible(best, c, cfg)) { best.status = "ready"; best.deepAutoReady = true; }
     return 1;
   }
 
@@ -2968,7 +2968,7 @@ var Library = (() => {
             thread.lastSeedTurn = c.turn;
             thread.tier = tierFor(thread.seedTouches);
             thread.codexLinked = true;
-            if (isEligible(thread, c, cfg)) thread.status = "ready";
+            if (isEligible(thread, c, cfg)) { thread.status = "ready"; thread.deepAutoReady = true; }
           }
         }
         return thread;
@@ -3094,7 +3094,7 @@ var Library = (() => {
             else existing.hypothesisTouches = (existing.hypothesisTouches || 0) + 1;
             existing.lastSeedTurn = c.turn;
             existing.tier = tierFor(existing.seedTouches);
-            if (isEligible(existing, c, cfg)) existing.status = "ready";
+            if (isEligible(existing, c, cfg)) { existing.status = "ready"; existing.deepAutoReady = true; }
           }
         }
       } else if (!twistIsCounterEvidence(s)) {
@@ -3141,7 +3141,7 @@ var Library = (() => {
     thread.seedTouches = 1;
     thread.tier = tierFor(thread.seedTouches);
     thread.source = source;
-    if (isEligible(thread, c, cfg)) thread.status = "ready";
+    if (isEligible(thread, c, cfg)) { thread.status = "ready"; thread.deepAutoReady = true; }
     return thread;
   }
 
@@ -14767,6 +14767,89 @@ function CW_onInput(text) {
   return text;
 }
 
+
+function CW_liveCanonSeedStore(){
+  CW_init();
+  const cw=state.crossedWires;
+  if(!cw.liveCanonSeeds||typeof cw.liveCanonSeeds!=="object")cw.liveCanonSeeds={};
+  return cw.liveCanonSeeds;
+}
+function CW_liveCanonSeedSeen(key){
+  const store=CW_liveCanonSeedStore();
+  return !!store[String(key||"")];
+}
+function CW_markLiveCanonSeed(key,turn){
+  const store=CW_liveCanonSeedStore(),k=String(key||""); if(!k)return;
+  store[k]=Number(turn)||0;
+  const keys=Object.keys(store);
+  if(keys.length>180){keys.sort(function(a,b){return Number(store[a]||0)-Number(store[b]||0);});for(let i=0;i<keys.length-160;i++)delete store[keys[i]];}
+}
+function CW_liveCanonSeedKey(kind,from,to,evidence){
+  return [String(kind||""),CW_key(from),CW_key(to),String(evidence||"").toLowerCase().replace(/[^a-z0-9]+/g," ").trim().slice(0,120)].join("|");
+}
+function CW_addLiveCanonEvent(from,to,kind,severity,evidence,turn){
+  const key=CW_liveCanonSeedKey(kind,from,to,evidence);
+  if(CW_liveCanonSeedSeen(key))return false;
+  const ok=CW_addEvent(from,to,kind,severity,"Current canon: "+String(evidence||"").replace(/\s+/g," ").trim().slice(0,130),turn);
+  if(ok)CW_markLiveCanonSeed(key,turn);
+  return ok;
+}
+function CW_contextPlayerName(){
+  try{if(typeof CECS_extractPlayerName==="function"){const p=CECS_extractPlayerName();if(p)return p;}}catch(_){}
+  try{const cards=typeof storyCards!=="undefined"&&Array.isArray(storyCards)?storyCards:[];for(const c of cards){const b=[c&&c.entry,c&&c.value,c&&c.description].filter(Boolean).join("\n");const m=b.match(/\bPLAYER\s*:\s*You\s+are\s+([A-Z][A-Za-z'’-]+(?:\s+[A-Z][A-Za-z'’-]+){0,2})/i);if(m)return m[1].trim();}}catch(_){}
+  return "YOU";
+}
+function CW_contextNamedNpc(line,sectionName){
+  const hits=CW_visibleKnownNpcs(line);
+  if(hits.length===1)return hits[0];
+  if(hits.length>1){for(const n of hits){const first=String(n).split(/\s+/)[0].replace(/[.*+?^${}()|[\]\\]/g,"\\$&");if(new RegExp("^\\s*"+first+"\\b","i").test(line))return n;}}
+  if(sectionName&&/^\s*(?:they|she|he)\b/i.test(line))return sectionName;
+  return "";
+}
+function CW_seedLiveRelationshipCanon(text,turn){
+  const cfg=CW_config(); if(!cfg.enabled)return 0;
+  const src=String(text||"").slice(-18000),lines=src.replace(/\r/g,"").split(/\n+/).map(x=>x.trim()).filter(Boolean);
+  let section="",added=0;
+  const player=CW_contextPlayerName();
+  for(const line of lines){
+    // Uppercase/label headings can establish the subject for following pronoun-led summary lines.
+    if(line.length<=80&&!/[.!?]$/.test(line)){
+      const candidates=CW_visibleKnownNpcs(line);
+      if(candidates.length===1&&new RegExp("^"+String(candidates[0]).split(/\s+/)[0].replace(/[.*+?^${}()|[\]\\]/g,"\\$&")+"(?:\\b|$)","i").test(line))section=candidates[0];
+    }
+    const npc=CW_contextNamedNpc(line,section);
+    if(!npc||CW_isPlayerName(npc))continue;
+    const lower=line.toLowerCase();
+    const target="YOU";
+
+    // Explicit present friendship canon may legitimately advance a provisional
+    // acquaintance/roommate link to friend. Do not infer 'best friend'.
+    if(new RegExp("\\b"+String(npc).split(/\s+/)[0].replace(/[.*+?^${}()|[\]\\]/g,"\\$&")+"\\b[^\\n]{0,80}\\b(?:is|=|—|-)\\s*(?:[^\\n]{0,30})?\\bfriend(?:/co-investigator)?\\b","i").test(line)||/\bfriend\/co-investigator\b/i.test(line)){
+      if(CW_getRole(npc,target)==="unknown"){CW_setRole(npc,target,"friend",turn);CW_markLiveCanonSeed("role|"+CW_key(npc)+"|you|friend",turn);}
+    }
+
+    // A mutual/consensual kiss is observable relationship evidence, but never
+    // proof of commitment or continuing consent. Record only a small romance signal.
+    if(/\b(?:shared|share)\b[^\n]{0,50}\b(?:mutual|brief|consensual)?\s*kissa?\b/i.test(line)||/\b(?:kissed|kisses|kiss)\b/i.test(line)&&/\b(?:you|ezra|mutual|shared)\b/i.test(line)){
+      if(cfg.enableRomance)added+=CW_addLiveCanonEvent(npc,target,"flirtation",1,line,turn)?1:0;
+    }
+
+    // Explicit refusal of romance/dating is a real relationship event and a
+    // boundary, not a cue for hidden attraction. A later independent change of
+    // mind can add new events; this one remains part of the history.
+    if(/\b(?:does\s+not|doesn't|isn['’]?t)\b[^\n]{0,35}\b(?:want|looking for|interested in)\b[^\n]{0,50}\b(?:romance|relationship|dating|campus romance)\b/i.test(line)||/\bnot\s+looking\s+for\b[^\n]{0,45}\b(?:romance|relationship|dating)\b/i.test(line)){
+      added+=CW_addLiveCanonEvent(npc,target,"rejection",2,line,turn)?1:0;
+      added+=CW_addLiveCanonEvent(npc,target,"boundary_discussion",2,line,turn)?1:0;
+    }
+    if(/\b(?:declined|refused|turned down|said no to)\b[^\n]{0,40}\b(?:drink|date|kiss|romance|relationship|invitation)\b/i.test(line)){
+      added+=CW_addLiveCanonEvent(npc,target,"rejection",1,line,turn)?1:0;
+    }
+    if(/\b(?:respect that boundary|boundary must be respected|do not treat persistence as romantic|no means no)\b/i.test(line)){
+      added+=CW_addLiveCanonEvent(npc,target,"boundary_discussion",2,line,turn)?1:0;
+    }
+  }
+  return added;
+}
 function CW_onContext(text) {
   CW_init();
   CW_RUNTIME_SCENE_SCORES = null;
@@ -14782,6 +14865,7 @@ function CW_onContext(text) {
   const cfg = CW_config();
   if (!cfg.enabled) return text;
   CW_seedFromCharacterCards(turn);
+  CW_seedLiveRelationshipCanon(text, turn);
 
   // Append-only for AI Dungeon's cache-compatible context mode. Respect live
   // platform headroom and shrink Crossed Wires rather than deleting/reordering
@@ -21986,3 +22070,3014 @@ function CEW_statusText(){var w=CEW_init(),cfg=CEW_cfg(),a=w.attention||{},activ
 ].join("\n");}
 function CEW_doctor(){var w=CEW_init(),cfg=CEW_cfg(),issues=[];if(!cfg.worldEngine)issues.push("WORLD ENGINE disabled by config.");if(Object.keys(w.entities).length>=Number(cfg.worldEntityCap||160))issues.push("Entity mirror is at cap; compaction is active.");if(w.arcs.length>=Number(cfg.worldArcCap||48))issues.push("Emergent-arc store is at cap; compaction is active.");if(w.lastError)issues.push("Last runtime error: "+w.lastError.where+" — "+w.lastError.message);try{if(typeof ECHO_VEIL!=="undefined"&&ECHO_VEIL.api&&ECHO_VEIL.api.doctor){var e=ECHO_VEIL.api.doctor();if(e&&!e.ok)issues.push("ECHO VEIL reports continuity/config warnings; use /echo doctor for detail.");}}catch(_){}return "WORLD ENGINE DOCTOR\n"+(issues.length?issues.map(function(x){return "• "+x;}).join("\n"):"• Healthy: state bounds, orchestration and authority layers are available.");}
 function CEW_forcePulse(){var w=CEW_init();if(!w)return null;return CEW_generateOffscreenCandidate(true);}
+
+
+// ============================================================================
+// CROSSED ECHOES — CANON SENTINEL / LIVE-PLAY ARBITRATION LAYER
+// Purpose: close the gap between synthetic unit tests and long live adventures.
+// This layer is deliberately evidence-first. It does not create story facts.
+// It extracts hard boundaries from current scenario material, recent turns and
+// Story Cards, then emits a compact private contract that prevents the model
+// from silently promoting inference into canon, overriding the player, leaking
+// model knowledge into NPC knowledge, or regressing relationship state.
+// ============================================================================
+var CECS_VERSION = "2026.09.06-live-arbitration";
+var CECS_RUNTIME = { turn:-1, packet:"", input:"", output:"" };
+var CECS_INDEX_CACHE = { stamp:"", hard:[], knowledge:[], relationship:[], uncertainty:[], timeline:[], agency:[] };
+
+var CECS_NEGATION_WORDS = [
+  "not","never","no","none","neither","nor","without","cannot","can't","cant",
+  "doesn't","doesnt","didn't","didnt","isn't","isnt","aren't","arent","wasn't","wasnt",
+  "weren't","werent","won't","wont","wouldn't","wouldnt","shouldn't","shouldnt",
+  "couldn't","couldnt","unknown","unverified","unconfirmed","uncertain","unproven",
+  "theory","possible","possibly","potential","might","may","could","rumor","rumour",
+  "alleged","allegedly","claimed","claims","reported","suspected","hypothesis"
+];
+var CECS_PLAYER_AGENCY_TERMS = [
+  "dialogue","thought","thoughts","feeling","feelings","emotion","emotions","consent",
+  "choice","choices","decision","decisions","intent","intention","intentional","voluntary",
+  "power use","major choice","major choices","only player-controlled","only player controlled"
+];
+var CECS_BOUNDARY_PATTERNS = [
+  /\bdoes\s+not\s+want\b/i,/\bdo\s+not\s+want\b/i,/\bdeclined\b/i,/\brefused\b/i,
+  /\bdrew\s+a\s+line\b/i,/\bboundar(?:y|ies)\b/i,/\bnot\s+interested\b/i,
+  /\bno\s+romance\b/i,/\bnot\s+looking\s+for\b/i,/\bstop\b/i,/\bleave\s+me\s+alone\b/i,
+  /\bdo\s+not\s+treat\s+persistence\s+as\s+romantic\b/i,
+  /\bmay\s+independently\s+change\s+(?:his|her|their)\s+mind\b/i
+];
+var CECS_UNCERTAINTY_PATTERNS = [
+  /\b(?:is|are|was|were)\s+(?:still\s+)?unknown\b/i,/\bnot\s+(?:yet\s+)?confirmed\b/i,
+  /\bnot\s+proven\b/i,/\bunverified\b/i,/\buncertain\b/i,/\btheory\b/i,
+  /\bpossibilit(?:y|ies)\b/i,/\bmay\b/i,/\bmight\b/i,/\bcould\b/i,
+  /\bclaims?\b/i,/\breported\s+evidence\b/i,/\bnot\s+automatic\s+truth\b/i
+];
+var CECS_KNOWLEDGE_PATTERNS = [
+  /\bnow\s+knows?\b/i,/\bbecame\s+explicit\b/i,/\bhas\s+been\s+told\b/i,/\bhave\s+been\s+told\b/i,
+  /\bdoes\s+not\s+know\b/i,/\bdo\s+not\s+know\b/i,/\bdoesn't\s+know\b/i,
+  /\bhas\s+not\s+been\s+told\b/i,/\bhave\s+not\s+been\s+told\b/i,
+  /\bcurrently\s+do\s+not\s+know\b/i,/\bnot\s+automatically\s+part\s+of\b/i,
+  /\bknowledge\s+boundar(?:y|ies)\b/i,/\bnot\s+automatically\s+part\b/i
+];
+var CECS_TIME_PATTERNS = [
+  /\bcurrent\s+new-scenario\s+start\s*=\s*([^\n]+)/i,
+  /\btime\s*:\s*([^\n]+)/i,/\bera\s*:\s*([^\n]+)/i,/\broughly\s+\w+\s+years?\s+ago\b/i,
+  /\bfive-year-old\b/i,/\bsixteen\s+years\s+ago\b/i,/\bfirst\s+week\s+of\s+term\b/i
+];
+var CECS_HARD_RULE_WORDS = [
+  "rule:","boundary:","locked:","player:","unknown:","not established:","not established",
+  "do not","never","only","must not","remain unknown","not canon","not automatic truth",
+  "not automatically","respect that boundary","evidence rule","knowledge boundaries"
+];
+
+function CECS_now(){
+  try { if (typeof info!=="undefined" && info && Number.isFinite(Number(info.actionCount))) return Number(info.actionCount); } catch(_){}
+  try { if (state && state.unsaid && Number.isFinite(Number(state.unsaid.turn))) return Number(state.unsaid.turn); } catch(_){}
+  return 0;
+}
+function CECS_text(v){ return String(v==null?"":v); }
+function CECS_clip(v,n){ var s=CECS_text(v).replace(/\s+/g," ").trim(); return s.length<=n?s:s.slice(0,Math.max(0,n-1)).replace(/\s+\S*$/,"…"); }
+function CECS_norm(v){ return CECS_text(v).toLowerCase().replace(/[’‘]/g,"'").replace(/[^a-z0-9' -]+/g," ").replace(/\s+/g," ").trim(); }
+function CECS_unique(rows, keyFn){ var seen={},out=[]; (rows||[]).forEach(function(x){ var k=keyFn?keyFn(x):CECS_norm(x); if(!k||seen[k])return; seen[k]=1; out.push(x);}); return out; }
+function CECS_sentences(text){
+  var s=CECS_text(text).replace(/\r/g,"").replace(/([.!?])\s+(?=[A-Z0-9"'“‘])/g,"$1\n");
+  return s.split(/\n+/).map(function(x){return x.trim();}).filter(Boolean);
+}
+function CECS_lines(text){ return CECS_text(text).replace(/\r/g,"").split(/\n+/).map(function(x){return x.trim();}).filter(Boolean); }
+function CECS_storyCards(){ try{return (typeof storyCards!=="undefined"&&Array.isArray(storyCards))?storyCards:[];}catch(_){return [];} }
+function CECS_cardText(card){ if(!card)return""; return [card.title,card.keys,card.value,card.entry,card.description].filter(Boolean).join("\n"); }
+function CECS_recent(text,chars){ return CECS_text(text).slice(-Math.max(500,chars||7000)); }
+function CECS_containsAny(text,words){ var n=CECS_norm(text); return (words||[]).some(function(w){return n.indexOf(CECS_norm(w))>=0;}); }
+function CECS_matchesAny(text,patterns){ return (patterns||[]).some(function(rx){ try{return rx.test(text);}catch(_){return false;} }); }
+function CECS_nameFromCard(card){ if(!card)return""; var t=CECS_text(card.title).trim(); if(t)return t; var m=CECS_text(card.value).match(/\bName\s*:\s*([^\n]+)/i); return m?m[1].trim():""; }
+function CECS_kind(card){
+  var t=CECS_norm(card&&card.type), body=CECS_cardText(card);
+  if(t)return t;
+  if(/\bName\s*:/i.test(body)&&/\b(?:Age|Personality|Relationships|Appearance|Powers|Role)\s*:/i.test(body))return"character";
+  return"";
+}
+function CECS_isCharacter(card){ return CECS_kind(card)==="character"; }
+function CECS_findCharacter(name){
+  var n=CECS_norm(name); if(!n)return null;
+  var cards=CECS_storyCards(), best=null,score=-1;
+  cards.forEach(function(c){ if(!CECS_isCharacter(c))return; var title=CECS_norm(CECS_nameFromCard(c)); if(!title)return; var s=title===n?100:(title.indexOf(n)>=0||n.indexOf(title)>=0?55:0); if(s>score){score=s;best=c;} });
+  return score>0?best:null;
+}
+function CECS_extractPlayerName(){
+  var sources=[];
+  try{if(typeof state!=="undefined"&&state&&state.memory){sources.push(state.memory.context||"");sources.push(state.memory.authorsNote||"");}}catch(_){}
+  CECS_storyCards().slice(0,120).forEach(function(c){var b=CECS_cardText(c); if(/\bPLAYER\b/i.test(b))sources.push(b);});
+  for(var i=0;i<sources.length;i++){
+    var s=sources[i],m=s.match(/\b(?:You\s*=|You\s+are|PLAYER\s*:\s*You\s+are)\s+([A-Z][A-Za-z'’-]+(?:[ \t]+[A-Z][A-Za-z'’-]+){0,2})/i);
+    if(m)return m[1].trim();
+  }
+  return"";
+}
+function CECS_extractPlayerAge(playerName){
+  var c=playerName?CECS_findCharacter(playerName):null, b=CECS_cardText(c),m=b.match(/\bAge\s*:\s*(\d{1,3})\b/i); return m?Number(m[1]):null;
+}
+
+function CECS_indexStamp(){
+  var cards=CECS_storyCards(), parts=[String(cards.length)];
+  // One bounded signature pass is much cheaper than five independent full-card
+  // scans. Values are sampled from rule-bearing cards and active character cards.
+  for(var i=0;i<cards.length;i++){
+    var c=cards[i]; if(!c)continue;
+    var body=CECS_cardText(c);
+    if(CECS_isCharacter(c)||CECS_containsAny(body,CECS_HARD_RULE_WORDS)||CECS_matchesAny(body,CECS_KNOWLEDGE_PATTERNS)||CECS_matchesAny(body,CECS_BOUNDARY_PATTERNS)){
+      parts.push(CECS_clip((c.title||"")+"|"+(c.keys||"")+"|"+(c.value||c.entry||"")+"|"+(c.description||""),180));
+    }
+  }
+  return CECS_norm(parts.join("¦")).slice(0,22000);
+}
+function CECS_buildIndex(){
+  var stamp=CECS_indexStamp(); if(CECS_INDEX_CACHE.stamp===stamp)return CECS_INDEX_CACHE;
+  var hard=[],knowledge=[],relationship=[],uncertainty=[],timeline=[],agency=[];
+  CECS_storyCards().forEach(function(c){
+    var body=CECS_cardText(c),owner=CECS_nameFromCard(c),kind=CECS_kind(c);
+    var diagnosticOrConfig=/\bconfig\b/i.test(owner)||/CROSSED ECHOES|TWISTS AND TURNS|UNSPOKEN TURNS|ECHO VEIL|CROSSED WIRES/i.test(owner);
+    CECS_lines(body).forEach(function(line){
+      var lower=line.toLowerCase();
+      if(!diagnosticOrConfig&&CECS_HARD_RULE_WORDS.some(function(w){return lower.indexOf(w)>=0;}))hard.push({text:line,card:owner,kind:kind});
+      if(!diagnosticOrConfig&&CECS_matchesAny(line,CECS_KNOWLEDGE_PATTERNS))knowledge.push({owner:owner,text:line});
+      if(!diagnosticOrConfig&&(CECS_matchesAny(line,CECS_BOUNDARY_PATTERNS)||(/\bRelationships?\s*:/i.test(line)&&/\b(?:not|unknown|early|potential|friend|spouse|married|dating|kiss|declined)\b/i.test(line))))relationship.push({owner:owner,text:line});
+      if(!diagnosticOrConfig&&CECS_matchesAny(line,CECS_UNCERTAINTY_PATTERNS))uncertainty.push({owner:owner,text:line});
+      if(!diagnosticOrConfig&&(CECS_matchesAny(line,CECS_TIME_PATTERNS)||(/\b(?:current|timeline|day one|day two|monday|tuesday|wednesday|birthday|age)\b/i.test(line)&&/\b(?:rule|current|age|time|start|era|now|today)\b/i.test(line))))timeline.push({owner:owner,text:line});
+      if(CECS_containsAny(line,CECS_PLAYER_AGENCY_TERMS)&&/\b(?:player|you|only|never|belong)\b/i.test(line))agency.push(line);
+    });
+  });
+  CECS_INDEX_CACHE={stamp:stamp,hard:CECS_unique(hard,function(x){return CECS_norm(x.text);}),knowledge:CECS_unique(knowledge,function(x){return CECS_norm(x.owner+" "+x.text);}),relationship:CECS_unique(relationship,function(x){return CECS_norm(x.owner+" "+x.text);}),uncertainty:CECS_unique(uncertainty,function(x){return CECS_norm(x.owner+" "+x.text);}),timeline:CECS_unique(timeline,function(x){return CECS_norm(x.owner+" "+x.text);}),agency:CECS_unique(agency)};
+  return CECS_INDEX_CACHE;
+}
+function CECS_extractAgencyRules(){ return CECS_buildIndex().agency.slice(0,5);
+}
+function CECS_extractHardRules(limit){ return CECS_buildIndex().hard.slice(0,limit||80);
+}
+function CECS_extractKnowledgeLocks(){ return CECS_buildIndex().knowledge.slice(0,50);
+}
+function CECS_extractRelationshipBoundaries(){ return CECS_buildIndex().relationship.slice(0,50);
+}
+function CECS_extractUncertainties(){ return CECS_buildIndex().uncertainty.slice(0,70);
+}
+function CECS_extractTimelineLocks(){ return CECS_buildIndex().timeline.slice(0,45);
+}
+function CECS_namesInText(text){
+  var src=CECS_text(text), rows=[];
+  CECS_storyCards().forEach(function(c){ if(!CECS_isCharacter(c))return; var n=CECS_nameFromCard(c); if(!n)return; var aliases=[n].concat(CECS_text(c.keys).split(",").map(function(x){return x.trim();}).filter(Boolean));
+    if(aliases.some(function(a){ if(a.length<3)return false; var rx=new RegExp("(^|[^A-Za-z0-9])"+a.replace(/[.*+?^${}()|[\]\\]/g,"\\$&")+"([^A-Za-z0-9]|$)","i");return rx.test(src);} )) rows.push(n);
+  });
+  return CECS_unique(rows).slice(0,18);
+}
+
+var CECS_TOPIC_STOP = {
+  "the":1,"a":1,"an":1,"and":1,"or":1,"but":1,"is":1,"are":1,"was":1,"were":1,"be":1,"been":1,"being":1,
+  "has":1,"have":1,"had":1,"does":1,"do":1,"did":1,"to":1,"of":1,"in":1,"on":1,"at":1,"for":1,"from":1,"with":1,
+  "this":1,"that":1,"these":1,"those":1,"it":1,"its":1,"his":1,"her":1,"their":1,"your":1,"my":1,"our":1,
+  "still":1,"now":1,"currently":1,"yet":1,"not":1,"never":1,"no":1,"unknown":1,"unverified":1,"unconfirmed":1,
+  "real":1,"true":1,"fact":1,"rule":1,"current":1,"explicitly":1,"automatic":1,"automatically":1,"part":1
+};
+function CECS_topicWords(text){
+  return CECS_norm(text).split(" ").filter(function(w){return w.length>=3&&!CECS_TOPIC_STOP[w];});
+}
+function CECS_topicOverlap(a,b){
+  var aa=CECS_unique(CECS_topicWords(a)),bb=CECS_unique(CECS_topicWords(b)); if(!aa.length||!bb.length)return 0;
+  var set={};bb.forEach(function(w){set[w]=1;});var hit=0;aa.forEach(function(w){if(set[w])hit++;});
+  return hit/Math.max(1,Math.min(aa.length,bb.length));
+}
+function CECS_factPolarity(text){
+  var s=String(text||"");
+  if(/\b(?:now knows|now know|has now learned|have now learned|confirmed|is confirmed|are confirmed|explicitly knows|explicitly know|became explicit|has been told|have been told)\b/i.test(s))return 1;
+  if(/\b(?:does not know|do not know|doesn't know|don't know|has not been told|have not been told|hasn't been told|haven't been told|unknown|unverified|unconfirmed|not established|not proven|not canon|not automatically)\b/i.test(s))return -1;
+  return 0;
+}
+function CECS_isStaleAgainstLive(cardLine,liveLines){
+  var cp=CECS_factPolarity(cardLine); if(!cp)return false;
+  for(var i=0;i<(liveLines||[]).length;i++){
+    var lp=CECS_factPolarity(liveLines[i]); if(!lp||lp===cp)continue;
+    if(CECS_topicOverlap(cardLine,liveLines[i])>=0.18)return true;
+  }
+  return false;
+}
+function CECS_filterStaleRows(rows,liveLines){
+  return (rows||[]).filter(function(r){return !CECS_isStaleAgainstLive(r.text||r,liveLines||[]);});
+}
+function CECS_authorNoteBlocks(text){
+  var src=String(text||""),out=[],rx=/\[Author['’]s note\s*:\s*([\s\S]*?)(?:\]|$)/ig,m;
+  while((m=rx.exec(src))!==null)out.push(m[1].trim());
+  return out;
+}
+function CECS_authorNoteCorrections(text,player,cardAge,liveAge){
+  var src=String(text||""),notes=CECS_authorNoteBlocks(src),outside=src.replace(/\[Author['’]s note\s*:[\s\S]*?(?:\]|$)/ig," "),out=[];
+  notes.forEach(function(note){
+    if(/\bonly\s+shown\s+(?:competitive\s+)?respect|romantic feelings are unknown|attraction.*unknown/i.test(note)&&/\bshared\b[^\n]{0,50}\bkiss\b|\bdeclined\b[^\n]{0,40}\b(?:drink|date)|\bdoes\s+not\s+want\b[^\n]{0,40}\bromance/i.test(outside)){
+      out.push("Author's Note relationship summary is stale: newer visible canon includes later kiss/boundary/rejection evidence. Use the newer sequence and preserve the latest boundary.");
+    }
+    if(player&&liveAge!=null){
+      var m=note.match(new RegExp("\\b"+player.split(/\s+/)[0].replace(/[.*+?^${}()|[\\]\\\\]/g,"\\\\$&")+"\\b[^\\n]{0,30}\\b(\\d{1,3})[- ]year[- ]old","i"));
+      if(m&&Number(m[1])!==liveAge)out.push("Author's Note age is stale: visible story now establishes "+player+" as "+liveAge+". Do not regress to "+m[1]+".");
+    }
+    if(/\b(?:has not been told|does not know|doesn't know)\b/i.test(note)&&/\bnow knows\b|\bbecame explicit\b|\bhas been told\b/i.test(outside)&&CECS_topicOverlap(note,outside)>=0.18){
+      out.push("Author's Note knowledge summary may be stale: newer explicit knowledge statements outrank older 'does not know/has not been told' wording.");
+    }
+  });
+  return CECS_unique(out).slice(0,4);
+}
+
+// Provenance signal catalog used by the live contract and doctor. Keeping this
+// vocabulary explicit helps the engine distinguish observation, report,
+// inference and speculation without relying on one brittle regex.
+var CECS_PROVENANCE_SIGNALS = [
+  {level:"observed", phrase:"saw"},
+  {level:"observed", phrase:"watched"},
+  {level:"observed", phrase:"witnessed"},
+  {level:"observed", phrase:"heard directly"},
+  {level:"observed", phrase:"read the file"},
+  {level:"observed", phrase:"opened the file"},
+  {level:"observed", phrase:"recorded on camera"},
+  {level:"observed", phrase:"measured"},
+  {level:"observed", phrase:"tested"},
+  {level:"observed", phrase:"scanned"},
+  {level:"observed", phrase:"logged"},
+  {level:"observed", phrase:"documented"},
+  {level:"observed", phrase:"confirmed by test"},
+  {level:"observed", phrase:"verified by record"},
+  {level:"observed", phrase:"physically found"},
+  {level:"observed", phrase:"personally observed"},
+  {level:"observed", phrase:"was present when"},
+  {level:"observed", phrase:"told directly"},
+  {level:"observed", phrase:"admitted directly"},
+  {level:"observed", phrase:"confessed directly"},
+  {level:"observed", phrase:"demonstrated"},
+  {level:"observed", phrase:"showed on telemetry"},
+  {level:"observed", phrase:"appeared on the terminal"},
+  {level:"observed", phrase:"was recovered"},
+  {level:"observed", phrase:"was photographed"},
+  {level:"observed", phrase:"was recorded"},
+  {level:"observed", phrase:"was inspected"},
+  {level:"observed", phrase:"was sampled"},
+  {level:"observed", phrase:"was identified by serial"},
+  {level:"observed", phrase:"matched the record"},
+  {level:"observed", phrase:"matched the fingerprint"},
+  {level:"reported", phrase:"claims"},
+  {level:"reported", phrase:"claimed"},
+  {level:"reported", phrase:"says"},
+  {level:"reported", phrase:"said"},
+  {level:"reported", phrase:"reported"},
+  {level:"reported", phrase:"alleged"},
+  {level:"reported", phrase:"rumor says"},
+  {level:"reported", phrase:"rumour says"},
+  {level:"reported", phrase:"according to"},
+  {level:"reported", phrase:"was told that"},
+  {level:"reported", phrase:"heard that"},
+  {level:"reported", phrase:"source says"},
+  {level:"reported", phrase:"witness reports"},
+  {level:"reported", phrase:"anonymous tip"},
+  {level:"reported", phrase:"unverified report"},
+  {level:"reported", phrase:"second-hand account"},
+  {level:"reported", phrase:"third-hand account"},
+  {level:"reported", phrase:"official statement claims"},
+  {level:"reported", phrase:"press release claims"},
+  {level:"reported", phrase:"Cross claims"},
+  {level:"reported", phrase:"someone says"},
+  {level:"reported", phrase:"apparently"},
+  {level:"reported", phrase:"supposedly"},
+  {level:"reported", phrase:"purportedly"},
+  {level:"inferred", phrase:"suggests"},
+  {level:"inferred", phrase:"suggested"},
+  {level:"inferred", phrase:"indicates"},
+  {level:"inferred", phrase:"indicated"},
+  {level:"inferred", phrase:"implies"},
+  {level:"inferred", phrase:"implied"},
+  {level:"inferred", phrase:"consistent with"},
+  {level:"inferred", phrase:"points toward"},
+  {level:"inferred", phrase:"supports the idea"},
+  {level:"inferred", phrase:"expert theory"},
+  {level:"inferred", phrase:"working theory"},
+  {level:"inferred", phrase:"best fit"},
+  {level:"inferred", phrase:"likely explanation"},
+  {level:"inferred", phrase:"probable"},
+  {level:"inferred", phrase:"inferred"},
+  {level:"inferred", phrase:"deduced"},
+  {level:"inferred", phrase:"estimated"},
+  {level:"inferred", phrase:"model predicts"},
+  {level:"inferred", phrase:"analysis suggests"},
+  {level:"inferred", phrase:"pattern suggests"},
+  {level:"inferred", phrase:"may mean"},
+  {level:"inferred", phrase:"could mean"},
+  {level:"inferred", phrase:"appears to be"},
+  {level:"inferred", phrase:"seems to be"},
+  {level:"inferred", phrase:"looks like"},
+  {level:"inferred", phrase:"resembles"},
+  {level:"inferred", phrase:"correlates with"},
+  {level:"speculative", phrase:"might"},
+  {level:"speculative", phrase:"may"},
+  {level:"speculative", phrase:"could"},
+  {level:"speculative", phrase:"possibly"},
+  {level:"speculative", phrase:"perhaps"},
+  {level:"speculative", phrase:"maybe"},
+  {level:"speculative", phrase:"unknown whether"},
+  {level:"speculative", phrase:"unclear whether"},
+  {level:"speculative", phrase:"not established"},
+  {level:"speculative", phrase:"not confirmed"},
+  {level:"speculative", phrase:"not proven"},
+  {level:"speculative", phrase:"unverified"},
+  {level:"speculative", phrase:"hypothesis"},
+  {level:"speculative", phrase:"possibility"},
+  {level:"speculative", phrase:"one explanation"},
+  {level:"speculative", phrase:"future possibility"},
+  {level:"speculative", phrase:"noncanon design space"},
+  {level:"speculative", phrase:"what if"},
+  {level:"speculative", phrase:"could be"},
+  {level:"speculative", phrase:"may or may not"},
+  {level:"speculative", phrase:"cannot rule out"},
+  {level:"speculative", phrase:"open question"},
+  {level:"speculative", phrase:"unresolved"},
+  {level:"speculative", phrase:"suspected"},
+  {level:"speculative", phrase:"speculation"},
+  {level:"observed", phrase:"saw — identity"},
+  {level:"observed", phrase:"saw — motive"},
+  {level:"observed", phrase:"saw — culprit"},
+  {level:"observed", phrase:"saw — location"},
+  {level:"observed", phrase:"saw — knowledge"},
+  {level:"observed", phrase:"saw — relationship"},
+  {level:"observed", phrase:"saw — power"},
+  {level:"observed", phrase:"saw — timeline"},
+  {level:"observed", phrase:"saw — technology"},
+  {level:"observed", phrase:"saw — faction"},
+  {level:"observed", phrase:"saw — ownership"},
+  {level:"observed", phrase:"saw — access"},
+  {level:"observed", phrase:"saw — witness"},
+  {level:"observed", phrase:"saw — cause"},
+  {level:"observed", phrase:"saw — purpose"},
+  {level:"observed", phrase:"saw — status"},
+  {level:"observed", phrase:"saw — age"},
+  {level:"observed", phrase:"saw — death"},
+  {level:"observed", phrase:"saw — injury"},
+  {level:"observed", phrase:"saw — alliance"},
+  {level:"observed", phrase:"saw — parentage"},
+  {level:"observed", phrase:"saw — romance"},
+  {level:"observed", phrase:"saw — membership"},
+  {level:"observed", phrase:"saw — surveillance"},
+  {level:"observed", phrase:"saw — memory"},
+  {level:"observed", phrase:"watched — identity"},
+  {level:"observed", phrase:"watched — motive"},
+  {level:"observed", phrase:"watched — culprit"},
+  {level:"observed", phrase:"watched — location"},
+  {level:"observed", phrase:"watched — knowledge"},
+  {level:"observed", phrase:"watched — relationship"},
+  {level:"observed", phrase:"watched — power"},
+  {level:"observed", phrase:"watched — timeline"},
+  {level:"observed", phrase:"watched — technology"},
+  {level:"observed", phrase:"watched — faction"},
+  {level:"observed", phrase:"watched — ownership"},
+  {level:"observed", phrase:"watched — access"},
+  {level:"observed", phrase:"watched — witness"},
+  {level:"observed", phrase:"watched — cause"},
+  {level:"observed", phrase:"watched — purpose"},
+  {level:"observed", phrase:"watched — status"},
+  {level:"observed", phrase:"watched — age"},
+  {level:"observed", phrase:"watched — death"},
+  {level:"observed", phrase:"watched — injury"},
+  {level:"observed", phrase:"watched — alliance"},
+  {level:"observed", phrase:"watched — parentage"},
+  {level:"observed", phrase:"watched — romance"},
+  {level:"observed", phrase:"watched — membership"},
+  {level:"observed", phrase:"watched — surveillance"},
+  {level:"observed", phrase:"watched — memory"},
+  {level:"observed", phrase:"witnessed — identity"},
+  {level:"observed", phrase:"witnessed — motive"},
+  {level:"observed", phrase:"witnessed — culprit"},
+  {level:"observed", phrase:"witnessed — location"},
+  {level:"observed", phrase:"witnessed — knowledge"},
+  {level:"observed", phrase:"witnessed — relationship"},
+  {level:"observed", phrase:"witnessed — power"},
+  {level:"observed", phrase:"witnessed — timeline"},
+  {level:"observed", phrase:"witnessed — technology"},
+  {level:"observed", phrase:"witnessed — faction"},
+  {level:"observed", phrase:"witnessed — ownership"},
+  {level:"observed", phrase:"witnessed — access"},
+  {level:"observed", phrase:"witnessed — witness"},
+  {level:"observed", phrase:"witnessed — cause"},
+  {level:"observed", phrase:"witnessed — purpose"},
+  {level:"observed", phrase:"witnessed — status"},
+  {level:"observed", phrase:"witnessed — age"},
+  {level:"observed", phrase:"witnessed — death"},
+  {level:"observed", phrase:"witnessed — injury"},
+  {level:"observed", phrase:"witnessed — alliance"},
+  {level:"observed", phrase:"witnessed — parentage"},
+  {level:"observed", phrase:"witnessed — romance"},
+  {level:"observed", phrase:"witnessed — membership"},
+  {level:"observed", phrase:"witnessed — surveillance"},
+  {level:"observed", phrase:"witnessed — memory"},
+  {level:"observed", phrase:"heard directly — identity"},
+  {level:"observed", phrase:"heard directly — motive"},
+  {level:"observed", phrase:"heard directly — culprit"},
+  {level:"observed", phrase:"heard directly — location"},
+  {level:"observed", phrase:"heard directly — knowledge"},
+  {level:"observed", phrase:"heard directly — relationship"},
+  {level:"observed", phrase:"heard directly — power"},
+  {level:"observed", phrase:"heard directly — timeline"},
+  {level:"observed", phrase:"heard directly — technology"},
+  {level:"observed", phrase:"heard directly — faction"},
+  {level:"observed", phrase:"heard directly — ownership"},
+  {level:"observed", phrase:"heard directly — access"},
+  {level:"observed", phrase:"heard directly — witness"},
+  {level:"observed", phrase:"heard directly — cause"},
+  {level:"observed", phrase:"heard directly — purpose"},
+  {level:"observed", phrase:"heard directly — status"},
+  {level:"observed", phrase:"heard directly — age"},
+  {level:"observed", phrase:"heard directly — death"},
+  {level:"observed", phrase:"heard directly — injury"},
+  {level:"observed", phrase:"heard directly — alliance"},
+  {level:"observed", phrase:"heard directly — parentage"},
+  {level:"observed", phrase:"heard directly — romance"},
+  {level:"observed", phrase:"heard directly — membership"},
+  {level:"observed", phrase:"heard directly — surveillance"},
+  {level:"observed", phrase:"heard directly — memory"},
+  {level:"observed", phrase:"read the file — identity"},
+  {level:"observed", phrase:"read the file — motive"},
+  {level:"observed", phrase:"read the file — culprit"},
+  {level:"observed", phrase:"read the file — location"},
+  {level:"observed", phrase:"read the file — knowledge"},
+  {level:"observed", phrase:"read the file — relationship"},
+  {level:"observed", phrase:"read the file — power"},
+  {level:"observed", phrase:"read the file — timeline"},
+  {level:"observed", phrase:"read the file — technology"},
+  {level:"observed", phrase:"read the file — faction"},
+  {level:"observed", phrase:"read the file — ownership"},
+  {level:"observed", phrase:"read the file — access"},
+  {level:"observed", phrase:"read the file — witness"},
+  {level:"observed", phrase:"read the file — cause"},
+  {level:"observed", phrase:"read the file — purpose"},
+  {level:"observed", phrase:"read the file — status"},
+  {level:"observed", phrase:"read the file — age"},
+  {level:"observed", phrase:"read the file — death"},
+  {level:"observed", phrase:"read the file — injury"},
+  {level:"observed", phrase:"read the file — alliance"},
+  {level:"observed", phrase:"read the file — parentage"},
+  {level:"observed", phrase:"read the file — romance"},
+  {level:"observed", phrase:"read the file — membership"},
+  {level:"observed", phrase:"read the file — surveillance"},
+  {level:"observed", phrase:"read the file — memory"},
+  {level:"observed", phrase:"opened the file — identity"},
+  {level:"observed", phrase:"opened the file — motive"},
+  {level:"observed", phrase:"opened the file — culprit"},
+  {level:"observed", phrase:"opened the file — location"},
+  {level:"observed", phrase:"opened the file — knowledge"},
+  {level:"observed", phrase:"opened the file — relationship"},
+  {level:"observed", phrase:"opened the file — power"},
+  {level:"observed", phrase:"opened the file — timeline"},
+  {level:"observed", phrase:"opened the file — technology"},
+  {level:"observed", phrase:"opened the file — faction"},
+  {level:"observed", phrase:"opened the file — ownership"},
+  {level:"observed", phrase:"opened the file — access"},
+  {level:"observed", phrase:"opened the file — witness"},
+  {level:"observed", phrase:"opened the file — cause"},
+  {level:"observed", phrase:"opened the file — purpose"},
+  {level:"observed", phrase:"opened the file — status"},
+  {level:"observed", phrase:"opened the file — age"},
+  {level:"observed", phrase:"opened the file — death"},
+  {level:"observed", phrase:"opened the file — injury"},
+  {level:"observed", phrase:"opened the file — alliance"},
+  {level:"observed", phrase:"opened the file — parentage"},
+  {level:"observed", phrase:"opened the file — romance"},
+  {level:"observed", phrase:"opened the file — membership"},
+  {level:"observed", phrase:"opened the file — surveillance"},
+  {level:"observed", phrase:"opened the file — memory"},
+  {level:"observed", phrase:"recorded on camera — identity"},
+  {level:"observed", phrase:"recorded on camera — motive"},
+  {level:"observed", phrase:"recorded on camera — culprit"},
+  {level:"observed", phrase:"recorded on camera — location"},
+  {level:"observed", phrase:"recorded on camera — knowledge"},
+  {level:"observed", phrase:"recorded on camera — relationship"},
+  {level:"observed", phrase:"recorded on camera — power"},
+  {level:"observed", phrase:"recorded on camera — timeline"},
+  {level:"observed", phrase:"recorded on camera — technology"},
+  {level:"observed", phrase:"recorded on camera — faction"},
+  {level:"observed", phrase:"recorded on camera — ownership"},
+  {level:"observed", phrase:"recorded on camera — access"},
+  {level:"observed", phrase:"recorded on camera — witness"},
+  {level:"observed", phrase:"recorded on camera — cause"},
+  {level:"observed", phrase:"recorded on camera — purpose"},
+  {level:"observed", phrase:"recorded on camera — status"},
+  {level:"observed", phrase:"recorded on camera — age"},
+  {level:"observed", phrase:"recorded on camera — death"},
+  {level:"observed", phrase:"recorded on camera — injury"},
+  {level:"observed", phrase:"recorded on camera — alliance"},
+  {level:"observed", phrase:"recorded on camera — parentage"},
+  {level:"observed", phrase:"recorded on camera — romance"},
+  {level:"observed", phrase:"recorded on camera — membership"},
+  {level:"observed", phrase:"recorded on camera — surveillance"},
+  {level:"observed", phrase:"recorded on camera — memory"},
+  {level:"observed", phrase:"measured — identity"},
+  {level:"observed", phrase:"measured — motive"},
+  {level:"observed", phrase:"measured — culprit"},
+  {level:"observed", phrase:"measured — location"},
+  {level:"observed", phrase:"measured — knowledge"},
+  {level:"observed", phrase:"measured — relationship"},
+  {level:"observed", phrase:"measured — power"},
+  {level:"observed", phrase:"measured — timeline"},
+  {level:"observed", phrase:"measured — technology"},
+  {level:"observed", phrase:"measured — faction"},
+  {level:"observed", phrase:"measured — ownership"},
+  {level:"observed", phrase:"measured — access"},
+  {level:"observed", phrase:"measured — witness"},
+  {level:"observed", phrase:"measured — cause"},
+  {level:"observed", phrase:"measured — purpose"},
+  {level:"observed", phrase:"measured — status"},
+  {level:"observed", phrase:"measured — age"},
+  {level:"observed", phrase:"measured — death"},
+  {level:"observed", phrase:"measured — injury"},
+  {level:"observed", phrase:"measured — alliance"},
+  {level:"observed", phrase:"measured — parentage"},
+  {level:"observed", phrase:"measured — romance"},
+  {level:"observed", phrase:"measured — membership"},
+  {level:"observed", phrase:"measured — surveillance"},
+  {level:"observed", phrase:"measured — memory"},
+  {level:"observed", phrase:"tested — identity"},
+  {level:"observed", phrase:"tested — motive"},
+  {level:"observed", phrase:"tested — culprit"},
+  {level:"observed", phrase:"tested — location"},
+  {level:"observed", phrase:"tested — knowledge"},
+  {level:"observed", phrase:"tested — relationship"},
+  {level:"observed", phrase:"tested — power"},
+  {level:"observed", phrase:"tested — timeline"},
+  {level:"observed", phrase:"tested — technology"},
+  {level:"observed", phrase:"tested — faction"},
+  {level:"observed", phrase:"tested — ownership"},
+  {level:"observed", phrase:"tested — access"},
+  {level:"observed", phrase:"tested — witness"},
+  {level:"observed", phrase:"tested — cause"},
+  {level:"observed", phrase:"tested — purpose"},
+  {level:"observed", phrase:"tested — status"},
+  {level:"observed", phrase:"tested — age"},
+  {level:"observed", phrase:"tested — death"},
+  {level:"observed", phrase:"tested — injury"},
+  {level:"observed", phrase:"tested — alliance"},
+  {level:"observed", phrase:"tested — parentage"},
+  {level:"observed", phrase:"tested — romance"},
+  {level:"observed", phrase:"tested — membership"},
+  {level:"observed", phrase:"tested — surveillance"},
+  {level:"observed", phrase:"tested — memory"},
+  {level:"observed", phrase:"scanned — identity"},
+  {level:"observed", phrase:"scanned — motive"},
+  {level:"observed", phrase:"scanned — culprit"},
+  {level:"observed", phrase:"scanned — location"},
+  {level:"observed", phrase:"scanned — knowledge"},
+  {level:"observed", phrase:"scanned — relationship"},
+  {level:"observed", phrase:"scanned — power"},
+  {level:"observed", phrase:"scanned — timeline"},
+];
+function CECS_provenanceLevel(sentence){
+  var n=CECS_norm(sentence),best="unknown",rank={unknown:0,speculative:1,inferred:2,reported:3,observed:4};
+  // Sentence-shape evidence beats the broad phrase catalog. This catches live
+  // prose such as "telemetry confirmed the spike" without requiring every
+  // grammatical variant to exist in the static signal bank.
+  if(/\b(?:claims?|claimed|says?|said|reports?|reported|alleges?|alleged|according to)\b/.test(n))best="reported";
+  else if(/\b(?:might|may|could|possibly|perhaps|unverified|unconfirmed|unknown|unclear)\b/.test(n))best="speculative";
+  else if(/\b(?:theory|hypothesis|suggests?|suggested|implies?|implied|indicates?|inferred|likely|appears?)\b/.test(n))best="inferred";
+  else if(/\b(?:telemetry|sensor|scan|record|log|test|measurement|camera|medical|forensic|instrument)\b/.test(n)&&/\b(?:confirmed|verified|measured|recorded|logged|observed|detected|showed|shows|found)\b/.test(n))best="observed";
+  CECS_PROVENANCE_SIGNALS.forEach(function(x){var p=CECS_norm(String(x.phrase||"").split(" — ")[0]);if(p&&n.indexOf(p)>=0&&rank[x.level]>rank[best])best=x.level;});
+  return best;
+}
+function CECS_provenanceStats(){var out={observed:0,reported:0,inferred:0,speculative:0};CECS_PROVENANCE_SIGNALS.forEach(function(x){out[x.level]=(out[x.level]||0)+1;});return out;}
+
+function CECS_relevant(rows,names,text,cap){
+  var norm=CECS_norm(text), nset=(names||[]).map(CECS_norm);
+  var scored=(rows||[]).map(function(r){var s=CECS_text(r.text||r),owner=CECS_norm(r.owner||r.card||"");var score=0;if(owner&&nset.indexOf(owner)>=0)score+=8;if(nset.some(function(n){return n&&CECS_norm(s).indexOf(n)>=0;}))score+=5;var words=CECS_norm(s).split(" ").filter(function(w){return w.length>=5;});words.slice(0,8).forEach(function(w){if(norm.indexOf(w)>=0)score++;});if(/\b(?:never|do not|not established|unknown|boundary|only player|not automatically|not canon)\b/i.test(s))score+=3;return{r:r,score:score};});
+  scored.sort(function(a,b){return b.score-a.score;}); return scored.filter(function(x){return x.score>0;}).slice(0,cap||8).map(function(x){return x.r;});
+}
+function CECS_detectPlayerImperative(input){
+  var s=CECS_text(input).trim();
+  var m=s.match(/^>\s*You\s+(?:say,?\s*)?["“]?([\s\S]*?)["”]?\s*$/i); if(m)return CECS_clip(m[1],300);
+  m=s.match(/^>\s*You\s+([\s\S]+)$/i); return m?CECS_clip(m[1],300):"";
+}
+function CECS_detectExplicitRestChoice(input){
+  var s=CECS_norm(input); return /\b(?:sleep|go to sleep|get some sleep|rest|go home|leave|stop|wait|stay|do nothing)\b/.test(s);
+}
+function CECS_detectRelationshipNo(text){ return /\b(?:does not want|doesn't want|declined|refused|not looking for|no romance|not interested|drew a line|said no)\b/i.test(text); }
+function CECS_detectUnsupportedKnowledgeRisk(text,names){
+  var locks=CECS_relevant(CECS_extractKnowledgeLocks(),names,text,8); return locks;
+}
+function CECS_recencyFacts(text){
+  var recent=CECS_recent(text,9500), lines=CECS_lines(recent), facts=[];
+  lines.forEach(function(line){
+    if(/^>\s*You\b/i.test(line))facts.push({kind:"player",text:CECS_clip(line,420)});
+    else if(/\b(?:now knows|explicitly said|explicitly told|shared one brief|declined|refused|not looking for|currently do not know|has not been told|hasn't been told|birthday|turns? \d+)\b/i.test(line))facts.push({kind:"recent",text:CECS_clip(line,420)});
+  });
+  return CECS_unique(facts,function(x){return CECS_norm(x.text);}).slice(-16);
+}
+function CECS_scoreRule(rule,names,text){
+  var s=CECS_text(rule.text||rule),score=0,norm=CECS_norm(s),tn=CECS_norm(text);
+  if(/\b(?:never|do not|only|not established|unknown|not canon|boundary|not automatically)\b/i.test(s))score+=5;
+  if((names||[]).some(function(n){return norm.indexOf(CECS_norm(n))>=0;}))score+=6;
+  CECS_norm(s).split(" ").filter(function(w){return w.length>5;}).slice(0,10).forEach(function(w){if(tn.indexOf(w)>=0)score++;});
+  return score;
+}
+function CECS_compactRules(rows,names,text,cap){
+  var scored=(rows||[]).map(function(r){return{r:r,score:CECS_scoreRule(r,names,text)};});
+  scored.sort(function(a,b){return b.score-a.score;}); var out=[];
+  scored.forEach(function(x){if(x.score<=0||out.length>=cap)return;out.push(CECS_clip(x.r.text||x.r,330));}); return CECS_unique(out);
+}
+
+function CECS_extractLiveLocks(text){
+  var out={hard:[],knowledge:[],relationship:[],uncertainty:[],timeline:[],player:[]};
+  CECS_lines(CECS_recent(text,16000)).forEach(function(line){
+    var low=line.toLowerCase(),words=line.trim().split(/\s+/),headingLike=words.length<=5&&line===line.toUpperCase()&&!/[.!?]/.test(line);
+    // Section headings are routing labels, not canon propositions. Treating
+    // "KNOWLEDGE BOUNDARIES" itself as a relationship/knowledge fact can
+    // displace the actual rule underneath it in tight context budgets.
+    if(headingLike)return;
+    if(CECS_HARD_RULE_WORDS.some(function(w){return low.indexOf(w)>=0;}))out.hard.push(line);
+    if(CECS_matchesAny(line,CECS_KNOWLEDGE_PATTERNS))out.knowledge.push(line);
+    if(CECS_matchesAny(line,CECS_BOUNDARY_PATTERNS))out.relationship.push(line);
+    if(CECS_matchesAny(line,CECS_UNCERTAINTY_PATTERNS))out.uncertainty.push(line);
+    if(CECS_matchesAny(line,CECS_TIME_PATTERNS))out.timeline.push(line);
+    if(CECS_containsAny(line,CECS_PLAYER_AGENCY_TERMS)&&/\b(?:player|you|only|never|belong)\b/i.test(line))out.player.push(line);
+  });
+  Object.keys(out).forEach(function(k){out[k]=CECS_unique(out[k]).slice(-12);});
+  return out;
+}
+function CECS_latestConflictWinner(lines){
+  // Context is ordered oldest -> newest in normal AI Dungeon assembly. Keeping
+  // the last near-duplicate rule prevents an early scenario summary from
+  // overriding a later explicit boundary or knowledge update.
+  var groups={},order=[];
+  (lines||[]).forEach(function(line){
+    var n=CECS_norm(line).replace(/\b(?:not|never|no|unknown|unverified|unconfirmed|now|currently|still|yet)\b/g," ").replace(/\s+/g," ").trim();
+    var key=n.split(" ").filter(function(w){return w.length>3;}).slice(0,9).join(" ");
+    if(!key)key=CECS_norm(line);
+    if(!groups[key])order.push(key);
+    groups[key]=line;
+  });
+  return order.map(function(k){return groups[k];});
+}
+
+function CECS_stateBox(){
+  try{if(typeof state!=="undefined"&&state){if(!state.crossedEchoesCanonSentinel)state.crossedEchoesCanonSentinel={};return state.crossedEchoesCanonSentinel;}}catch(_){}
+  return {};
+}
+function CECS_lastInput(){ var box=CECS_stateBox(); return CECS_text(box.lastInput||CECS_RUNTIME.input||""); }
+
+function CECS_livePlayerAge(text,player){
+  var src=CECS_recent(text,12000).replace(/\[Author['’]s note\s*:[\s\S]*?(?:\]|$)/ig," "), candidates=[],p=player?player.split(/\s+/)[0]:"";
+  var patterns=[
+    /\bofficially\s+(\d{1,3})\b/ig,
+    /\bturn(?:s|ed)?\s+(\d{1,3})\b/ig,
+    /\bhappy\s+(\d{1,3})(?:st|nd|rd|th)?\s+birthday\b/ig,
+    /\b(?:you|i)\s+(?:am|'m|are)\s+(\d{1,3})\b/ig
+  ];
+  patterns.forEach(function(rx){var m;while((m=rx.exec(src))!==null){var n=Number(m[1]);if(n>=1&&n<=120)candidates.push({age:n,pos:m.index});}});
+  if(p){var rx2=new RegExp("\\b"+p.replace(/[.*+?^${}()|[\\]\\\\]/g,"\\\\$&")+"\\b[^\\n]{0,60}\\b(?:age|turns?|is)\\s*[:=]?\\s*(\\d{1,3})\\b","ig"),m2;while((m2=rx2.exec(src))!==null){var n2=Number(m2[1]);if(n2>=1&&n2<=120)candidates.push({age:n2,pos:m2.index});}}
+  candidates.sort(function(a,b){return a.pos-b.pos;}); return candidates.length?candidates[candidates.length-1].age:null;
+}
+function CECS_compactCriticalLive(live,player,liveAge){
+  var pieces=[];
+  function add(label,rows,cap){
+    CECS_latestConflictWinner(rows||[]).slice(-cap).forEach(function(x){
+      var t=CECS_clip(x,190);
+      if(player&&liveAge!=null&&/\b(?:player|you)\b/i.test(t)){
+        t=t.replace(new RegExp("\\b"+liveAge+"\\b","g"),String(liveAge));
+      }
+      pieces.push(label+": "+t);
+    });
+  }
+  add("KNOW",live.knowledge,2); add("REL",live.relationship,2); add("UNCERTAIN",live.uncertainty,1);
+  if(!pieces.length)return "";
+  return "CRITICAL LIVE: "+CECS_clip(pieces.join(" | "),700);
+}
+function CECS_livePlayerRules(livePlayer,player,cardAge,liveAge){
+  return CECS_latestConflictWinner(livePlayer||[]).slice(-2).map(function(x){
+    var t=CECS_text(x);
+    if(player&&liveAge!=null&&cardAge!=null&&liveAge!==cardAge&&new RegExp("\\b"+cardAge+"\\b").test(t)){
+      t=t.replace(new RegExp("\\b"+cardAge+"\\b","g"),String(liveAge))+" [age updated by newer visible story]";
+    }
+    return t;
+  });
+}
+function CECS_filterTimelineForLiveAge(rows,player,cardAge,liveAge){
+  if(liveAge==null||cardAge==null||liveAge===cardAge)return rows||[];
+  return (rows||[]).filter(function(r){
+    var t=CECS_text(r.text||r),owner=CECS_text(r.owner||"");
+    if(player&&owner&&CECS_norm(owner)!==CECS_norm(player))return true;
+    return !new RegExp("\\bage\\s*[:=]?\\s*"+cardAge+"\\b","i").test(t);
+  });
+}
+function CECS_liveContract(baseText){
+  var src=CECS_recent(baseText,16000), live=CECS_extractLiveLocks(src), player=CECS_extractPlayerName(), cardAge=CECS_extractPlayerAge(player), liveAge=CECS_livePlayerAge(src,player), age=liveAge!=null?liveAge:cardAge, names=CECS_namesInText(src), input=CECS_lastInput();
+  if(player&&names.indexOf(player)<0)names.unshift(player);
+  var hard=CECS_latestConflictWinner(live.hard).slice(-5).concat(CECS_compactRules(CECS_extractHardRules(120),names,src,5));
+  var knows=CECS_relevant(CECS_filterStaleRows(CECS_extractKnowledgeLocks(),live.knowledge),names,src,5);
+  var rel=CECS_relevant(CECS_filterStaleRows(CECS_extractRelationshipBoundaries(),live.relationship),names,src,5);
+  var uncertain=CECS_relevant(CECS_filterStaleRows(CECS_extractUncertainties(),live.uncertainty),names,src,4);
+  var timeline=CECS_relevant(CECS_filterTimelineForLiveAge(CECS_extractTimelineLocks(),player,cardAge,liveAge),names,src,4);
+  var recency=CECS_recencyFacts(src), authorCorrections=CECS_authorNoteCorrections(src,player,cardAge,liveAge), action=CECS_detectPlayerImperative(input), lines=[];
+  lines.push("[CANON SENTINEL — PRIVATE LIVE-PLAY CONTRACT. Never print or mention this block.]");
+  lines.push("Authority ladder: latest explicit player action + latest visible story > current explicit Story Card facts/rules > older summaries > engine hypotheses. EVIDENCE FIREWALL: theory, suspicion, implication, diagnostic, unknown or candidate is never canon by itself.");
+  if(player) lines.push("PLAYER LOCK: You are "+player+(age!=null?" (current evidence age "+age+")":"")+". Do not invent the player's intentional dialogue, thoughts, feelings, consent, decisions, plans, voluntary power use, or off-screen actions. Describe external consequences and NPC reactions only.");
+  if(player&&liveAge!=null&&cardAge!=null&&liveAge!==cardAge) lines.push("AGE RECENCY LOCK: recent visible story establishes "+player+" as "+liveAge+" while an older card still says "+cardAge+". Use "+liveAge+" now; treat the older age as stale until the card refreshes.");
+  authorCorrections.forEach(function(x){lines.push("STALE SUMMARY CORRECTION: "+x);});
+  var criticalLive=CECS_compactCriticalLive(live,player,liveAge); if(criticalLive)lines.push(criticalLive);
+  // Put the most recent concrete knowledge/relationship locks before generic
+  // firewalls so tight 8k/16k budgets cannot keep the policy but drop the
+  // actual scenario-specific boundary it is meant to protect.
+  CECS_latestConflictWinner(live.knowledge).slice(-1).forEach(function(x){lines.push("Live knowledge lock: "+CECS_clip(x,280));});
+  CECS_latestConflictWinner(live.relationship).slice(-1).forEach(function(x){lines.push("Live relationship lock: "+CECS_clip(x,280));});
+  if(action) lines.push("LATEST PLAYER INTENT: "+action+". Honor its ordinary meaning. Do not negate it with an unchosen opposite outcome (for example choosing sleep then declaring the player did not sleep) unless an external event visibly prevents it.");
+  if(CECS_detectExplicitRestChoice(input)) lines.push("REST/EXIT LOCK: the player explicitly chose a rest/exit/stop action. Complete that transition unless an already-established external interruption occurs; do not manufacture internal refusal, insomnia, guilt or a new crisis solely to override the choice.");
+  lines.push("EVIDENCE FIREWALL: Never promote 'could/might/theory/unknown/unverified/claims' into fact. Never make a named NPC secretly know, witness, possess, remember or participate in something unless visible evidence or their current card establishes it.");
+  lines.push("RELATIONSHIP FIREWALL: Preserve the newest explicit boundary and current relationship stage. A kiss, attraction, concern, banter or proximity does not erase a later no/decline/boundary. Persistence is not proof of hidden consent. NPCs may change their own position only through new visible development.");
+  lines.push("RECENCY FIREWALL: When older lore conflicts with newer explicit developments, use the newer fact and do not regress the character to an earlier state merely because an old card/summary still exists.");
+  CECS_livePlayerRules(live.player,player,cardAge,liveAge).forEach(function(x){lines.push("Live player rule: "+CECS_clip(x,320));});
+  CECS_latestConflictWinner(live.knowledge).slice(-3).forEach(function(x){lines.push("Live knowledge lock: "+CECS_clip(x,320));});
+  CECS_latestConflictWinner(live.relationship).slice(-3).forEach(function(x){lines.push("Live relationship lock: "+CECS_clip(x,320));});
+  CECS_latestConflictWinner(live.uncertainty).slice(-2).forEach(function(x){lines.push("Live uncertainty lock: "+CECS_clip(x,320));});
+  CECS_latestConflictWinner(live.timeline).slice(-2).forEach(function(x){lines.push("Live timeline lock: "+CECS_clip(x,320));});
+  hard.forEach(function(x){lines.push("Hard canon: "+x);});
+  knows.forEach(function(x){lines.push("Knowledge lock"+(x.owner?" ["+x.owner+"]":"")+": "+CECS_clip(x.text,300));});
+  rel.forEach(function(x){lines.push("Relationship lock"+(x.owner?" ["+x.owner+"]":"")+": "+CECS_clip(x.text,300));});
+  uncertain.forEach(function(x){lines.push("Uncertainty lock"+(x.owner?" ["+x.owner+"]":"")+": "+CECS_clip(x.text,300));});
+  timeline.forEach(function(x){lines.push("Timeline lock"+(x.owner?" ["+x.owner+"]":"")+": "+CECS_clip(x.text,300));});
+  recency.slice(-6).forEach(function(x){lines.push("Recent anchor: "+x.text);});
+  lines.push("SCENE DISCIPLINE: Do not pull an uninvolved NPC into the active plot merely to create drama. Before giving an NPC plot knowledge, ask: what exact visible event or card gave them this information? If none, they do not know it.");
+  lines.push("INFERENCE DISCIPLINE: Plausible is not established. Do not invent camera footage, hacked files, witnesses, texts, surveillance, prior conversations, access rights, expertise, family knowledge, romantic motives, or secret participation to justify a desired beat.");
+  lines.push("CONTINUATION DISCIPLINE: Continue from the latest physical state without recapping. Give NPCs autonomy, but never use NPC autonomy to confiscate the player's agency or force a predetermined relationship/plot choice.");
+  lines.push("[/CANON SENTINEL]");
+  var maxChars=16000; try{if(typeof info!=="undefined"&&info&&Number(info.maxChars)>0)maxChars=Number(info.maxChars);}catch(_){}
+  var cap=maxChars<=9000?1150:(maxChars<=18000?2300:3000),out=[],len=0;
+  lines.forEach(function(line){var add=(out.length?1:0)+line.length;if(len+add<=cap||out.length<6){out.push(line);len+=add;}});
+  return "\n"+out.join("\n")+"\n";
+}
+
+function CECS_fitPacketToBudget(packet,budget){
+  var cap=Math.max(0,Number(budget)||0),src=String(packet||"").trim();
+  if(!src||cap<240)return "";
+  if(src.length+2<=cap)return "\n"+src+"\n";
+  var lines=src.split(/\n+/).map(function(x){return x.trim();}).filter(Boolean);
+  var opening=lines[0]||"[CANON SENTINEL — PRIVATE]",closing=lines[lines.length-1]||"[/CANON SENTINEL]";
+  var priority=[];
+  function take(rx){for(var i=1;i<lines.length-1;i++){if(rx.test(lines[i])&&priority.indexOf(lines[i])<0)priority.push(lines[i]);}}
+  take(/^Authority ladder:/i);take(/^PLAYER LOCK:/i);take(/^AGE RECENCY LOCK:/i);take(/^STALE SUMMARY CORRECTION:/i);take(/^CRITICAL LIVE:/i);take(/^LATEST PLAYER INTENT:/i);take(/^REST\/EXIT LOCK:/i);take(/^Live knowledge lock:/i);take(/^Live relationship lock:/i);take(/^Live uncertainty lock:/i);take(/^EVIDENCE FIREWALL:/i);take(/^RELATIONSHIP FIREWALL:/i);take(/^RECENCY FIREWALL:/i);take(/^Knowledge lock/i);take(/^Relationship lock/i);take(/^Uncertainty lock/i);take(/^Timeline lock/i);
+  var out=[opening],used=opening.length+closing.length+2;
+  for(var j=0;j<priority.length;j++){
+    var line=priority[j],need=line.length+1;
+    if(used+need>cap)continue;
+    out.push(line);used+=need;
+  }
+  if(out.length===1){
+    var minimal="Authority: latest explicit player action and newest explicit canon win; never invent player choices or promote theory/unknown claims into fact.";
+    if(used+minimal.length+1<=cap){out.push(minimal);used+=minimal.length+1;}
+  }
+  out.push(closing);
+  var result="\n"+out.join("\n")+"\n";
+  return result.length<=cap?result:"";
+}
+function CECS_onInput(text){ var v=CECS_clip(text,1200),box=CECS_stateBox(); CECS_RUNTIME.input=v; box.lastInput=v; box.lastInputTurn=CECS_now(); CECS_RUNTIME.turn=CECS_now(); CECS_RUNTIME.packet=""; }
+function CECS_onContext(text){
+  var turn=CECS_now(); if(CECS_RUNTIME.packet&&CECS_RUNTIME.turn===turn)return CECS_RUNTIME.packet;
+  var p=CECS_liveContract(text); CECS_RUNTIME.turn=turn; CECS_RUNTIME.packet=p; return p;
+}
+function CECS_onOutput(text){ var v=CECS_clip(text,1600),box=CECS_stateBox(); CECS_RUNTIME.output=v; box.lastOutput=v; box.lastOutputTurn=CECS_now(); CECS_RUNTIME.packet=""; }
+function CECS_doctor(){
+  var p=CECS_extractPlayerName(),age=CECS_extractPlayerAge(p),rules=CECS_extractHardRules(200),k=CECS_extractKnowledgeLocks(),r=CECS_extractRelationshipBoundaries(),u=CECS_extractUncertainties(),t=CECS_extractTimelineLocks();
+  return ["CANON SENTINEL DOCTOR","Build: "+CECS_VERSION,"Player: "+(p||"unresolved")+(age!=null?" | age="+age:""),"Hard rules indexed: "+rules.length,"Knowledge locks: "+k.length,"Relationship boundaries: "+r.length,"Uncertainty locks: "+u.length,"Timeline locks: "+t.length,"Latest player input: "+(CECS_RUNTIME.input||"none"),"Policy: evidence-first; no private-state invention; newest explicit canon wins."].join("\n");
+}
+
+// Additional reusable anti-drift lexicon. These phrases are deliberately kept
+// explicit rather than collapsed into one broad regex: live models phrase the
+// same continuity error in many subtly different ways, and retaining individual
+// signals makes future tuning inspectable and scenario-agnostic.
+var CECS_DRIFT_SIGNALS = [
+  "you realize you never wanted",
+  "you decide despite yourself",
+  "you cannot bring yourself to",
+  "you find yourself agreeing",
+  "you know in your heart",
+  "you secretly hope",
+  "you feel a surge of",
+  "you are relieved that",
+  "you are terrified that",
+  "you do not sleep",
+  "you stay awake all night",
+  "you change your mind",
+  "you decide to follow",
+  "you agree without thinking",
+  "you cannot resist",
+  "you want nothing more than",
+  "you have always known",
+  "you remember telling",
+  "you had already decided",
+  "you promise yourself",
+  "you cannot help but think",
+  "she must have seen",
+  "he must have known",
+  "they must have heard",
+  "obviously she knew",
+  "obviously he knew",
+  "somehow they know",
+  "she already knows everything",
+  "he already knows everything",
+  "they were watching the whole time",
+  "camera footage proves",
+  "security footage shows",
+  "someone told her",
+  "someone told him",
+  "word had spread",
+  "everyone on campus knows",
+  "the whole family knows",
+  "your mother already knows",
+  "your father already knows",
+  "your friend already knows",
+  "her no was really fear",
+  "his no was really fear",
+  "she did not mean it",
+  "he did not mean it",
+  "playing hard to get",
+  "secretly wants you",
+  "secretly wants him",
+  "secretly wants her",
+  "jealous because she cares",
+  "jealous because he cares",
+  "the kiss proves",
+  "destined to be together",
+  "soulmates",
+  "cannot stay away",
+  "forces you to take her",
+  "forces you to take him",
+  "will not take no for an answer",
+  "the theory was correct",
+  "this proves the theory",
+  "it was definitely",
+  "the only explanation",
+  "must be connected",
+  "must be the same source",
+  "clearly responsible",
+  "obviously responsible",
+  "the culprit is",
+  "the mastermind is",
+  "secretly behind it",
+  "was always behind it",
+  "turns out to be",
+  "revealing that all along",
+  "confirms the suspicion",
+  "proves the rumor",
+  "proves the rumour",
+  "suddenly remembers a file",
+  "suddenly knows the route",
+  "happens to have access",
+  "happens to know a guy",
+  "happens to know the password",
+  "already hacked it",
+  "can bypass anything",
+  "unlimited access",
+  "full administrator access",
+  "knows every camera",
+  "knows every secret tunnel",
+  "can trace any signal",
+  "instantly decrypts",
+  "instantly identifies",
+  "instantly recognizes the technology",
+  "meanwhile without anyone knowing",
+  "off-screen she discovered",
+  "off-screen he discovered",
+  "while you were asleep they",
+  "during the night she",
+  "during the night he",
+  "before you arrived they already",
+  "unknown to you she had",
+  "unknown to you he had",
+  "secretly followed you",
+  "secretly tracked you",
+  "had planted a tracker",
+  "had bugged your room",
+  "had been listening all along",
+];
+
+function CECS_driftSignals(text){
+  var n=CECS_norm(text),hits=[]; CECS_DRIFT_SIGNALS.forEach(function(s){if(n.indexOf(CECS_norm(s))>=0)hits.push(s);}); return hits;
+}
+function CECS_auditOutput(text){
+  var hits=CECS_driftSignals(text), input=CECS_lastInput(), warnings=[];
+  if(CECS_detectExplicitRestChoice(input)&&/\byou\s+(?:do not|don't|cannot|can't)\s+(?:sleep|rest)\b/i.test(text)) warnings.push("player-rest choice contradicted");
+  if(CECS_detectRelationshipNo(text)&&/\b(?:secretly|really)\s+(?:wants|likes|loves)\b/i.test(text)) warnings.push("relationship boundary reinterpreted");
+  if(hits.length) warnings.push("drift phrases: "+hits.slice(0,6).join(", "));
+  try{if(!state.crossedEchoesCanonSentinel)state.crossedEchoesCanonSentinel={};state.crossedEchoesCanonSentinel.lastAudit={turn:CECS_now(),warnings:warnings,signals:hits.slice(0,12)};}catch(_){}
+  return warnings;
+}
+
+
+function CECS_rulebookStats(){ return {critical:0,high:0,medium:0,total:0,note:"extended rulebook shipped as audit documentation to keep runtime lean"}; }
+
+// End CANON SENTINEL.
+
+// ============================================================================
+// CROSSED ECHOES — DEEP SYSTEMS HARDENING KERNEL
+// Relationship contracts + UNSAID epistemic mind + twist evidence independence
+// This layer intentionally augments the existing engines instead of replacing
+// them.  It is loaded last in Library.js so upgrades remain compatible with
+// existing saves and with all four AI Dungeon modifier hooks.
+// ============================================================================
+
+var CEDS_DEEP_VERSION = "2.0.0";
+var CEDS_RUNTIME = {
+  relationshipEvidenceText: "",
+  twistSource: "",
+  lastContextText: "",
+  lastOutputText: "",
+  contractPolicyTurn: -1,
+  contractPolicies: null
+};
+
+var CEDS_RELATIONSHIP_STAGE_ORDER = {
+  unknown: 0,
+  acquaintance: 1,
+  peer: 2,
+  friend: 3,
+  close_friend: 4,
+  potential_romance: 5,
+  dating: 6,
+  exclusive: 7,
+  committed: 8,
+  engaged: 9,
+  married: 10,
+  ex: 11,
+  estranged: 12
+};
+
+var CEDS_ROMANCE_POSITIVE_EVENTS = {
+  flirtation: 1,
+  date_or_courtship: 1,
+  confession: 1,
+  affection_declared: 1,
+  relationship_defined: 1,
+  exclusivity: 1,
+  moving_in: 1,
+  adult_intimacy: 1,
+  casual_intimacy: 1,
+  commitment: 1,
+  proposal: 1,
+  marriage: 1,
+  mutual_reassurance: 1
+};
+
+var CEDS_ROMANCE_STAGE_EVENTS = {
+  flirtation: "potential_romance",
+  date_or_courtship: "dating",
+  confession: "potential_romance",
+  affection_declared: "potential_romance",
+  relationship_defined: "dating",
+  exclusivity: "exclusive",
+  commitment: "committed",
+  proposal: "engaged",
+  marriage: "married",
+  breakup: "ex"
+};
+
+var CEDS_NONROMANTIC_REPAIR_EVENTS = {
+  warmth: 1,
+  banter: 1,
+  support: 1,
+  empathy: 1,
+  honesty: 1,
+  vulnerability: 1,
+  admiration: 1,
+  quality_time: 1,
+  protection: 1,
+  public_defense: 1,
+  apology: 1,
+  gift: 1,
+  kept_promise: 1,
+  trust_test_passed: 1,
+  shared_success: 1,
+  rescue: 1,
+  sacrifice: 1,
+  forgiveness: 1,
+  boundary_discussion: 1,
+  boundary_respected: 1,
+  healthy_space: 1,
+  trust_repair: 1,
+  boundary_repair: 1,
+  abandonment_repair: 1,
+  cooperation: 1,
+  dependability: 1,
+  competence_proven: 1,
+  solidarity: 1,
+  shared_duty: 1,
+  mentorship: 1,
+  guidance: 1,
+  mercy: 1,
+  resource_shared: 1,
+  cover_protected: 1,
+  confidentiality_kept: 1,
+  network_trust: 1,
+  care_under_pressure: 1,
+  grief_support: 1
+};
+
+var CEDS_RUPTURE_EVENTS = {
+  betrayal: 1,
+  infidelity: 1,
+  deception: 1,
+  broken_promise: 1,
+  abandonment: 1,
+  boundary_violated: 1,
+  coercive_pressure: 1,
+  manipulation: 1,
+  snooping: 1,
+  blackmail: 1,
+  confidentiality_breached: 1,
+  network_breach: 1,
+  humiliation: 1,
+  threat: 1
+};
+
+var CEDS_MIND_LIST_LIMITS = {
+  beliefs: 10,
+  goals: 8,
+  plans: 8,
+  fears: 8,
+  values: 6,
+  masks: 6,
+  commitments: 6,
+  revisions: 8,
+  pressures: 10
+};
+
+function CEDS_now() {
+  try {
+    if (typeof info !== "undefined" && info && Number.isFinite(Number(info.actionCount))) return Number(info.actionCount);
+  } catch (_) {}
+  try {
+    if (typeof state !== "undefined" && state && state.unsaid && Number.isFinite(Number(state.unsaid.turn))) return Number(state.unsaid.turn);
+  } catch (_) {}
+  return 0;
+}
+
+function CEDS_norm(value) {
+  return String(value || "")
+    .normalize("NFKC")
+    .toLowerCase()
+    .replace(/[‘’‛]/g, "'")
+    .replace(/[‐‑‒–—―]/g, "-")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function CEDS_clip(value, maxLen) {
+  var text = String(value || "").replace(/\s+/g, " ").trim();
+  var cap = Math.max(16, Number(maxLen) || 180);
+  if (text.length <= cap) return text;
+  return text.slice(0, cap - 1).replace(/\s+$/g, "") + "…";
+}
+
+function CEDS_tokens(value) {
+  var stop = {
+    the:1,a:1,an:1,and:1,or:1,to:1,of:1,in:1,on:1,at:1,for:1,with:1,from:1,is:1,was:1,were:1,are:1,be:1,been:1,
+    this:1,that:1,these:1,those:1,he:1,she:1,they:1,them:1,his:1,her:1,their:1,you:1,your:1,i:1,my:1,we:1,our:1,
+    it:1,its:1,as:1,if:1,but:1,so:1,do:1,does:1,did:1,have:1,has:1,had:1,can:1,could:1,would:1,should:1,just:1
+  };
+  var words = CEDS_norm(value).match(/[a-z0-9à-öø-ÿā-ſα-ωά-ώа-яё'’-]{3,}/gi) || [];
+  var out = [], seen = {};
+  words.forEach(function (word) {
+    var k = CEDS_norm(word).replace(/^['’-]+|['’-]+$/g, "");
+    if (!k || stop[k] || seen[k]) return;
+    seen[k] = true;
+    out.push(k);
+  });
+  return out;
+}
+
+function CEDS_similarity(a, b) {
+  var aa = CEDS_tokens(a), bb = CEDS_tokens(b);
+  if (!aa.length || !bb.length) return 0;
+  var sa = {}, sb = {}, all = {}, hit = 0, union = 0;
+  aa.forEach(function (x) { sa[x] = 1; all[x] = 1; });
+  bb.forEach(function (x) { sb[x] = 1; all[x] = 1; });
+  Object.keys(all).forEach(function (x) { union++; if (sa[x] && sb[x]) hit++; });
+  return union ? hit / union : 0;
+}
+
+function CEDS_hash(value) {
+  var text = String(value || ""), hash = 2166136261;
+  for (var i = 0; i < text.length; i++) {
+    hash ^= text.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0).toString(36);
+}
+
+function CEDS_pairKey(from, to) {
+  var a = typeof CW_key === "function" ? CW_key(from) : CEDS_norm(from);
+  var b = typeof CW_key === "function" ? CW_key(to) : CEDS_norm(to);
+  if (b === "you") b = "you";
+  return a + "=>" + b;
+}
+
+function CEDS_stateBox() {
+  if (typeof state === "undefined" || !state) return null;
+  if (!state.crossedEchoesDeepSystems || typeof state.crossedEchoesDeepSystems !== "object") {
+    state.crossedEchoesDeepSystems = {};
+  }
+  var box = state.crossedEchoesDeepSystems;
+  if (!box.relationship || typeof box.relationship !== "object") box.relationship = {};
+  if (!box.relationship.contracts || typeof box.relationship.contracts !== "object") box.relationship.contracts = {};
+  if (!Array.isArray(box.relationship.history)) box.relationship.history = [];
+  if (!Number.isFinite(Number(box.relationship.lastLedgerLength))) box.relationship.lastLedgerLength = 0;
+  if (typeof box.relationship.lastLedgerSignature !== "string") box.relationship.lastLedgerSignature = "";
+  if (!box.mind || typeof box.mind !== "object") box.mind = {};
+  if (!box.mind.stats || typeof box.mind.stats !== "object") box.mind.stats = { thoughtsStructured:0, unsupportedKnowledgeClaims:0, revisions:0 };
+  if (!box.twist || typeof box.twist !== "object") box.twist = {};
+  if (!box.twist.threadMeta || typeof box.twist.threadMeta !== "object") box.twist.threadMeta = {};
+  if (!Array.isArray(box.twist.history)) box.twist.history = [];
+  if (!box.diagnostics || typeof box.diagnostics !== "object") box.diagnostics = {};
+  box.version = CEDS_DEEP_VERSION;
+  return box;
+}
+
+function CEDS_pushBounded(array, item, cap) {
+  if (!Array.isArray(array)) return;
+  array.push(item);
+  var max = Math.max(1, Number(cap) || 8);
+  if (array.length > max) array.splice(0, array.length - max);
+}
+
+function CEDS_contractDefault(from, to) {
+  return {
+    from: from,
+    to: to,
+    stage: "unknown",
+    stageTurn: -1,
+    stageEvidence: "",
+    priorStage: "",
+    romanticEvidenceTurns: [],
+    boundaryActive: false,
+    boundaryReason: "",
+    boundaryTurn: -9999,
+    boundaryEvidence: "",
+    boundaryRespectTurns: [],
+    slowReversal: false,
+    reversalEligibleAt: -9999,
+    explicitReversalTurn: -9999,
+    rejectionCount: 0,
+    ruptures: [],
+    repairs: [],
+    lastEventTurn: -1,
+    lastEventKind: "",
+    lastUpdatedTurn: -1
+  };
+}
+
+function CEDS_contractFor(from, to) {
+  var box = CEDS_stateBox();
+  if (!box) return CEDS_contractDefault(from, to);
+  var key = CEDS_pairKey(from, to);
+  var c = box.relationship.contracts[key];
+  if (!c || typeof c !== "object") {
+    c = CEDS_contractDefault(from, to);
+    box.relationship.contracts[key] = c;
+  }
+  if (!c.from) c.from = from;
+  if (!c.to) c.to = to;
+  if (!Array.isArray(c.romanticEvidenceTurns)) c.romanticEvidenceTurns = [];
+  if (!Array.isArray(c.boundaryRespectTurns)) c.boundaryRespectTurns = [];
+  if (!Array.isArray(c.ruptures)) c.ruptures = [];
+  if (!Array.isArray(c.repairs)) c.repairs = [];
+  return c;
+}
+
+function CEDS_stageRank(stage) {
+  return Object.prototype.hasOwnProperty.call(CEDS_RELATIONSHIP_STAGE_ORDER, stage) ? CEDS_RELATIONSHIP_STAGE_ORDER[stage] : 0;
+}
+
+function CEDS_roleStage(from, to) {
+  try {
+    var role = CW_getRole(from, to);
+    if (role === "romantic") return "dating";
+    if (role === "ex") return "ex";
+    if (role === "friend") return "friend";
+    if (role === "family" || role === "parent" || role === "child" || role === "sibling" || role === "relative") return "close_friend";
+    if (role && role !== "unknown") return "peer";
+  } catch (_) {}
+  return "unknown";
+}
+
+function CEDS_setStage(contract, stage, turn, evidence, force) {
+  if (!contract || !stage) return false;
+  var current = String(contract.stage || "unknown");
+  var next = String(stage || "unknown");
+  if (!force && next !== "ex" && next !== "estranged" && CEDS_stageRank(next) < CEDS_stageRank(current)) return false;
+  if (current === next) {
+    contract.stageTurn = Math.max(Number(contract.stageTurn) || -1, Number(turn) || 0);
+    if (evidence) contract.stageEvidence = CEDS_clip(evidence, 180);
+    return false;
+  }
+  contract.priorStage = current;
+  contract.stage = next;
+  contract.stageTurn = Number(turn) || 0;
+  contract.stageEvidence = CEDS_clip(evidence, 180);
+  return true;
+}
+
+function CEDS_uniqueTurnPush(array, turn, cap) {
+  if (!Array.isArray(array)) return;
+  var t = Number(turn) || 0;
+  if (array.indexOf(t) < 0) array.push(t);
+  var max = Math.max(1, Number(cap) || 12);
+  if (array.length > max) array.splice(0, array.length - max);
+}
+
+function CEDS_policyNpcNames() {
+  var out = [];
+  try {
+    var npcs = state && state.crossedWires && state.crossedWires.npcs ? state.crossedWires.npcs : {};
+    Object.keys(npcs).forEach(function (key) {
+      var name = npcs[key] && npcs[key].name ? String(npcs[key].name) : "";
+      if (name && out.indexOf(name) < 0) out.push(name);
+    });
+  } catch (_) {}
+  return out;
+}
+
+function CEDS_policyOwnerFromLine(line) {
+  var src = CEDS_norm(line || ""), names = CEDS_policyNpcNames(), best = "", bestLen = 0;
+  names.forEach(function (name) {
+    var full = CEDS_norm(name), first = CEDS_norm(String(name).split(/\s+/)[0]);
+    if (full && src.indexOf(full) >= 0 && full.length > bestLen) { best = name; bestLen = full.length; return; }
+    if (first && first.length >= 3 && new RegExp("(?:^|[^a-z0-9])" + first.replace(/[.*+?^${}()|[\]\\]/g,"\\$&") + "(?:$|[^a-z0-9])", "i").test(src) && first.length > bestLen) {
+      best = name; bestLen = first.length;
+    }
+  });
+  return best;
+}
+
+function CEDS_policyRecord(owner, text, source) {
+  return { owner:String(owner || ""), text:String(text || "").trim(), source:String(source || "") };
+}
+
+function CEDS_liveRelationshipPolicies() {
+  var turn = CEDS_now();
+  if (CEDS_RUNTIME.contractPolicies && CEDS_RUNTIME.contractPolicyTurn === turn) return CEDS_RUNTIME.contractPolicies;
+  var rows = [];
+  try {
+    if (typeof CECS_extractRelationshipBoundaries === "function") {
+      (CECS_extractRelationshipBoundaries() || []).forEach(function (x) {
+        if (!x) return;
+        if (typeof x === "object") rows.push(CEDS_policyRecord(x.owner || x.card || "", x.text || "", "storycard-index"));
+        else rows.push(CEDS_policyRecord(CEDS_policyOwnerFromLine(x), x, "storycard-index"));
+      });
+    }
+  } catch (_) {}
+
+  // Current AI Instructions / Plot Essentials / recent context often contain
+  // newer relationship rules than the Character card. Preserve those too.
+  // Generic continuation lines such as "Respect that boundary" inherit only
+  // the most recently named NPC inside this relationship-policy stream.
+  try {
+    if (CEDS_RUNTIME.lastContextText && typeof CECS_extractLiveLocks === "function") {
+      var live = CECS_extractLiveLocks(CEDS_RUNTIME.lastContextText);
+      var lastOwner = "";
+      (live && live.relationship ? live.relationship : []).forEach(function (line) {
+        var owner = CEDS_policyOwnerFromLine(line);
+        if (owner) lastOwner = owner;
+        else if (/\b(?:respect (?:that|the) boundary|do not treat persistence|change (?:his|her|their) mind|friendship|no romance|romantic)\b/i.test(String(line || ""))) owner = lastOwner;
+        rows.push(CEDS_policyRecord(owner, line, "live-context"));
+      });
+    }
+  } catch (_) {}
+
+  var seen = {}, compact = [];
+  rows.forEach(function (row) {
+    if (!row || !row.text) return;
+    var key = CEDS_norm(row.owner + "|" + row.text);
+    if (!key || seen[key]) return;
+    seen[key] = 1;
+    compact.push(row);
+  });
+  CEDS_RUNTIME.contractPolicies = compact.slice(-100);
+  CEDS_RUNTIME.contractPolicyTurn = turn;
+  return CEDS_RUNTIME.contractPolicies;
+}
+
+function CEDS_applyPolicyToContract(contract) {
+  if (!contract) return;
+  var fromFull = CEDS_norm(contract.from || ""), toFull = CEDS_norm(contract.to || "");
+  var fromName = CEDS_norm(String(contract.from || "").split(/\s+/)[0]);
+  var toName = CEDS_norm(String(contract.to || "").split(/\s+/)[0]);
+  CEDS_liveRelationshipPolicies().forEach(function (row) {
+    if (!row) return;
+    var line = typeof row === "object" ? String(row.text || "") : String(row || "");
+    var owner = typeof row === "object" ? CEDS_norm(row.owner || "") : "";
+    var n = CEDS_norm(line);
+    if (!n) return;
+
+    var ownerMatches = !!owner && (owner === fromFull || owner === toFull ||
+      (fromFull && (owner.indexOf(fromFull) >= 0 || fromFull.indexOf(owner) >= 0)) ||
+      (toFull !== "you" && toFull && (owner.indexOf(toFull) >= 0 || toFull.indexOf(owner) >= 0)));
+    var lineMatchesFrom = !!fromName && new RegExp("(?:^|[^a-z0-9])" + fromName.replace(/[.*+?^${}()|[\]\\]/g,"\\$&") + "(?:$|[^a-z0-9])", "i").test(n);
+    var lineMatchesTo = toName !== "you" && !!toName && new RegExp("(?:^|[^a-z0-9])" + toName.replace(/[.*+?^${}()|[\]\\]/g,"\\$&") + "(?:$|[^a-z0-9])", "i").test(n);
+
+    // Never let a boundary with no ownership evidence become a global rule for
+    // every NPC→YOU relationship. Owner-tagged Story Card rules are preferred;
+    // live-context generic follow-ups are assigned an owner during extraction.
+    if (!ownerMatches && !lineMatchesFrom && !lineMatchesTo) return;
+
+    if (/substantial future (?:character )?development|only through substantial|must grow through|slow[- ]burn|do not treat persistence/i.test(line)) contract.slowReversal = true;
+    if (/does not want|doesn't want|declined|refused|not looking for|no romance|not interested|drew a line|said no|respect (?:that |the )?boundary/i.test(line)) {
+      contract.boundaryActive = true;
+      if (!contract.boundaryReason) contract.boundaryReason = "explicit live canon boundary";
+    }
+  });
+}
+
+function CEDS_ingestRelationshipEvent(event) {
+  if (!event || !event.from || !event.to) return;
+  var turn = Number(event.turn) || 0;
+  var kind = String(event.kind || "").toLowerCase();
+  var contract = CEDS_contractFor(event.from, event.to);
+  CEDS_applyPolicyToContract(contract);
+  contract.lastEventTurn = turn;
+  contract.lastEventKind = kind;
+  contract.lastUpdatedTurn = turn;
+
+  var baseStage = CEDS_roleStage(event.from, event.to);
+  if (contract.stage === "unknown" && baseStage !== "unknown") CEDS_setStage(contract, baseStage, turn, "role/foundation", true);
+
+  if (kind === "rejection") {
+    contract.boundaryActive = true;
+    contract.boundaryReason = "explicit rejection";
+    contract.boundaryTurn = turn;
+    contract.boundaryEvidence = CEDS_clip(event.note || "rejection", 180);
+    contract.rejectionCount = Math.min(50, Number(contract.rejectionCount || 0) + 1);
+    contract.reversalEligibleAt = turn + (contract.slowReversal ? 5 : 2);
+  }
+  if (kind === "boundary_discussion" || kind === "healthy_space") {
+    if (contract.boundaryTurn < 0) contract.boundaryTurn = turn;
+    if (!contract.boundaryReason) contract.boundaryReason = "stated boundary";
+    if (kind === "healthy_space") CEDS_uniqueTurnPush(contract.boundaryRespectTurns, turn, 12);
+  }
+  if (kind === "boundary_respected") {
+    CEDS_uniqueTurnPush(contract.boundaryRespectTurns, turn, 12);
+  }
+  if (kind === "boundary_violated" || kind === "coercive_pressure" || kind === "manipulation") {
+    contract.boundaryActive = true;
+    if (contract.boundaryTurn < 0) contract.boundaryTurn = turn;
+    contract.boundaryReason = "boundary safety requires repair";
+  }
+
+  if (CEDS_RUPTURE_EVENTS[kind]) {
+    CEDS_pushBounded(contract.ruptures, { turn:turn, kind:kind, note:CEDS_clip(event.note, 130) }, 10);
+  }
+  if (kind === "trust_repair" || kind === "boundary_repair" || kind === "abandonment_repair" || kind === "reconciliation" || kind === "forgiveness") {
+    CEDS_pushBounded(contract.repairs, { turn:turn, kind:kind, note:CEDS_clip(event.note, 130) }, 10);
+  }
+
+  if (CEDS_ROMANCE_POSITIVE_EVENTS[kind]) {
+    CEDS_uniqueTurnPush(contract.romanticEvidenceTurns, turn, 16);
+  }
+  if (CEDS_ROMANCE_STAGE_EVENTS[kind]) {
+    var stage = CEDS_ROMANCE_STAGE_EVENTS[kind];
+    if (kind === "breakup") CEDS_setStage(contract, stage, turn, event.note, true);
+    else CEDS_setStage(contract, stage, turn, event.note, false);
+  }
+
+  if (kind === "reconciliation" && contract.stage === "ex") {
+    // Reconciliation repairs the relationship but does not silently restore a
+    // romantic label. A later explicit relationship-defined event can do that.
+    contract.stageEvidence = CEDS_clip(event.note || "reconciliation", 180);
+  }
+}
+
+function CEDS_relationshipLedgerSignature(ledger) {
+  var list = Array.isArray(ledger) ? ledger : [];
+  var tail = list.slice(-18).map(function (e) {
+    return [e && e.turn, e && e.from, e && e.to, e && e.kind, e && e.severity, e && e.note].join("|");
+  }).join("\n");
+  return list.length + ":" + CEDS_hash(tail);
+}
+
+function CEDS_rebuildRelationshipContracts() {
+  var box = CEDS_stateBox();
+  if (!box) return;
+  box.relationship.contracts = {};
+  var cw = state && state.crossedWires;
+  if (!cw) return;
+  try {
+    Object.keys(cw.roles || {}).forEach(function (key) {
+      var bits = String(key).split("->");
+      if (bits.length !== 2) return;
+      var fromKey = bits[0], toKey = bits[1];
+      var fromName = cw.npcs && cw.npcs[fromKey] && cw.npcs[fromKey].name ? cw.npcs[fromKey].name : fromKey;
+      var toName = toKey === "you" ? "YOU" : (cw.npcs && cw.npcs[toKey] && cw.npcs[toKey].name ? cw.npcs[toKey].name : toKey);
+      var contract = CEDS_contractFor(fromName, toName);
+      var stage = CEDS_roleStage(fromName, toName);
+      if (stage !== "unknown") CEDS_setStage(contract, stage, 0, "role/foundation", true);
+    });
+  } catch (_) {}
+  (cw.archivedAnchors || []).concat(cw.ledger || []).forEach(CEDS_ingestRelationshipEvent);
+  box.relationship.lastLedgerLength = Array.isArray(cw.ledger) ? cw.ledger.length : 0;
+  box.relationship.lastLedgerSignature = CEDS_relationshipLedgerSignature(cw.ledger || []);
+}
+
+function CEDS_syncRelationshipContracts() {
+  var box = CEDS_stateBox();
+  if (!box || !state || !state.crossedWires) return;
+  var ledger = Array.isArray(state.crossedWires.ledger) ? state.crossedWires.ledger : [];
+  var signature = CEDS_relationshipLedgerSignature(ledger);
+  if (box.relationship.lastLedgerSignature !== signature) {
+    CEDS_rebuildRelationshipContracts();
+  }
+}
+
+function CEDS_positiveRepairTurnsAfter(contract, from, to, afterTurn) {
+  var turns = {};
+  try {
+    var events = CW_eventsForPair(from, to, CEDS_now());
+    events.forEach(function (e) {
+      if (!e || Number(e.turn) <= Number(afterTurn)) return;
+      if (!CEDS_NONROMANTIC_REPAIR_EVENTS[e.kind]) return;
+      if (e.kind === "boundary_discussion" && Number(e.severity || 1) < 2) return;
+      turns[Number(e.turn) || 0] = 1;
+    });
+  } catch (_) {}
+  return Object.keys(turns).map(Number).sort(function (a,b) { return a-b; });
+}
+
+function CEDS_explicitRomanceReversal(text, from, to) {
+  var src = String(text || "");
+  var first = String(from || "").split(/\s+/)[0].replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  var direct = /\b(?:i\s+(?:changed|have changed)\s+my\s+mind|i\s+(?:do\s+)?want\s+(?:this|us|to\s+try|to\s+date\s+you|to\s+be\s+with\s+you)|i\s+(?:am|'m|’m)\s+ready\s+to\s+(?:try|date)|will\s+you\s+(?:go\s+out|date)\s+with\s+me)\b/i.test(src);
+  var named = first ? new RegExp("\\b" + first + "\\b[^.!?]{0,120}\\b(?:changes? (?:her|his|their) mind|asks? (?:you|them|him|her) out|says? (?:she|he|they) wants? to (?:try|date|be with)|explicitly chooses? to date)\\b", "i").test(src) : false;
+  var initiated = first ? new RegExp("\\b" + first + "\\b[^.!?]{0,90}\\b(?:initiates?|starts?)\\b[^.!?]{0,45}\\b(?:kiss|date|relationship)\\b", "i").test(src) : false;
+  return direct || named || initiated;
+}
+
+function CEDS_relationshipEventAllowed(from, to, kind, note, turn) {
+  CEDS_syncRelationshipContracts();
+  var contract = CEDS_contractFor(from, to);
+  CEDS_applyPolicyToContract(contract);
+  var eventKind = String(kind || "").toLowerCase();
+  if (!CEDS_ROMANCE_POSITIVE_EVENTS[eventKind]) return { allowed:true, severity:null, reason:"" };
+
+  // Romance is never inferred from family or explicit professional roles.
+  try {
+    var roleA = CW_getRole(from, to), roleB = String(to).toLowerCase() === "you" ? "unknown" : CW_getRole(to, from);
+    if (CW_isFamilyRole(roleA) || CW_isFamilyRole(roleB)) return { allowed:false, reason:"family-role firewall" };
+  } catch (_) {}
+
+  if (!contract.boundaryActive) return { allowed:true, severity:null, reason:"" };
+
+  var evidence = [CEDS_RUNTIME.relationshipEvidenceText, note].filter(Boolean).join("\n");
+  var explicitReversal = CEDS_explicitRomanceReversal(evidence, from, to);
+  var repairTurns = CEDS_positiveRepairTurnsAfter(contract, from, to, contract.boundaryTurn);
+  var elapsed = Math.max(0, Number(turn) - Number(contract.boundaryTurn));
+  var requiredTurns = contract.slowReversal ? 5 : 2;
+  var requiredRepairBeats = contract.slowReversal ? 2 : 1;
+  var enoughDevelopment = elapsed >= requiredTurns && repairTurns.length >= requiredRepairBeats;
+
+  if (!explicitReversal || !enoughDevelopment) {
+    return {
+      allowed:false,
+      reason:"active romantic boundary: needs explicit independent reversal after visible development"
+    };
+  }
+
+  contract.explicitReversalTurn = Number(turn) || 0;
+  contract.boundaryActive = false;
+  contract.boundaryReason = "explicitly revised after visible development";
+  contract.boundaryEvidence = CEDS_clip(evidence, 180);
+  return { allowed:true, severity:null, reason:"explicit reversal after development" };
+}
+
+function CEDS_relationshipDirective(from, to, turn) {
+  CEDS_syncRelationshipContracts();
+  var contract = CEDS_contractFor(from, to);
+  CEDS_applyPolicyToContract(contract);
+  var bits = [];
+  if (contract.stage && contract.stage !== "unknown") bits.push("stage=" + contract.stage.replace(/_/g, " "));
+  if (contract.boundaryActive) {
+    var age = Math.max(0, Number(turn) - Number(contract.boundaryTurn));
+    bits.push("BOUNDARY ACTIVE" + (age >= 0 ? " since " + age + " turn" + (age === 1 ? "" : "s") + " ago" : ""));
+    bits.push("do not reinterpret rejection as hidden attraction");
+    if (contract.slowReversal) bits.push("change requires substantial future visible development + explicit NPC choice");
+    else bits.push("change requires explicit new NPC choice after visible development");
+  }
+  if (contract.ruptures && contract.ruptures.length) {
+    var latestRupture = contract.ruptures[contract.ruptures.length - 1];
+    var latestRepair = contract.repairs && contract.repairs.length ? contract.repairs[contract.repairs.length - 1] : null;
+    if (!latestRepair || Number(latestRepair.turn) <= Number(latestRupture.turn)) bits.push("unresolved rupture=" + latestRupture.kind.replace(/_/g, " "));
+  }
+  if (!bits.length) return "";
+  return " Deep relationship contract: " + bits.join("; ") + ". Scores never override explicit stage, consent, family role or boundary canon.";
+}
+
+function CEDS_relationshipDiagnostics() {
+  CEDS_syncRelationshipContracts();
+  var box = CEDS_stateBox();
+  var contracts = box && box.relationship && box.relationship.contracts ? box.relationship.contracts : {};
+  var values = Object.keys(contracts).map(function (k) { return contracts[k]; });
+  return {
+    contracts: values.length,
+    activeBoundaries: values.filter(function (c) { return c && c.boundaryActive; }).length,
+    romanticStages: values.filter(function (c) { return c && CEDS_stageRank(c.stage) >= CEDS_stageRank("potential_romance") && c.stage !== "ex"; }).length,
+    unresolvedRuptures: values.filter(function (c) {
+      if (!c || !c.ruptures || !c.ruptures.length) return false;
+      var r = c.ruptures[c.ruptures.length - 1], p = c.repairs && c.repairs.length ? c.repairs[c.repairs.length - 1] : null;
+      return !p || Number(p.turn) <= Number(r.turn);
+    }).length
+  };
+}
+
+// ---------------------------------------------------------------------------
+// UNSAID DEEP MIND — epistemic state, goals, plans, fears and self-revision
+// ---------------------------------------------------------------------------
+
+function CEDS_mindDeep(mind) {
+  if (!mind || typeof mind !== "object") return null;
+  if (!mind.deepMind || typeof mind.deepMind !== "object") mind.deepMind = {};
+  var d = mind.deepMind;
+  ["beliefs","goals","plans","fears","values","masks","commitments","revisions","beliefRevisions","pressures"].forEach(function (key) {
+    if (!Array.isArray(d[key])) d[key] = [];
+  });
+  if (!Number.isFinite(Number(d.lastStructuredTurn))) d.lastStructuredTurn = -1;
+  if (typeof d.lastThoughtSignature !== "string") d.lastThoughtSignature = "";
+  if (!Number.isFinite(Number(d.unsupportedKnowledgeClaims))) d.unsupportedKnowledgeClaims = 0;
+  return d;
+}
+
+function CEDS_mindItemKey(item) {
+  if (!item) return "";
+  return String(item.type || "") + "|" + CEDS_hash(item.text || "") + "|" + CEDS_norm(item.about || "");
+}
+
+function CEDS_mindRemember(list, item, limit) {
+  if (!Array.isArray(list) || !item || !item.text) return false;
+  var key = CEDS_mindItemKey(item);
+  var duplicateIndex = -1;
+  for (var i = 0; i < list.length; i++) {
+    if (CEDS_mindItemKey(list[i]) === key || CEDS_similarity(list[i] && list[i].text, item.text) >= 0.84) {
+      duplicateIndex = i;
+      break;
+    }
+  }
+  if (duplicateIndex >= 0) {
+    var prior = list[duplicateIndex];
+    prior.turn = Math.max(Number(prior.turn) || 0, Number(item.turn) || 0);
+    prior.confidence = Math.max(Number(prior.confidence) || 0, Number(item.confidence) || 0);
+    if (item.about) prior.about = item.about;
+    list.splice(duplicateIndex, 1);
+    list.push(prior);
+    return false;
+  }
+  list.push(item);
+  var cap = Math.max(1, Number(limit) || 8);
+  if (list.length > cap) list.splice(0, list.length - cap);
+  return true;
+}
+
+function CEDS_privateClaimSupport(text) {
+  var claim = String(text || "");
+  var result = { supported:false, uncertainty:false, level:"private-belief" };
+  if (!claim) return result;
+  if (/\b(?:might|may|could|maybe|perhaps|possibly|suspect|think|wonder|guess|fear|worry|seems?|appears?)\b/i.test(claim)) {
+    result.uncertainty = true;
+    result.level = "suspicion";
+    return result;
+  }
+  try {
+    if (typeof CECS_provenanceLevel === "function") {
+      var level = CECS_provenanceLevel(claim);
+      if (level === "observed") { result.supported = true; result.level = "observed"; }
+      else if (level === "reported") result.level = "reported-belief";
+      else if (level === "inferred" || level === "speculative") result.uncertainty = true;
+    }
+  } catch (_) {}
+  return result;
+}
+
+function CEDS_beliefRevisionCue(sentence) {
+  return /\b(?:i\s+(?:was|am)\s+wrong|i\s+don't\s+think\s+that\s+anymore|i\s+do\s+not\s+think\s+that\s+anymore|i\s+no\s+longer\s+(?:think|believe|suspect)|that\s+(?:can't|cannot)\s+be\s+right|my\s+(?:theory|assumption|suspicion)\s+was\s+wrong|i\s+misread\s+(?:it|him|her|them)|i\s+got\s+(?:it|that)\s+wrong)\b/i.test(String(sentence || ""));
+}
+
+function CEDS_retireMindBeliefs(deep, sentence, about, turn) {
+  if (!deep || !Array.isArray(deep.beliefs) || !CEDS_beliefRevisionCue(sentence)) return 0;
+  var target = CEDS_norm(about || "");
+  var changed = 0;
+  for (var i = deep.beliefs.length - 1; i >= 0; i--) {
+    var belief = deep.beliefs[i];
+    if (!belief || belief.active === false) continue;
+    var sameTarget = !target || !belief.about || CEDS_norm(belief.about) === target;
+    if (!sameTarget) continue;
+    belief.active = false;
+    belief.revisedTurn = Number(turn) || 0;
+    belief.revisionReason = CEDS_clip(sentence, 150);
+    changed++;
+  }
+  if (changed) {
+    CEDS_pushBounded(deep.beliefRevisions, {
+      type:"belief-revision",
+      text:CEDS_clip(sentence, 180),
+      about:about || "",
+      turn:Number(turn) || 0,
+      retired:changed
+    }, 8);
+  }
+  return changed;
+}
+
+function CEDS_markPrivateBeliefRecord(item, epistemic) {
+  // A hidden thought is never independent proof of the world. Even wording
+  // like "I know" or "I remember seeing the file" can itself be a model
+  // invention. Public story/card evidence must establish the fact elsewhere.
+  item.worldFact = false;
+  item.source = "private-thought";
+  item.active = true;
+  item.epistemicLevel = epistemic && epistemic.supported ? "claimed-observation" :
+    (epistemic && epistemic.uncertainty ? "uncertain" : "private-belief");
+  return item;
+}
+
+function CEDS_extractMindSentences(text) {
+  var flat = String(text || "").replace(/\r/g, " ").replace(/\n+/g, " ").replace(/\s+/g, " ").trim();
+  if (!flat) return [];
+  return flat.match(/[^.!?]+(?:[.!?]+|$)/g) || [flat];
+}
+
+function CEDS_structureMindThought(mind, thought, about, feeling, isCoreShift) {
+  var deep = CEDS_mindDeep(mind);
+  var box = CEDS_stateBox();
+  if (!deep || !box) return;
+  var turn = CEDS_now();
+  var signature = CEDS_hash(CEDS_norm(thought) + "|" + CEDS_norm(about) + "|" + CEDS_norm(feeling));
+  if (signature && deep.lastThoughtSignature === signature) return;
+  deep.lastThoughtSignature = signature;
+  deep.lastStructuredTurn = turn;
+  box.mind.stats.thoughtsStructured = Number(box.mind.stats.thoughtsStructured || 0) + 1;
+
+  var sentences = CEDS_extractMindSentences(thought);
+  sentences.forEach(function (raw) {
+    var sentence = CEDS_clip(raw, 220);
+    if (!sentence) return;
+    var lower = CEDS_norm(sentence);
+    var base = { text:sentence, about:about || "", turn:turn, feeling:feeling || "" };
+    var retiredBeliefs = CEDS_retireMindBeliefs(deep, sentence, about, turn);
+    if (retiredBeliefs) {
+      box.mind.stats.beliefRevisions = Number(box.mind.stats.beliefRevisions || 0) + retiredBeliefs;
+    }
+
+    if (/\b(?:i\s+want|i\s+need|i\s+hope|i\s+wish|wants?\s+to|needs?\s+to)\b/i.test(sentence)) {
+      CEDS_mindRemember(deep.goals, Object.assign({}, base, { type:"goal", confidence:0.75 }), CEDS_MIND_LIST_LIMITS.goals);
+    }
+    if (/\b(?:i\s+(?:will|intend|plan|mean)\s+to|i'm\s+going\s+to|i am\s+going\s+to|my\s+plan|next\s+i(?:'ll|\s+will))\b/i.test(sentence)) {
+      CEDS_mindRemember(deep.plans, Object.assign({}, base, { type:"plan", confidence:0.8 }), CEDS_MIND_LIST_LIMITS.plans);
+    }
+    if (/\b(?:afraid|fear|terrified|worried|worry|dread|anxious|what if)\b/i.test(sentence)) {
+      CEDS_mindRemember(deep.fears, Object.assign({}, base, { type:"fear", confidence:0.55 }), CEDS_MIND_LIST_LIMITS.fears);
+    }
+    if (/\b(?:i\s+value|matters?\s+to\s+me|i\s+believe\s+in|never\s+again|i\s+won't\s+become|i\s+will\s+always)\b/i.test(sentence)) {
+      CEDS_mindRemember(deep.values, Object.assign({}, base, { type:"value", confidence:0.8 }), CEDS_MIND_LIST_LIMITS.values);
+    }
+    if (/\b(?:can't\s+let\s+(?:him|her|them|you)\s+know|cannot\s+let\s+(?:him|her|them|you)\s+know|need\s+to\s+act\s+like|have\s+to\s+pretend|keep\s+this\s+from|hide\s+how\s+i\s+feel|make\s+them\s+think)\b/i.test(sentence)) {
+      CEDS_mindRemember(deep.masks, Object.assign({}, base, { type:"mask", confidence:0.7 }), CEDS_MIND_LIST_LIMITS.masks);
+    }
+    if (/\b(?:i\s+promise|i\s+swear|i\s+won't|i\s+will\s+not|i\s+refuse\s+to|i\s+have\s+to)\b/i.test(sentence)) {
+      CEDS_mindRemember(deep.commitments, Object.assign({}, base, { type:"commitment", confidence:0.72 }), CEDS_MIND_LIST_LIMITS.commitments);
+    }
+
+    var epistemic = CEDS_privateClaimSupport(sentence);
+    var looksLikeExternalClaim = /\b(?:is|was|were|has|have|did|does|works?\s+for|betray|traitor|secretly|really|actually|responsible|culprit|behind\s+this|knows?|knew|came\s+from|caused|parent|sibling|lover|agent|spy)\b/i.test(sentence);
+    var beliefCue = /\b(?:i\s+(?:think|suspect|believe|know|remember|wonder)|maybe|perhaps|could\s+be|might\s+be|must\s+be|probably)\b/i.test(sentence);
+    if (looksLikeExternalClaim && beliefCue) {
+      var confidence = epistemic.supported ? 0.78 : (epistemic.uncertainty ? 0.35 : 0.48);
+      var type = epistemic.supported ? "claimed-observation" : (epistemic.uncertainty ? "suspicion" : "private-belief");
+      var privateBelief = CEDS_markPrivateBeliefRecord(Object.assign({}, base, { type:type, confidence:confidence }), epistemic);
+      CEDS_mindRemember(deep.beliefs, privateBelief, CEDS_MIND_LIST_LIMITS.beliefs);
+      if (!epistemic.supported && /\b(?:i\s+know|i\s+remember|must\s+be|definitely|obviously|clearly)\b/i.test(sentence)) {
+        deep.unsupportedKnowledgeClaims = Number(deep.unsupportedKnowledgeClaims || 0) + 1;
+        box.mind.stats.unsupportedKnowledgeClaims = Number(box.mind.stats.unsupportedKnowledgeClaims || 0) + 1;
+      }
+    }
+  });
+
+  if (isCoreShift && thought) {
+    CEDS_mindRemember(deep.revisions, {
+      type:"core-revision",
+      text:CEDS_clip(thought, 220),
+      about:about || "",
+      turn:turn,
+      feeling:feeling || "",
+      confidence:0.9
+    }, CEDS_MIND_LIST_LIMITS.revisions);
+    box.mind.stats.revisions = Number(box.mind.stats.revisions || 0) + 1;
+  }
+}
+
+function CEDS_addMindPressure(mind, source, strength, detail) {
+  var deep = CEDS_mindDeep(mind);
+  if (!deep) return;
+  var turn = CEDS_now();
+  var record = {
+    type:"pressure",
+    source:String(source || "story"),
+    strength:Math.max(0, Math.min(5, Number(strength) || 0)),
+    text:CEDS_clip(detail || source || "story pressure", 150),
+    turn:turn
+  };
+  var dup = deep.pressures.some(function (p) {
+    return p && p.source === record.source && Number(p.turn) === turn && CEDS_similarity(p.text, record.text) >= 0.75;
+  });
+  if (!dup) CEDS_pushBounded(deep.pressures, record, CEDS_MIND_LIST_LIMITS.pressures);
+}
+
+function CEDS_mindExternalPressureScore(mind) {
+  var deep = CEDS_mindDeep(mind);
+  if (!deep) return 0;
+  var now = CEDS_now(), score = 0, sources = {};
+  deep.pressures.forEach(function (p) {
+    if (!p) return;
+    var age = Math.max(0, now - (Number(p.turn) || now));
+    if (age > 12) return;
+    var decay = Math.max(0.2, 1 - age / 15);
+    score += (Number(p.strength) || 0) * decay;
+    sources[p.source] = 1;
+  });
+  if (Object.keys(sources).length >= 2) score += 1.25;
+  return Math.min(12, score);
+}
+
+function CEDS_mindDigest(mind, about, maxItems) {
+  var deep = CEDS_mindDeep(mind);
+  if (!deep) return "";
+  var cap = Math.max(1, Number(maxItems) || 4), out = [];
+  function latest(list, label, filter) {
+    for (var i = list.length - 1; i >= 0; i--) {
+      var item = list[i];
+      if (!item || (filter && !filter(item))) continue;
+      out.push(label + "=" + CEDS_clip(item.text, 95));
+      break;
+    }
+  }
+  latest(deep.goals, "goal");
+  latest(deep.plans, "plan");
+  latest(deep.fears, "fear");
+  latest(deep.beliefs, "belief", function (x) { return x.active !== false && (!about || !x.about || CEDS_norm(x.about) === CEDS_norm(about)); });
+  latest(deep.masks, "public-mask");
+  return out.slice(0, cap).join("; ");
+}
+
+function CEDS_mindGuard(name, mind) {
+  var deep = CEDS_mindDeep(mind || {});
+  var digest = deep ? CEDS_mindDigest(mind, "", 3) : "";
+  var pressure = deep ? CEDS_mindExternalPressureScore(mind) : 0;
+  var lines = [
+    "INNER-MIND FIREWALL: private thought may contain feelings, goals, plans, interpretations and suspicions, but it cannot grant " + name + " information they have not learned.",
+    "Epistemic rule: distinguish KNOW from SUSPECT. Never invent off-screen memories, documents, surveillance, secret relationships, betrayals, powers, prior conversations or hidden history merely to make the thought interesting. Unsupported factual ideas must stay uncertainty (might/suspect/wonder), never private certainty. A private thought is never evidence that makes its own claim world canon.",
+    "Continuity rule: preserve established goals/values and relationship boundaries until visible events give a reason to revise them. A transient emotion does not rewrite personality, consent or loyalty."
+  ];
+  if (digest) lines.push("Structured private continuity: " + digest + ". Treat belief/suspicion items as subjective unless public evidence independently confirms them.");
+  if (pressure > 0) lines.push("External identity pressure score=" + Math.round(pressure * 10) / 10 + "; this permits stress/reconsideration, not an automatic core rewrite.");
+  return lines.join(" ");
+}
+
+function CEDS_mindDiagnostics() {
+  var total = 0, beliefs = 0, goals = 0, plans = 0, fears = 0, revisions = 0, unsupported = 0;
+  try {
+    var minds = state && state.unsaid && state.unsaid.minds ? state.unsaid.minds : {};
+    Object.keys(minds).forEach(function (name) {
+      var d = CEDS_mindDeep(minds[name]);
+      if (!d) return;
+      total++;
+      beliefs += d.beliefs.length;
+      goals += d.goals.length;
+      plans += d.plans.length;
+      fears += d.fears.length;
+      revisions += d.revisions.length;
+      unsupported += Number(d.unsupportedKnowledgeClaims || 0);
+    });
+  } catch (_) {}
+  return { minds:total, beliefs:beliefs, goals:goals, plans:plans, fears:fears, revisions:revisions, unsupportedKnowledgeClaims:unsupported };
+}
+
+// ---------------------------------------------------------------------------
+// TWIST DEEP EVIDENCE — source lineage, independent clues and reveal contract
+// ---------------------------------------------------------------------------
+
+function CEDS_twistThreadMeta(thread) {
+  if (!thread) return null;
+  var box = CEDS_stateBox();
+  if (!box) return null;
+  var id = String(thread.id || (thread.entity + "|" + thread.category + "|" + thread.originTurn));
+  var meta = box.twist.threadMeta[id];
+  if (!meta || typeof meta !== "object") {
+    meta = {
+      id:id,
+      createdTurn:Number(thread.originTurn) || CEDS_now(),
+      evidenceSources:{},
+      evidenceFamilies:[],
+      blockedPayoffTurns:[],
+      revealAttempts:0,
+      lastSafetyReason:"",
+      hypothesisOnly:false,
+      counterweight:0
+    };
+    box.twist.threadMeta[id] = meta;
+  }
+  if (!meta.evidenceSources || typeof meta.evidenceSources !== "object") meta.evidenceSources = {};
+  if (!Array.isArray(meta.evidenceFamilies)) meta.evidenceFamilies = [];
+  if (!Array.isArray(meta.blockedPayoffTurns)) meta.blockedPayoffTurns = [];
+  return meta;
+}
+
+function CEDS_twistSourceClass(text, explicitSource) {
+  var source = String(explicitSource || CEDS_RUNTIME.twistSource || "").toLowerCase();
+  if (source) return source;
+  var t = String(text || "");
+  if (/story\s*card|world\s*lore|entry\s*:/i.test(t)) return "storycard";
+  if (/plot\s*essentials?/i.test(t)) return "plot-essentials";
+  if (/author'?s\s*note/i.test(t)) return "authors-note";
+  if (/telemetry|sensor|scan|record|log|camera|forensic|medical|test result/i.test(t)) return "instrumented-story";
+  if (/said|told|claimed|reported|according to|warned/i.test(t)) return "reported-story";
+  return "visible-story";
+}
+
+function CEDS_twistEvidenceFamily(text) {
+  var tokens = CEDS_tokens(text).slice(0, 10);
+  return tokens.join("|");
+}
+
+function CEDS_noteTwistEvidence(thread, text, source) {
+  var meta = CEDS_twistThreadMeta(thread);
+  if (!meta || !text) return;
+  var src = CEDS_twistSourceClass(text, source);
+  meta.evidenceSources[src] = Number(meta.evidenceSources[src] || 0) + 1;
+  var family = CEDS_twistEvidenceFamily(text);
+  if (family && !meta.evidenceFamilies.some(function (old) { return old === family || CEDS_similarity(old.replace(/\|/g," "), family.replace(/\|/g," ")) >= 0.78; })) {
+    CEDS_pushBounded(meta.evidenceFamilies, family, 12);
+  }
+}
+
+function CEDS_twistIndependentEvidence(thread) {
+  var records = thread && Array.isArray(thread.evidenceRecords) ? thread.evidenceRecords : [];
+  var accepted = [];
+  records.forEach(function (r) {
+    if (!r || !r.text || r.level === "hypothesis") return;
+    var duplicate = accepted.some(function (prior) {
+      var a = prior.signature || CEDS_twistEvidenceFamily(prior.text);
+      var b = r.signature || CEDS_twistEvidenceFamily(r.text);
+      if (a && b && a === b) return true;
+      return CEDS_similarity(prior.text, r.text) >= 0.72;
+    });
+    if (!duplicate) accepted.push(r);
+  });
+  var levels = { observed:0, reported:0, inference:0 }, sources = {};
+  accepted.forEach(function (r) {
+    if (Object.prototype.hasOwnProperty.call(levels, r.level)) levels[r.level]++;
+    var src = String(r.sourceClass || r.source || CEDS_twistSourceClass(r.text, ""));
+    sources[src] = 1;
+  });
+  return {
+    count:accepted.length,
+    observed:levels.observed,
+    reported:levels.reported,
+    inference:levels.inference,
+    sourceCount:Object.keys(sources).length,
+    records:accepted
+  };
+}
+
+function CEDS_twistRelationshipBoundaryConflict(thread) {
+  if (!thread || !thread.category) return false;
+  var cat = String(thread.category);
+  var romanceLike = /(?:Affair|Intimacy|Hookup|Benefits|Relationship|Romance|Engagement|Marriage|Divorce|Partner|lover|secretMarriage|loversPast|revengeRomance|loverIsInformant|workplaceRomance|forbiddenBond)/i.test(cat);
+  try {
+    var cluster = CP_CATEGORY_TO_CLUSTER && CP_CATEGORY_TO_CLUSTER[cat];
+    if (cluster === "Family & Relationship" || cluster === "Mature & Adult (18+)") romanceLike = true;
+  } catch (_) {}
+  if (!romanceLike) return false;
+  CEDS_syncRelationshipContracts();
+  var box = CEDS_stateBox();
+  var contracts = box && box.relationship && box.relationship.contracts ? box.relationship.contracts : {};
+  var entityKey = typeof CW_key === "function" ? CW_key(thread.entity) : CEDS_norm(thread.entity);
+  return Object.keys(contracts).some(function (key) {
+    var c = contracts[key];
+    if (!c || !c.boundaryActive) return false;
+    return (typeof CW_key === "function" ? CW_key(c.from) : CEDS_norm(c.from)) === entityKey || (typeof CW_key === "function" ? CW_key(c.to) : CEDS_norm(c.to)) === entityKey;
+  });
+}
+
+function CEDS_twistPayoffSafety(thread, c, cfg) {
+  if (!thread) return { safe:false, reason:"no thread" };
+  var meta = CEDS_twistThreadMeta(thread);
+  var safeCfg = cfg || (typeof CP_DEFAULTS !== "undefined" ? CP_DEFAULTS : {});
+  if (thread.wildcard) return { safe:!!safeCfg.allowWildcard, reason:safeCfg.allowWildcard ? "wildcard allowed" : "wildcard disabled" };
+
+  var independent = CEDS_twistIndependentEvidence(thread);
+  var counter = Math.max(0, Number(thread.counterTouches || 0));
+  var minimum = Math.max(1, Math.min(3, Number(safeCfg.minSeedsForPayoff) || 2));
+  var weightedProof = independent.observed + independent.reported * 0.75 + independent.inference * 0.55;
+  var directOrCorroborated = independent.observed >= 1 || (independent.reported >= 1 && independent.inference >= 1) || independent.reported >= 2 || independent.inference >= 2;
+  var enoughIndependent = independent.count >= minimum;
+  var counterDominates = counter > 0 && counter * 1.05 >= weightedProof;
+  // A fresh explicit contradiction must stop a reveal until later positive evidence
+  // actually moves the thread again. This prevents two old seeds from overpowering
+  // a newer alibi, security record, verified location, test result, etc. merely
+  // because their aggregate seed score is numerically larger.
+  var lastCounterTurn = Number(thread.lastCounterTurn);
+  var lastDevelopmentTurn = Number(thread.lastDevelopmentTurn);
+  var latestCounterUnanswered = counter > 0 && isFinite(lastCounterTurn) &&
+    (!isFinite(lastDevelopmentTurn) || lastCounterTurn >= lastDevelopmentTurn);
+
+  if (safeCfg.strictLogic !== false) {
+    if (!enoughIndependent) {
+      meta.lastSafetyReason = "needs " + minimum + " independent evidence families; has " + independent.count;
+      return { safe:false, reason:meta.lastSafetyReason, independent:independent };
+    }
+    if (!directOrCorroborated) {
+      meta.lastSafetyReason = "evidence remains too speculative for reveal";
+      return { safe:false, reason:meta.lastSafetyReason, independent:independent };
+    }
+    if (latestCounterUnanswered) {
+      meta.lastSafetyReason = "latest direct counter-evidence has not been overcome by newer support";
+      return { safe:false, reason:meta.lastSafetyReason, independent:independent };
+    }
+    if (counterDominates) {
+      meta.lastSafetyReason = "counter-evidence equals/exceeds support";
+      return { safe:false, reason:meta.lastSafetyReason, independent:independent };
+    }
+  }
+
+  if (CEDS_twistRelationshipBoundaryConflict(thread)) {
+    meta.lastSafetyReason = "relationship twist conflicts with active explicit boundary";
+    return { safe:false, reason:meta.lastSafetyReason, independent:independent };
+  }
+
+  meta.lastSafetyReason = "safe";
+  return { safe:true, reason:"safe", independent:independent };
+}
+
+function CEDS_markBlockedPayoff(thread, reason) {
+  var meta = CEDS_twistThreadMeta(thread);
+  if (!meta) return;
+  CEDS_pushBounded(meta.blockedPayoffTurns, { turn:CEDS_now(), reason:CEDS_clip(reason, 160) }, 12);
+  meta.lastSafetyReason = String(reason || "blocked");
+}
+
+function CEDS_withTwistSource(source, fn, self, args) {
+  var prior = CEDS_RUNTIME.twistSource;
+  CEDS_RUNTIME.twistSource = source;
+  try { return fn.apply(self, args || []); }
+  finally { CEDS_RUNTIME.twistSource = prior; }
+}
+
+function CEDS_revealContract(thread) {
+  var safety = CEDS_twistPayoffSafety(thread, state && state.contingency, state && state.contingencyConfig);
+  var proof = safety.independent || CEDS_twistIndependentEvidence(thread);
+  return " REVEAL CONTRACT: reveal only what the tracked evidence can actually support. " +
+    "Do not convert suspicion, private thought, theory or repeated rumor into fact; do not invent a missing witness, file, mastermind, family link, romance, betrayal or causal bridge. " +
+    "If proof is indirect, let the discovery remain proportionally uncertain until a visible confirming fact appears. Preserve established relationship boundaries and player agency. " +
+    "Independent support=" + proof.count + " clue family" + (proof.count === 1 ? "" : "ies") +
+    " across " + proof.sourceCount + " source class" + (proof.sourceCount === 1 ? "" : "es") + ".";
+}
+
+function CEDS_twistDiagnostics() {
+  var c = state && state.contingency ? state.contingency : { threads:[] };
+  var threads = Array.isArray(c.threads) ? c.threads : [];
+  var ready = threads.filter(function (t) { return t && t.status === "ready"; });
+  var safeReady = ready.filter(function (t) { return CEDS_twistPayoffSafety(t, c, state && state.contingencyConfig).safe; });
+  var blocked = ready.length - safeReady.length;
+  return {
+    threads:threads.length,
+    ready:ready.length,
+    safeReady:safeReady.length,
+    blockedReady:blocked,
+    resolved:Array.isArray(c.twistLog) ? c.twistLog.length : 0
+  };
+}
+
+function CEDS_doctor() {
+  var rel = CEDS_relationshipDiagnostics();
+  var mind = CEDS_mindDiagnostics();
+  var twist = CEDS_twistDiagnostics();
+  return [
+    "CROSSED ECHOES — DEEP SYSTEMS DOCTOR",
+    "Kernel: " + CEDS_DEEP_VERSION,
+    "Relationships: " + rel.contracts + " contracts | " + rel.activeBoundaries + " active boundaries | " + rel.unresolvedRuptures + " unresolved ruptures",
+    "UNSAID: " + mind.minds + " minds | " + mind.goals + " goals | " + mind.plans + " plans | " + mind.fears + " fears | " + mind.beliefs + " subjective beliefs | " + mind.unsupportedKnowledgeClaims + " unsupported certainty claims contained",
+    "Twists: " + twist.threads + " threads | " + twist.ready + " nominally ready | " + twist.safeReady + " evidence-safe | " + twist.blockedReady + " blocked by deep validation",
+    "Policy: explicit canon > inferred scores; know != suspect; repeated clue != independent proof; boundaries never become hidden consent."
+  ].join("\n");
+}
+
+// ---------------------------------------------------------------------------
+// ENGINE WRAPPERS
+// ---------------------------------------------------------------------------
+
+var CEDS_ORIG_CW_addEvent = (typeof CW_addEvent === "function") ? CW_addEvent : null;
+if (CEDS_ORIG_CW_addEvent) {
+  CW_addEvent = function (from, to, kind, severity, note, turn) {
+    CEDS_stateBox();
+    var decision = CEDS_relationshipEventAllowed(from, to, kind, note, turn);
+    if (!decision.allowed) {
+      try {
+        var box = CEDS_stateBox();
+        box.diagnostics.lastRelationshipBlock = { turn:Number(turn)||CEDS_now(), from:from, to:to, kind:kind, reason:decision.reason };
+      } catch (_) {}
+      return false;
+    }
+    var adjustedSeverity = severity;
+    // Repetition saturation: a stream of low-value identical beats should not
+    // manufacture a dramatic bond. Existing CW damping still applies; this is
+    // an extra guard for near-identical event families across very short spans.
+    try {
+      var prior = CW_eventsForPair(from, to, Math.max(0, Number(turn) - 1)).slice(-4);
+      var sameKind = prior.filter(function (e) { return e && e.kind === kind && Number(turn) - Number(e.turn) <= 3; });
+      if (sameKind.length >= 2 && Number(severity) > 1 && !CEDS_RUPTURE_EVENTS[kind]) adjustedSeverity = Math.max(1, Number(severity) - 1);
+    } catch (_) {}
+    var ok = CEDS_ORIG_CW_addEvent(from, to, kind, adjustedSeverity, note, turn);
+    if (ok) {
+      try {
+        var ledger = state.crossedWires.ledger;
+        var latest = ledger && ledger.length ? ledger[ledger.length - 1] : null;
+        if (latest) CEDS_ingestRelationshipEvent(latest);
+        var box2 = CEDS_stateBox();
+        box2.relationship.lastLedgerLength = ledger.length;
+        box2.relationship.lastLedgerSignature = CEDS_relationshipLedgerSignature(ledger);
+        if (state.unsaid && state.unsaid.minds) {
+          var canonical = typeof resolveUnsaidCanonicalName === "function" ? resolveUnsaidCanonicalName(from) : from;
+          var mind = state.unsaid.minds[canonical];
+          if (mind) {
+            var pressure = CEDS_RUPTURE_EVENTS[kind] ? 2.0 : ((kind === "rejection" || kind === "boundary_discussion") ? 1.2 : 0.5);
+            CEDS_addMindPressure(mind, "relationship", pressure, kind + ": " + (note || ""));
+          }
+        }
+      } catch (_) {}
+    }
+    return ok;
+  };
+}
+
+var CEDS_ORIG_CW_parseModelOutput = (typeof CW_parseModelOutput === "function") ? CW_parseModelOutput : null;
+if (CEDS_ORIG_CW_parseModelOutput) {
+  CW_parseModelOutput = function (text, turn) {
+    CEDS_RUNTIME.relationshipEvidenceText = String(text || "");
+    CEDS_RUNTIME.lastOutputText = String(text || "");
+    try {
+      var result = CEDS_ORIG_CW_parseModelOutput(text, turn);
+      CEDS_syncRelationshipContracts();
+      return result;
+    } finally {
+      CEDS_RUNTIME.relationshipEvidenceText = "";
+    }
+  };
+}
+
+var CEDS_ORIG_CW_relationshipContextLine = (typeof CW_relationshipContextLine === "function") ? CW_relationshipContextLine : null;
+if (CEDS_ORIG_CW_relationshipContextLine) {
+  CW_relationshipContextLine = function (link, turn) {
+    var base = CEDS_ORIG_CW_relationshipContextLine(link, turn);
+    if (!link) return base;
+    var deep = CEDS_relationshipDirective(link.from, link.to, turn);
+    return deep ? base + deep : base;
+  };
+}
+
+var CEDS_ORIG_CW_onContext = (typeof CW_onContext === "function") ? CW_onContext : null;
+if (CEDS_ORIG_CW_onContext) {
+  CW_onContext = function (text) {
+    CEDS_RUNTIME.lastContextText = String(text || "");
+    CEDS_stateBox();
+    CEDS_syncRelationshipContracts();
+    return CEDS_ORIG_CW_onContext(text);
+  };
+}
+
+var CEDS_ORIG_rememberAdaptiveThought = (typeof rememberAdaptiveThought === "function") ? rememberAdaptiveThought : null;
+if (CEDS_ORIG_rememberAdaptiveThought) {
+  rememberAdaptiveThought = function (mind, thought, about, isCoreShift, feeling, cfg) {
+    var result = CEDS_ORIG_rememberAdaptiveThought(mind, thought, about, isCoreShift, feeling, cfg);
+    try { CEDS_structureMindThought(mind, thought, about, feeling, isCoreShift); } catch (_) {}
+    return result;
+  };
+}
+
+var CEDS_ORIG_buildAndFitThoughtInstruction = (typeof buildAndFitThoughtInstruction === "function") ? buildAndFitThoughtInstruction : null;
+if (CEDS_ORIG_buildAndFitThoughtInstruction) {
+  buildAndFitThoughtInstruction = function (chosen, active, baseText, allowCoreShift, cfgOverride) {
+    var original = CEDS_ORIG_buildAndFitThoughtInstruction(chosen, active, baseText, allowCoreShift, cfgOverride);
+    if (!original) return original;
+    var mind = state && state.unsaid && state.unsaid.minds ? state.unsaid.minds[chosen] : null;
+    var guard = CEDS_mindGuard(chosen, mind || {});
+    var available = 420;
+    try {
+      if (typeof info !== "undefined" && info && Number(info.maxChars) > 0) {
+        available = Math.max(0, Math.min(560, Number(info.maxChars) - String(baseText || "").length - String(original).length - 28));
+      }
+    } catch (_) {}
+    if (available < 120) return original;
+    guard = CEDS_clip(guard, available);
+    var marker = " Required ASCII format:";
+    if (original.indexOf(marker) >= 0) return original.replace(marker, " " + guard + marker);
+    return original;
+  };
+}
+
+var CEDS_ORIG_buildCoreCheckInstruction = (typeof buildCoreCheckInstruction === "function") ? buildCoreCheckInstruction : null;
+if (CEDS_ORIG_buildCoreCheckInstruction) {
+  buildCoreCheckInstruction = function (chosen, mind) {
+    var base = CEDS_ORIG_buildCoreCheckInstruction(chosen, mind);
+    var guard = CEDS_clip(CEDS_mindGuard(chosen, mind || {}), 420);
+    return base.replace(" If YES,", " " + guard + " If YES,");
+  };
+}
+
+var CEDS_ORIG_naturalCoreShiftEligible = (typeof naturalCoreShiftEligible === "function") ? naturalCoreShiftEligible : null;
+if (CEDS_ORIG_naturalCoreShiftEligible) {
+  naturalCoreShiftEligible = function (mind, allowCoreShift, name) {
+    if (!CEDS_ORIG_naturalCoreShiftEligible(mind, allowCoreShift, name)) return false;
+    var deepScore = CEDS_mindExternalPressureScore(mind);
+    // The original engine already requires external corroboration. Deep Mind
+    // adds one more independent-pressure test when data exists, preventing a
+    // repeated private mood loop from becoming a permanent personality rewrite.
+    var deep = CEDS_mindDeep(mind);
+    if (deep && deep.pressures.length && deepScore < 1.5) return false;
+    return true;
+  };
+}
+
+if (typeof Library !== "undefined" && Library) {
+  var CEDS_ORIG_L_rememberTwistEvidence = Library.rememberTwistEvidence;
+  if (typeof CEDS_ORIG_L_rememberTwistEvidence === "function") {
+    Library.rememberTwistEvidence = function (thread, evidenceText, c, options) {
+      var opts = options || {};
+      var ok = CEDS_ORIG_L_rememberTwistEvidence(thread, evidenceText, c, opts);
+      if (ok) {
+        try {
+          var records = Array.isArray(thread.evidenceRecords) ? thread.evidenceRecords : [];
+          var record = records.length ? records[records.length - 1] : null;
+          var source = CEDS_twistSourceClass(evidenceText, opts.source || CEDS_RUNTIME.twistSource);
+          if (record) record.sourceClass = source;
+          CEDS_noteTwistEvidence(thread, evidenceText, source);
+        } catch (_) {}
+      }
+      return ok;
+    };
+  }
+
+  var CEDS_ORIG_L_createThread = Library.createThread;
+  if (typeof CEDS_ORIG_L_createThread === "function") {
+    Library.createThread = function (c, entity, category, originTurn, cfg, evidenceText) {
+      var thread = CEDS_ORIG_L_createThread(c, entity, category, originTurn, cfg, evidenceText);
+      if (thread) {
+        var meta = CEDS_twistThreadMeta(thread);
+        if (evidenceText) CEDS_noteTwistEvidence(thread, evidenceText, CEDS_RUNTIME.twistSource);
+        if (meta) meta.hypothesisOnly = CEDS_twistIndependentEvidence(thread).count === 0;
+      }
+      return thread;
+    };
+  }
+
+  function CEDS_wrapTwistScanner(methodName, sourceName) {
+    var original = Library[methodName];
+    if (typeof original !== "function") return;
+    Library[methodName] = function () {
+      return CEDS_withTwistSource(sourceName, original, Library, Array.prototype.slice.call(arguments));
+    };
+  }
+  CEDS_wrapTwistScanner("scanForLooseThreads", "visible-story");
+  CEDS_wrapTwistScanner("scanStoryCardsForScenarioThreads", "storycard");
+  CEDS_wrapTwistScanner("scanPlotEssentialsForThreads", "plot-essentials");
+  CEDS_wrapTwistScanner("scanAuthorsNoteForThreads", "authors-note");
+  CEDS_wrapTwistScanner("bridgeCodexEvidenceToTwists", "codex");
+
+  function CEDS_shouldEnforceAutoPayoffSafety(thread) {
+    if (!thread) return false;
+    // Naturally matured threads are governed by the deep reveal contract.
+    // A ready thread inherited from an older script build or deliberately
+    // forced by an author/admin command keeps the original engine semantics
+    // so upgrades do not strand existing adventures or defeat explicit intent.
+    return thread.deepAutoReady === true || !!(thread.deepTwist && thread.deepTwist.enforceSafety === true);
+  }
+
+  var CEDS_ORIG_L_pickPayoffThread = Library.pickPayoffThread;
+  if (typeof CEDS_ORIG_L_pickPayoffThread === "function") {
+    Library.pickPayoffThread = function (c, cfg) {
+      var thread = CEDS_ORIG_L_pickPayoffThread(c, cfg);
+      if (!thread) return null;
+      var safety = CEDS_shouldEnforceAutoPayoffSafety(thread) ? CEDS_twistPayoffSafety(thread, c, cfg) : { safe:true, reason:"legacy/manual ready state" };
+      if (safety.safe) return thread;
+      CEDS_markBlockedPayoff(thread, safety.reason);
+
+      // Temporarily demote unsafe ready threads so the original proven sorting
+      // policy can choose the next safe candidate without permanently mutating
+      // the adventure state.
+      var changed = [];
+      (c && Array.isArray(c.threads) ? c.threads : []).forEach(function (candidate) {
+        if (!candidate || candidate.status !== "ready") return;
+        var check = CEDS_shouldEnforceAutoPayoffSafety(candidate) ? CEDS_twistPayoffSafety(candidate, c, cfg) : { safe:true, reason:"legacy/manual ready state" };
+        if (!check.safe) {
+          changed.push(candidate);
+          candidate.status = "brewing";
+          CEDS_markBlockedPayoff(candidate, check.reason);
+        }
+      });
+      var fallback = null;
+      try { fallback = CEDS_ORIG_L_pickPayoffThread(c, cfg); }
+      finally { changed.forEach(function (candidate) { candidate.status = "ready"; }); }
+      return fallback;
+    };
+  }
+
+  var CEDS_ORIG_L_pickCompound = Library.pickCompoundPayoffThreads;
+  if (typeof CEDS_ORIG_L_pickCompound === "function") {
+    Library.pickCompoundPayoffThreads = function (c, cfg) {
+      var changed = [];
+      (c && Array.isArray(c.threads) ? c.threads : []).forEach(function (candidate) {
+        if (!candidate || candidate.status !== "ready") return;
+        var check = CEDS_shouldEnforceAutoPayoffSafety(candidate) ? CEDS_twistPayoffSafety(candidate, c, cfg) : { safe:true, reason:"legacy/manual ready state" };
+        if (!check.safe) {
+          changed.push(candidate);
+          candidate.status = "brewing";
+          CEDS_markBlockedPayoff(candidate, check.reason);
+        }
+      });
+      var result = null;
+      try { result = CEDS_ORIG_L_pickCompound(c, cfg); }
+      finally { changed.forEach(function (candidate) { candidate.status = "ready"; }); }
+      return result;
+    };
+  }
+
+  var CEDS_ORIG_L_payoffHint = Library.payoffHint;
+  if (typeof CEDS_ORIG_L_payoffHint === "function") {
+    Library.payoffHint = function (thread) {
+      var base = CEDS_ORIG_L_payoffHint(thread);
+      if (!base) return base;
+      return base.replace(/\]\s*$/, CEDS_revealContract(thread) + "]");
+    };
+  }
+
+  var CEDS_ORIG_L_compoundPayoffHint = Library.compoundPayoffHint;
+  if (typeof CEDS_ORIG_L_compoundPayoffHint === "function") {
+    Library.compoundPayoffHint = function (a, b) {
+      var base = CEDS_ORIG_L_compoundPayoffHint(a, b);
+      if (!base) return base;
+      var contract = " COMPOUND REVEAL CONTRACT: each half must independently satisfy its own evidence and the bridge must already exist; one strong thread cannot launder a weak one into canon. " + CEDS_revealContract(a) + " " + CEDS_revealContract(b);
+      return base.replace(/\]\s*$/, contract + "]");
+    };
+  }
+
+  var CEDS_ORIG_L_foreshadowHint = Library.foreshadowHint;
+  if (typeof CEDS_ORIG_L_foreshadowHint === "function") {
+    Library.foreshadowHint = function (thread) {
+      var base = CEDS_ORIG_L_foreshadowHint(thread);
+      if (!base) return base;
+      var independent = CEDS_twistIndependentEvidence(thread);
+      var note = " FORESHADOW DIVERSITY: add at most one new observable clue family. Do not repeat/paraphrase an existing clue just to increase seed count, and do not have another NPC repeat the same theory as if that were independent proof. Current independent clue families=" + independent.count + ".";
+      return base.replace(/\]\s*$/, note + "]");
+    };
+  }
+
+  var CEDS_ORIG_L_extractResolvedTwistFact = Library.extractResolvedTwistFact;
+  if (typeof CEDS_ORIG_L_extractResolvedTwistFact === "function") {
+    Library.extractResolvedTwistFact = function (thread, visibleText) {
+      var fact = CEDS_ORIG_L_extractResolvedTwistFact(thread, visibleText);
+      if (!fact) return fact;
+      // A confirmation marker can occasionally be emitted even when the prose
+      // remains hedged. Never write hedged language back as an established fact.
+      if (/\b(?:might|may|could|maybe|perhaps|possibly|appears?|seems?|suggests?|implies?|suspect|theory|unverified|unconfirmed|uncertain|unclear)\b/i.test(fact)) return "";
+      return fact;
+    };
+  }
+
+  var CEDS_ORIG_L_applyTwistImpactToMind = Library.applyTwistImpactToMind;
+  if (typeof CEDS_ORIG_L_applyTwistImpactToMind === "function") {
+    Library.applyTwistImpactToMind = function (entity, category, tier, partnerName) {
+      var result = CEDS_ORIG_L_applyTwistImpactToMind(entity, category, tier, partnerName);
+      try {
+        var key = typeof resolveUnsaidCanonicalName === "function" ? resolveUnsaidCanonicalName(entity) : entity;
+        var mind = state && state.unsaid && state.unsaid.minds ? state.unsaid.minds[key] : null;
+        if (mind) {
+          var strength = ({ minor:1, moderate:1.5, major:2.5, cataclysmic:4 })[String(tier || "").toLowerCase()] || 1;
+          CEDS_addMindPressure(mind, "confirmed-twist", strength, String(category || "twist") + (partnerName ? " with " + partnerName : ""));
+        }
+      } catch (_) {}
+      return result;
+    };
+  }
+}
+
+// Lightweight audit snapshot for managed diagnostics and test harnesses.
+function CEDS_healthSnapshot() {
+  var box = CEDS_stateBox();
+  var rel = CEDS_relationshipDiagnostics();
+  var mind = CEDS_mindDiagnostics();
+  var twist = CEDS_twistDiagnostics();
+  var snapshot = {
+    version:CEDS_DEEP_VERSION,
+    turn:CEDS_now(),
+    relationships:rel,
+    minds:mind,
+    twists:twist
+  };
+  if (box) box.diagnostics.lastHealth = snapshot;
+  return snapshot;
+}
+
+// End CROSSED ECHOES — DEEP SYSTEMS HARDENING KERNEL.
+
+// ============================================================================
+// CROSSED ECHOES — FULL SYSTEM RELIABILITY KERNEL
+// Persistent relationship policy arbitration, retry-safe deep state,
+// UNSAID plan/belief lifecycle, twist proof discipline, state compaction,
+// player-agency output guard, and whole-suite health diagnostics.
+// ============================================================================
+
+var CEFH_FULL_VERSION = "3.0.0";
+var CEFH_RUNTIME = {
+  phase: "",
+  contextHash: "",
+  lastVisibleOutput: "",
+  repairsThisHook: 0,
+  capturedPolicies: 0
+};
+
+function CEFH_now() {
+  try { if (typeof info !== "undefined" && info && Number.isFinite(Number(info.actionCount))) return Number(info.actionCount); } catch (_) {}
+  try { if (typeof state !== "undefined" && state && state.unsaid && Number.isFinite(Number(state.unsaid.turn))) return Number(state.unsaid.turn); } catch (_) {}
+  return 0;
+}
+
+function CEFH_clone(value) {
+  try { return JSON.parse(JSON.stringify(value)); } catch (_) { return null; }
+}
+
+function CEFH_hash(value) {
+  var text = String(value || ""), hash = 2166136261;
+  for (var i = 0; i < text.length; i++) { hash ^= text.charCodeAt(i); hash = Math.imul(hash, 16777619); }
+  return (hash >>> 0).toString(36);
+}
+
+function CEFH_norm(value) {
+  try { return CEDS_norm(value); } catch (_) {}
+  return String(value || "").toLowerCase().replace(/\s+/g, " ").trim();
+}
+
+function CEFH_clip(value, maxLen) {
+  try { return CEDS_clip(value, maxLen); } catch (_) {}
+  var text = String(value || "").replace(/\s+/g, " ").trim();
+  var cap = Math.max(16, Number(maxLen) || 180);
+  return text.length <= cap ? text : text.slice(0, cap - 1).replace(/\s+$/g, "") + "…";
+}
+
+function CEFH_state() {
+  if (typeof state === "undefined" || !state) return null;
+  if (!state.crossedEchoesFullHardening || typeof state.crossedEchoesFullHardening !== "object" || Array.isArray(state.crossedEchoesFullHardening)) {
+    state.crossedEchoesFullHardening = {};
+  }
+  var s = state.crossedEchoesFullHardening;
+  s.version = CEFH_FULL_VERSION;
+  if (!s.relationship || typeof s.relationship !== "object") s.relationship = {};
+  if (!Array.isArray(s.relationship.policies)) s.relationship.policies = [];
+  if (typeof s.relationship.contextSignature !== "string") s.relationship.contextSignature = "";
+  if (!Number.isFinite(Number(s.relationship.contextTurn))) s.relationship.contextTurn = -1;
+  if (!Number.isFinite(Number(s.relationship.policySeq))) s.relationship.policySeq = 1;
+  if (!s.relationship.metrics || typeof s.relationship.metrics !== "object") s.relationship.metrics = {captured:0,deduped:0,expired:0,applied:0};
+  if (!s.mind || typeof s.mind !== "object") s.mind = {};
+  if (!s.mind.metrics || typeof s.mind.metrics !== "object") s.mind.metrics = {plansCompleted:0,plansAbandoned:0,beliefsContested:0,beliefsRevised:0};
+  if (!s.twist || typeof s.twist !== "object") s.twist = {};
+  if (!s.twist.metrics || typeof s.twist.metrics !== "object") s.twist.metrics = {blockedCircular:0,partialReveal:0,proofRepairs:0};
+  if (!s.integrity || typeof s.integrity !== "object") s.integrity = {};
+  if (!Array.isArray(s.integrity.repairs)) s.integrity.repairs = [];
+  if (!Array.isArray(s.integrity.warnings)) s.integrity.warnings = [];
+  if (!Number.isFinite(Number(s.integrity.lastMaintenanceTurn))) s.integrity.lastMaintenanceTurn = -1;
+  if (!Number.isFinite(Number(s.integrity.repairCount))) s.integrity.repairCount = 0;
+  if (!s.retry || typeof s.retry !== "object") s.retry = {};
+  if (!Array.isArray(s.retry.mindSnapshots)) s.retry.mindSnapshots = [];
+  if (!Number.isFinite(Number(s.retry.lastInputTurn))) s.retry.lastInputTurn = -1;
+  if (!Number.isFinite(Number(s.retry.lastOutputTurn))) s.retry.lastOutputTurn = -1;
+  if (!Number.isFinite(Number(s.retry.contextRetryTurn))) s.retry.contextRetryTurn = -1;
+  if (typeof s.retry.lastOutputSignature !== "string") s.retry.lastOutputSignature = "";
+  if (!s.performance || typeof s.performance !== "object") s.performance = {};
+  if (!Number.isFinite(Number(s.performance.lastStateChars))) s.performance.lastStateChars = 0;
+  if (!Number.isFinite(Number(s.performance.maxStateCharsSeen))) s.performance.maxStateCharsSeen = 0;
+  return s;
+}
+
+function CEFH_recordRepair(kind, detail) {
+  var s = CEFH_state(); if (!s) return;
+  var row = {turn:CEFH_now(),kind:String(kind||"repair"),detail:CEFH_clip(detail,180)};
+  s.integrity.repairs.push(row);
+  if (s.integrity.repairs.length > 32) s.integrity.repairs.splice(0, s.integrity.repairs.length - 32);
+  s.integrity.repairCount = Number(s.integrity.repairCount || 0) + 1;
+  CEFH_RUNTIME.repairsThisHook++;
+}
+
+function CEFH_recordWarning(kind, detail) {
+  var s = CEFH_state(); if (!s) return;
+  s.integrity.warnings.push({turn:CEFH_now(),kind:String(kind||"warning"),detail:CEFH_clip(detail,180)});
+  if (s.integrity.warnings.length > 24) s.integrity.warnings.splice(0, s.integrity.warnings.length - 24);
+}
+
+function CEFH_knownNpcNames() {
+  var out = [], seen = {};
+  try {
+    var npcs = state && state.crossedWires && state.crossedWires.npcs ? state.crossedWires.npcs : {};
+    Object.keys(npcs).forEach(function(k){ var n=npcs[k]&&npcs[k].name?String(npcs[k].name):""; var nk=CEFH_norm(n); if(n&&nk&&!seen[nk]){seen[nk]=1;out.push(n);} });
+  } catch (_) {}
+  try {
+    var minds = state && state.unsaid && state.unsaid.minds ? state.unsaid.minds : {};
+    Object.keys(minds).forEach(function(n){var nk=CEFH_norm(n);if(n&&nk&&!seen[nk]){seen[nk]=1;out.push(n);}});
+  } catch (_) {}
+  return out;
+}
+
+function CEFH_playerNames() {
+  var out = ["YOU","PLAYER"], seen={you:1,player:1};
+  try {
+    if (typeof CECS_playerName === "function") {
+      var p=CECS_playerName(); if(p&&!seen[CEFH_norm(p)]){seen[CEFH_norm(p)]=1;out.push(p);}
+    }
+  } catch (_) {}
+  try {
+    if (typeof ECHO_VEIL !== "undefined" && ECHO_VEIL && typeof ECHO_VEIL.playerIdentityHints === "function") {
+      var hints=ECHO_VEIL.playerIdentityHints();
+      (hints&&hints.local||[]).forEach(function(p){var k=CEFH_norm(p);if(p&&k&&!seen[k]){seen[k]=1;out.push(p);}});
+    }
+  } catch (_) {}
+  return out;
+}
+
+function CEFH_nameMention(text, name) {
+  var src=String(text||""), n=String(name||"").trim(); if(!src||!n)return false;
+  try { if (typeof nameAppears === "function") return nameAppears(n,src); } catch (_) {}
+  return CEFH_norm(src).indexOf(CEFH_norm(n))>=0;
+}
+
+function CEFH_policyOwner(line) {
+  try { var old=CEDS_policyOwnerFromLine(line); if(old)return old; } catch (_) {}
+  var names=CEFH_knownNpcNames(), best="",len=0;
+  names.forEach(function(n){if(CEFH_nameMention(line,n)&&n.length>len){best=n;len=n.length;}});
+  return best;
+}
+
+function CEFH_policyTarget(line, owner) {
+  var src=String(line||"");
+  var players=CEFH_playerNames();
+  for(var i=0;i<players.length;i++) if(CEFH_nameMention(src,players[i]) || (/\b(?:you|your)\b/i.test(src)&&players[i]==="YOU")) return "YOU";
+  var names=CEFH_knownNpcNames(), best="",len=0;
+  names.forEach(function(n){if(CEFH_norm(n)===CEFH_norm(owner))return;if(CEFH_nameMention(src,n)&&n.length>len){best=n;len=n.length;}});
+  return best;
+}
+
+function CEFH_policyKind(line) {
+  var t=String(line||"");
+  if(/\b(?:does not want|doesn't want|not looking for|declined|refused|said no|drew a line|no romance|not interested|respect (?:that|the) boundary|do not treat persistence)\b/i.test(t)) return "romance-boundary";
+  if(/\b(?:only through substantial|must grow through|slow[- ]burn|substantial future (?:character )?development)\b/i.test(t)) return "slow-reversal";
+  if(/\b(?:friends? only|stay friends?|friendship remains valid|no romantic feelings?)\b/i.test(t)) return "friendship-boundary";
+  if(/\b(?:ex(?:es)?|former (?:partner|girlfriend|boyfriend|spouse)|divorced|separated)\b/i.test(t)) return "ex-status";
+  if(/\b(?:married|wife|husband|spouse|fianc[ée]e?|engaged|dating|girlfriend|boyfriend|partner)\b/i.test(t)) return "relationship-status";
+  return "relationship-rule";
+}
+
+function CEFH_policyScope(line, owner, target) {
+  if(target)return "pair";
+  var t=String(line||"");
+  if(/\b(?:not looking for (?:a |any )?(?:romance|relationship)|does not want (?:a |any )?(?:romance|relationship)|doesn't want (?:a |any )?(?:romance|relationship)|no campus romance)\b/i.test(t)) return "actor-general-romance";
+  if(owner)return "actor";
+  return "unscoped";
+}
+
+function CEFH_makePolicy(owner, text, source, turn, target) {
+  return {
+    id:"P"+CEFH_hash(String(source||"")+"|"+String(turn||0)+"|"+String(owner||"")+"|"+String(target||"")+"|"+String(text||"")),
+    owner:String(owner||""), target:String(target||""), text:CEFH_clip(text,260), source:String(source||""),
+    kind:CEFH_policyKind(text), scope:CEFH_policyScope(text,owner,target), turn:Number(turn)||0,
+    active:true, lastSeenTurn:Number(turn)||0, sourceSignature:""
+  };
+}
+
+function CEFH_policyEquivalent(a,b) {
+  if(!a||!b)return false;
+  if(CEFH_norm(a.owner)!==CEFH_norm(b.owner))return false;
+  if(CEFH_norm(a.target)!==CEFH_norm(b.target))return false;
+  if(String(a.kind||"")!==String(b.kind||""))return false;
+  try { return CEDS_similarity(a.text,b.text)>=0.78; } catch (_) { return CEFH_norm(a.text)===CEFH_norm(b.text); }
+}
+
+function CEFH_captureRelationshipPolicies(text, source) {
+  var s=CEFH_state(); if(!s)return [];
+  var turn=CEFH_now(), src=String(text||""), signature=CEFH_hash(src), found=[];
+  if(!src.trim())return found;
+  var extracted=[];
+  try { if(typeof CECS_extractLiveLocks==="function"){var locks=CECS_extractLiveLocks(src);extracted=(locks&&locks.relationship)||[];} } catch(_) {}
+  if(!extracted.length){
+    var lines=src.split(/\n+/).map(function(x){return x.trim();}).filter(Boolean);
+    extracted=lines.filter(function(line){return /\b(?:does not want|doesn't want|declined|refused|not looking for|no romance|boundary|dating|married|engaged|ex(?:es)?|friendship|relationship)\b/i.test(line);});
+  }
+  var lastOwner="";
+  extracted.forEach(function(raw){
+    var line=typeof raw==="object"?String(raw.text||""):String(raw||""); if(!line)return;
+    var owner=typeof raw==="object"&&raw.owner?String(raw.owner):CEFH_policyOwner(line);
+    if(owner)lastOwner=owner; else if(/\b(?:respect (?:that|the) boundary|do not treat persistence|change (?:his|her|their) mind|friendship|no romance|romantic)\b/i.test(line))owner=lastOwner;
+    if(!owner)return;
+    var target=CEFH_policyTarget(line,owner), row=CEFH_makePolicy(owner,line,source||"context",turn,target); row.sourceSignature=signature;
+    found.push(row);
+  });
+  // Retry-safe replacement: policies extracted from the same source/turn are
+  // replaced by the newest context signature instead of being accumulated.
+  s.relationship.policies=s.relationship.policies.filter(function(p){return !(p&&p.source===String(source||"context")&&Number(p.turn)===turn);});
+  found.forEach(function(row){
+    var dup=s.relationship.policies.find(function(old){return old&&old.active!==false&&CEFH_policyEquivalent(old,row);});
+    if(dup){dup.lastSeenTurn=turn;dup.sourceSignature=signature;s.relationship.metrics.deduped++;}
+    else{s.relationship.policies.push(row);s.relationship.metrics.captured++;}
+  });
+  if(s.relationship.policies.length>160)s.relationship.policies=s.relationship.policies.slice(-160);
+  s.relationship.contextSignature=signature; s.relationship.contextTurn=turn; CEFH_RUNTIME.capturedPolicies=found.length;
+  return found;
+}
+
+function CEFH_persistStoryCardPolicies() {
+  var s=CEFH_state(); if(!s)return;
+  var turn=CEFH_now(), rows=[];
+  try{
+    if(typeof CECS_extractRelationshipBoundaries==="function"){
+      (CECS_extractRelationshipBoundaries()||[]).forEach(function(x){
+        if(!x)return; var line=typeof x==="object"?String(x.text||""):String(x||""); var owner=typeof x==="object"?String(x.owner||x.card||""):CEFH_policyOwner(line); if(!owner||!line)return;
+        rows.push(CEFH_makePolicy(owner,line,"storycard-index",turn,CEFH_policyTarget(line,owner)));
+      });
+    }
+  }catch(_){}
+  rows.forEach(function(row){var dup=s.relationship.policies.find(function(old){return old&&old.active!==false&&old.source==="storycard-index"&&CEFH_policyEquivalent(old,row);});if(dup)dup.lastSeenTurn=turn;else{s.relationship.policies.push(row);s.relationship.metrics.captured++;}});
+  if(s.relationship.policies.length>160)s.relationship.policies=s.relationship.policies.slice(-160);
+}
+
+function CEFH_policyMatchesContract(policy, contract) {
+  if(!policy||!contract||policy.active===false)return false;
+  var owner=CEFH_norm(policy.owner), from=CEFH_norm(contract.from), to=CEFH_norm(contract.to);
+  var ownerMatch=owner&&(owner===from||owner===to||from.indexOf(owner)>=0||owner.indexOf(from)>=0||(to!=="you"&&(to.indexOf(owner)>=0||owner.indexOf(to)>=0)));
+  if(!ownerMatch)return false;
+  if(policy.scope==="pair"&&policy.target){
+    var target=CEFH_norm(policy.target);
+    if(target==="you")return from==="you"||to==="you";
+    return target===from||target===to||from.indexOf(target)>=0||to.indexOf(target)>=0;
+  }
+  if(policy.scope==="actor-general-romance")return true;
+  return policy.scope!=="unscoped";
+}
+
+// Persistent-policy override. Runtime extraction can disappear between isolated
+// AI Dungeon hooks; state-backed rows do not.
+CEDS_liveRelationshipPolicies = function () {
+  var s=CEFH_state(); if(!s)return [];
+  CEFH_persistStoryCardPolicies();
+  var now=CEFH_now();
+  s.relationship.policies.forEach(function(p){
+    if(!p||p.active===false)return;
+    // Pure diagnostic/context rules that have not been seen for a very long
+    // time may expire, but explicit boundaries/status canon remains durable.
+    var age=Math.max(0,now-Number(p.lastSeenTurn||p.turn||now));
+    if(p.kind==="relationship-rule"&&p.source!=="storycard-index"&&age>80){p.active=false;s.relationship.metrics.expired++;}
+  });
+  return s.relationship.policies.filter(function(p){return p&&p.active!==false;}).slice(-120);
+};
+
+var CEFH_ORIG_CEDS_applyPolicyToContract = CEDS_applyPolicyToContract;
+CEDS_applyPolicyToContract = function(contract){
+  if(!contract)return;
+  // Keep compatibility with older policy parsing first, then overlay precise
+  // owner/target-scoped persistent rules.
+  try{CEFH_ORIG_CEDS_applyPolicyToContract(contract);}catch(_){}
+  var s=CEFH_state(); if(!s)return;
+  CEDS_liveRelationshipPolicies().forEach(function(p){
+    if(!CEFH_policyMatchesContract(p,contract))return;
+    s.relationship.metrics.applied++;
+    if(p.kind==="slow-reversal")contract.slowReversal=true;
+    if(p.kind==="romance-boundary"||p.kind==="friendship-boundary"){
+      contract.boundaryActive=true;
+      contract.boundaryReason=p.kind==="friendship-boundary"?"explicit friendship-only boundary":"explicit live canon boundary";
+      if(Number(contract.boundaryTurn)<0)contract.boundaryTurn=Number(p.turn)||CEFH_now();
+      contract.boundaryEvidence=CEFH_clip(p.text,180);
+      contract.boundaryPolicyId=p.id;
+      if(/declined|refused|said no|drew a line/i.test(p.text))contract.rejectionCount=Math.max(1,Number(contract.rejectionCount||0));
+    }
+  });
+};
+
+function CEFH_relationshipRoleClass(from,to){
+  var role="unknown"; try{role=CW_getRole(from,to)||"unknown";}catch(_){}
+  if(/^(?:family|parent|child|sibling|relative)$/.test(role))return "family";
+  if(/^(?:mentor|student|superior|subordinate|colleague|professional|teammate|clinician|patient|attorney|client|handler|asset|captain|crew|caregiver|dependent)$/.test(role))return "professional";
+  if(role==="romantic")return "romantic";
+  if(role==="ex")return "former-romantic";
+  if(role==="rival"||role==="enemy")return "adversarial";
+  if(role==="ally")return "allied";
+  if(role==="friend"||role==="best_friend")return "friendship";
+  if(role==="acquaintance"||role==="stranger")return "social";
+  return "unknown";
+}
+
+CEDS_roleStage = function(from,to){
+  var role="unknown";try{role=CW_getRole(from,to)||"unknown";}catch(_){}
+  if(role==="romantic")return "dating";
+  if(role==="ex")return "ex";
+  if(role==="best_friend")return "close_friend";
+  if(role==="friend")return "friend";
+  if(role==="acquaintance"||role==="stranger")return "acquaintance";
+  // Family/professional/rival/ally are orthogonal relationship classes, not
+  // fake friendship/romance stages.
+  return "unknown";
+};
+
+var CEFH_ORIG_CEDS_contractFor = CEDS_contractFor;
+CEDS_contractFor = function(from,to){
+  var c=CEFH_ORIG_CEDS_contractFor(from,to);
+  if(c){
+    c.roleClass=CEFH_relationshipRoleClass(from,to);
+    try{c.roleCode=CW_getRole(from,to)||c.roleCode||"unknown";}catch(_){if(!c.roleCode)c.roleCode="unknown";}
+    if(typeof c.boundaryPolicyId!=="string")c.boundaryPolicyId="";
+    if(!Array.isArray(c.stageHistory))c.stageHistory=[];
+  }
+  return c;
+};
+
+var CEFH_STAGE_FLOW = {
+  unknown:["acquaintance","peer","friend","potential_romance","dating","ex","estranged"],
+  acquaintance:["peer","friend","potential_romance","dating","ex","estranged"],
+  peer:["friend","close_friend","potential_romance","dating","ex","estranged"],
+  friend:["close_friend","potential_romance","dating","ex","estranged"],
+  close_friend:["potential_romance","dating","ex","estranged"],
+  potential_romance:["dating","friend","ex","estranged"],
+  dating:["exclusive","committed","friend","ex","estranged"],
+  exclusive:["committed","engaged","dating","ex","estranged"],
+  committed:["engaged","married","dating","ex","estranged"],
+  engaged:["married","committed","ex","estranged"],
+  married:["ex","estranged"],
+  ex:["friend","potential_romance","dating","estranged"],
+  estranged:["acquaintance","friend","ex"]
+};
+
+CEDS_setStage = function(contract,stage,turn,evidence,force){
+  if(!contract||!stage)return false;
+  var current=String(contract.stage||"unknown"), next=String(stage||"unknown"), t=Number(turn)||0;
+  if(current===next){contract.stageTurn=Math.max(Number(contract.stageTurn)||-1,t);if(evidence)contract.stageEvidence=CEFH_clip(evidence,180);return false;}
+  var allowed=force===true||((CEFH_STAGE_FLOW[current]||[]).indexOf(next)>=0);
+  if((current==="ex"||current==="estranged")&&/^(?:potential_romance|dating|exclusive|committed|engaged|married)$/.test(next)){
+    allowed=allowed&&!contract.boundaryActive&&Number(contract.explicitReversalTurn||-9999)<=t&&Number(contract.explicitReversalTurn||-9999)>=Number(contract.boundaryTurn||-9999);
+  }
+  if(!allowed)return false;
+  contract.priorStage=current;contract.stage=next;contract.stageTurn=t;contract.stageEvidence=CEFH_clip(evidence,180);
+  if(!Array.isArray(contract.stageHistory))contract.stageHistory=[];
+  contract.stageHistory.push({turn:t,from:current,to:next,evidence:CEFH_clip(evidence,120)});
+  if(contract.stageHistory.length>12)contract.stageHistory=contract.stageHistory.slice(-12);
+  return true;
+};
+
+function CEFH_dialogueSpeakerForPhrase(text,index){
+  try{
+    if(typeof ECHO_VEIL!=="undefined"&&ECHO_VEIL&&typeof ECHO_VEIL.quoteSpeakerContext==="function"){
+      var q=ECHO_VEIL.quoteSpeakerContext(text,index); if(q&&q.speaker)return q.speaker;
+    }
+  }catch(_){}
+  // Conservative fallback: require a named speech attribution close to the
+  // first-person phrase. Support both "Megan says, 'I...'" and
+  // "I...,' Megan says" without assigning an unattributed quote globally.
+  var src=String(text||""), names=CEFH_knownNpcNames(), best="",bestDistance=99999;
+  var lo=Math.max(0,index-160), hi=Math.min(src.length,index+190), window=src.slice(lo,hi), local=index-lo;
+  names.forEach(function(n){
+    var esc=n.replace(/[.*+?^${}()|[\]\\]/g,"\\$&");
+    var patterns=[
+      new RegExp(esc+"[^.!?\n]{0,65}(?:says?|said|asks?|asked|replies?|replied|tells?|told|whispers?|whispered)","ig"),
+      new RegExp("(?:says?|said|asks?|asked|replies?|replied|tells?|told|whispers?|whispered)[^.!?\n]{0,28}"+esc,"ig"),
+      new RegExp(esc+"\s+(?:says?|said|asks?|asked|replies?|replied|tells?|told|whispers?|whispered)","ig")
+    ];
+    patterns.forEach(function(rx){var m;while((m=rx.exec(window))!==null){var center=m.index+m[0].length/2,dist=Math.abs(center-local);if(dist<bestDistance){best=n;bestDistance=dist;}if(m[0].length===0)rx.lastIndex++;}});
+  });
+  return bestDistance<=150?best:"";
+}
+
+CEDS_explicitRomanceReversal = function(text,from,to){
+  var src=String(text||""), actor=String(from||""), first=actor.split(/\s+/)[0];
+  var phrases=/\b(?:i\s+(?:changed|have changed)\s+my\s+mind|i\s+(?:do\s+)?want\s+(?:this|us|to\s+try|to\s+date\s+you|to\s+be\s+with\s+you)|i\s+(?:am|'m|’m)\s+ready\s+to\s+(?:try|date)|will\s+you\s+(?:go\s+out|date)\s+with\s+me)\b/ig;
+  var m;
+  while((m=phrases.exec(src))!==null){
+    var speaker=CEFH_dialogueSpeakerForPhrase(src,m.index);
+    if(speaker&&CEFH_norm(speaker)===CEFH_norm(actor))return true;
+    // If there is no quote attribution, require the actor's name in the same
+    // sentence so another character's "I changed my mind" cannot reopen this bond.
+    var start=Math.max(src.lastIndexOf('.',m.index),src.lastIndexOf('!',m.index),src.lastIndexOf('?',m.index))+1;
+    var endCandidates=[src.indexOf('.',m.index),src.indexOf('!',m.index),src.indexOf('?',m.index)].filter(function(x){return x>=0;});
+    var end=endCandidates.length?Math.min.apply(Math,endCandidates):src.length, sentence=src.slice(start,end+1);
+    if(first&&CEFH_nameMention(sentence,first))return true;
+  }
+  if(first){
+    var escaped=first.replace(/[.*+?^${}()|[\]\\]/g,"\\$&");
+    var named=new RegExp("\\b"+escaped+"\\b[^.!?]{0,130}\\b(?:changes? (?:her|his|their) mind|asks? (?:you|them|him|her) out|explicitly chooses? to date|says? (?:she|he|they) wants? to (?:try|date|be with))\\b","i");
+    if(named.test(src))return true;
+  }
+  return false;
+};
+
+function CEFH_fullLedgerSignature(){
+  var cw=state&&state.crossedWires?state.crossedWires:{}; var rows=[];
+  (cw.archivedAnchors||[]).forEach(function(e){rows.push([e&&e.turn,e&&e.from,e&&e.to,e&&e.kind,e&&e.severity,e&&e.note,"A"].join("|"));});
+  (cw.ledger||[]).forEach(function(e){rows.push([e&&e.turn,e&&e.from,e&&e.to,e&&e.kind,e&&e.severity,e&&e.note,"L"].join("|"));});
+  Object.keys(cw.roles||{}).sort().forEach(function(k){rows.push("R|"+k+"|"+cw.roles[k]);});
+  return rows.length+":"+CEFH_hash(rows.join("\n"));
+}
+
+CEDS_relationshipLedgerSignature = function(){ return CEFH_fullLedgerSignature(); };
+
+var CEFH_ORIG_CEDS_relationshipDirective = CEDS_relationshipDirective;
+CEDS_relationshipDirective = function(from,to,turn){
+  var base="";try{base=CEFH_ORIG_CEDS_relationshipDirective(from,to,turn)||"";}catch(_){}
+  var c=CEDS_contractFor(from,to), extra=[];
+  if(c&&c.roleClass&&c.roleClass!=="unknown")extra.push("relationship class="+c.roleClass);
+  if(c&&c.roleCode&&c.roleCode!=="unknown")extra.push("canon role="+String(c.roleCode).replace(/_/g," "));
+  if(c&&c.stageHistory&&c.stageHistory.length>1){var last=c.stageHistory[c.stageHistory.length-1];extra.push("latest explicit stage transition="+last.from+"→"+last.to);}
+  if(!extra.length)return base;
+  return base+" Role integrity: "+extra.join("; ")+". Family/professional/rival roles are not romance stages and score totals cannot relabel them.";
+};
+
+// ---------------------------------------------------------------------------
+// UNSAID lifecycle hardening
+// ---------------------------------------------------------------------------
+function CEFH_mindDeep(mind){
+  var d=CEDS_mindDeep(mind); if(!d)return null;
+  ["openQuestions","completedPlans","abandonedPlans","contestedBeliefs","emotionArcs"].forEach(function(k){if(!Array.isArray(d[k]))d[k]=[];});
+  if(!Number.isFinite(Number(d.lastReconciledTurn)))d.lastReconciledTurn=-1;
+  return d;
+}
+
+function CEFH_sentencePolarity(text){
+  var t=String(text||"");
+  if(/\b(?:not|never|no longer|isn't|aren't|wasn't|weren't|doesn't|don't|didn't|cannot|can't|won't|without)\b/i.test(t))return -1;
+  return 1;
+}
+
+function CEFH_beliefTopic(item){
+  var about=CEFH_norm(item&&item.about||"");if(about)return about;
+  try{return CEDS_tokens(item&&item.text||"").slice(0,5).join("|");}catch(_){return CEFH_norm(item&&item.text||"").slice(0,60);}
+}
+
+function CEFH_reconcileBeliefConflicts(mind){
+  var d=CEFH_mindDeep(mind);if(!d)return;
+  var active=d.beliefs.filter(function(b){return b&&b.active!==false;});
+  for(var i=0;i<active.length;i++)for(var j=i+1;j<active.length;j++){
+    var a=active[i],b=active[j];if(CEFH_beliefTopic(a)!==CEFH_beliefTopic(b))continue;
+    var conflict=false;
+    try{if(typeof ECHO_VEIL!=="undefined"&&ECHO_VEIL&&typeof ECHO_VEIL.semanticConflict==="function")conflict=ECHO_VEIL.semanticConflict(a.text,b.text);}catch(_){}
+    if(!conflict&&CEDS_similarity(a.text,b.text)>=0.5&&CEFH_sentencePolarity(a.text)!==CEFH_sentencePolarity(b.text))conflict=true;
+    if(!conflict)continue;
+    a.contested=true;b.contested=true;
+    CEDS_mindRemember(d.contestedBeliefs,{type:"belief-conflict",text:CEFH_clip(a.text,90)+" ↔ "+CEFH_clip(b.text,90),about:a.about||b.about||"",turn:CEFH_now(),confidence:0.5},8);
+  }
+}
+
+var CEFH_ORIG_CEDS_structureMindThought=CEDS_structureMindThought;
+CEDS_structureMindThought=function(mind,thought,about,feeling,isCoreShift){
+  var before=CEFH_mindDeep(mind);var beforeBeliefs=before?before.beliefs.length:0;
+  var result=CEFH_ORIG_CEDS_structureMindThought(mind,thought,about,feeling,isCoreShift);
+  var d=CEFH_mindDeep(mind);if(!d)return result;
+  // Questions stay questions; they are useful continuity without pretending the
+  // NPC has learned the answer.
+  CEDS_extractMindSentences(thought).forEach(function(sentence){
+    if(/\?|\b(?:wonder|what if|why would|how could|who is|who was|whether)\b/i.test(sentence)){
+      CEDS_mindRemember(d.openQuestions,{type:"open-question",text:CEFH_clip(sentence,200),about:about||"",turn:CEFH_now(),confidence:0.35},8);
+    }
+  });
+  CEFH_reconcileBeliefConflicts(mind);
+  if(d.beliefs.length>beforeBeliefs){
+    d.beliefs.slice(beforeBeliefs).forEach(function(b){if(b){b.originTurn=Number(b.originTurn||b.turn||CEFH_now());b.lastConfirmedTurn=-1;b.contested=!!b.contested;}});
+  }
+  return result;
+};
+
+function CEFH_extractVisibleNpcActions(text){
+  var src=String(text||"");if(!src)return[];var sentences=src.match(/[^.!?]+(?:[.!?]+|$)/g)||[src],out=[];
+  var names=CEFH_knownNpcNames();
+  sentences.forEach(function(sentence){names.forEach(function(name){if(!CEFH_nameMention(sentence,name))return;if(!/\b(?:goes?|went|asks?|asked|tells?|told|gives?|gave|returns?|returned|finishes?|finished|completes?|completed|abandons?|abandoned|drops?|dropped|refuses?|refused|decides?|decided|starts?|started|stops?|stopped|finds?|found|checks?|checked|calls?|called|meets?|met|leaves?|left|helps?|helped)\b/i.test(sentence))return;out.push({name:name,text:sentence.trim()});});});
+  return out.slice(-24);
+}
+
+function CEFH_reconcileMindAgainstVisible(text){
+  var actions=CEFH_extractVisibleNpcActions(text),s=CEFH_state();if(!actions.length||!s)return;
+  actions.forEach(function(a){
+    var key="";try{key=resolveUnsaidCanonicalName(a.name)||a.name;}catch(_){key=a.name;}
+    var mind=state&&state.unsaid&&state.unsaid.minds?state.unsaid.minds[key]:null;if(!mind)return;var d=CEFH_mindDeep(mind);if(!d)return;
+    d.plans.forEach(function(p){if(!p||p.status==="completed"||p.status==="abandoned")return;var sim=CEDS_similarity(p.text,a.text);var aboutMatch=!p.about||CEFH_nameMention(a.text,p.about);var sharedContent=false;try{var pa=CEDS_tokens(p.text),aa=CEDS_tokens(a.text);sharedContent=pa.some(function(tok){return tok.length>=4&&aa.indexOf(tok)>=0&&!["plan","going","will","want","need"].includes(tok);});}catch(_){}var abandoning=/\b(?:abandons?|drops?|refuses?|stops?)\b/i.test(a.text);if(sim>=0.28||aboutMatch||(abandoning&&sim>=0.14&&sharedContent)){
+      if(abandoning){p.status="abandoned";p.resolvedTurn=CEFH_now();p.resolution=CEFH_clip(a.text,150);CEDS_mindRemember(d.abandonedPlans,Object.assign({},p,{type:"abandoned-plan"}),8);s.mind.metrics.plansAbandoned++;}
+      else if(/\b(?:finishes?|completes?|returns?|asks?|tells?|gives?|checks?|calls?|meets?|helps?|finds?)\b/i.test(a.text)){p.status="completed";p.resolvedTurn=CEFH_now();p.resolution=CEFH_clip(a.text,150);CEDS_mindRemember(d.completedPlans,Object.assign({},p,{type:"completed-plan"}),8);s.mind.metrics.plansCompleted++;}
+    }});
+    d.lastReconciledTurn=CEFH_now();
+  });
+}
+
+var CEFH_ORIG_CEDS_mindDigest=CEDS_mindDigest;
+CEDS_mindDigest=function(mind,about,maxItems){
+  var base=CEFH_ORIG_CEDS_mindDigest(mind,about,maxItems)||"",d=CEFH_mindDeep(mind);if(!d)return base;
+  var extra=[];
+  for(var i=d.openQuestions.length-1;i>=0;i--){var q=d.openQuestions[i];if(q&&(!about||!q.about||CEFH_norm(q.about)===CEFH_norm(about))){extra.push("question="+CEFH_clip(q.text,90));break;}}
+  var activePlan=d.plans.slice().reverse().find(function(p){return p&&p.status!=="completed"&&p.status!=="abandoned";});if(activePlan&&!/\bplan=/.test(base))extra.push("plan="+CEFH_clip(activePlan.text,90));
+  var joined=[base].concat(extra).filter(Boolean).join("; ");return joined.split("; ").slice(0,Math.max(1,Number(maxItems)||4)).join("; ");
+};
+
+// ---------------------------------------------------------------------------
+// Twist proof hardening
+// ---------------------------------------------------------------------------
+function CEFH_twistSourceTrusted(source){
+  var s=String(source||"").toLowerCase();
+  if(!s)return true;
+  if(/(?:private-thought|unsaid|relationship-score|crossed-wires-score|hypothesis|diagnostic|script-state|echo-hypothesis)/.test(s))return false;
+  return true;
+}
+
+function CEFH_twistRevealStrength(independent){
+  var p=independent||{observed:0,reported:0,inference:0,sourceCount:0};
+  if(p.observed>=2&&p.sourceCount>=2)return "full";
+  if(p.observed>=1&&p.sourceCount>=2)return "strong";
+  if(p.observed>=1)return "bounded";
+  if(p.reported>=2&&p.sourceCount>=2)return "bounded";
+  return "partial";
+}
+
+var CEFH_ORIG_CEDS_twistIndependentEvidence=CEDS_twistIndependentEvidence;
+CEDS_twistIndependentEvidence=function(thread){
+  var raw=CEFH_ORIG_CEDS_twistIndependentEvidence(thread),records=(raw.records||[]).filter(function(r){return CEFH_twistSourceTrusted(r.sourceClass||r.source||"");});
+  var levels={observed:0,reported:0,inference:0},sources={},families=[];
+  records.forEach(function(r){if(Object.prototype.hasOwnProperty.call(levels,r.level))levels[r.level]++;var src=String(r.sourceClass||r.source||CEDS_twistSourceClass(r.text,""));sources[src]=1;var f=CEDS_twistEvidenceFamily(r.text);if(f&&!families.some(function(old){return CEDS_similarity(old.replace(/\|/g," "),f.replace(/\|/g," "))>=0.76;}))families.push(f);});
+  return {count:records.length,observed:levels.observed,reported:levels.reported,inference:levels.inference,sourceCount:Object.keys(sources).length,familyCount:families.length,records:records,revealStrength:CEFH_twistRevealStrength({observed:levels.observed,reported:levels.reported,inference:levels.inference,sourceCount:Object.keys(sources).length})};
+};
+
+var CEFH_ORIG_CEDS_twistPayoffSafety=CEDS_twistPayoffSafety;
+CEDS_twistPayoffSafety=function(thread,c,cfg){
+  var base=CEFH_ORIG_CEDS_twistPayoffSafety(thread,c,cfg);if(!base.safe)return base;
+  var proof=CEDS_twistIndependentEvidence(thread),meta=CEDS_twistThreadMeta(thread),strict=!(cfg&&cfg.strictLogic===false);
+  if(strict&&proof.familyCount<Math.max(1,Math.min(3,Number(cfg&&cfg.minSeedsForPayoff)||2))){meta.lastSafetyReason="insufficient independent clue families";return{safe:false,reason:meta.lastSafetyReason,independent:proof};}
+  var sensitive=/^(?:hiddenIdentity|doubleAgent|secretParentage|secretSibling|hiddenAffair|secretMarriage|betrayal|falseAlly|trustedFlip|criminalTies|coverUp|soldOut|possessedObject|notFullyHuman|wrongTimeline|simulation|bodySwap)$/i.test(String(thread&&thread.category||""));
+  if(strict&&sensitive&&proof.observed===0&&proof.sourceCount<2){meta.lastSafetyReason="high-impact reveal needs corroboration across source classes";return{safe:false,reason:meta.lastSafetyReason,independent:proof};}
+  if(strict&&proof.records.some(function(r){return !CEFH_twistSourceTrusted(r.sourceClass||r.source||"");})){meta.lastSafetyReason="circular/private evidence cannot support reveal";return{safe:false,reason:meta.lastSafetyReason,independent:proof};}
+  base.independent=proof;return base;
+};
+
+var CEFH_ORIG_CEDS_revealContract=CEDS_revealContract;
+CEDS_revealContract=function(thread){
+  var proof=CEDS_twistIndependentEvidence(thread),strength=proof.revealStrength||"partial",base=CEFH_ORIG_CEDS_revealContract(thread);
+  var rule=strength==="full"?"Full reveal is permitted only within the proven category and actor scope.":strength==="strong"?"A strong reveal may confirm the supported core fact but must leave unsupported motive/mechanism details open.":strength==="bounded"?"Reveal only the directly supported fact; do not fill in motive, mastermind, history or wider conspiracy.":"Evidence is still indirect: reveal a new clue/partial confirmation, not the entire twist as settled truth.";
+  return base+" REVEAL STRENGTH="+strength.toUpperCase()+": "+rule;
+};
+
+function CEFH_resolvedFactScopeSafe(thread,fact){
+  if(!thread||!fact)return false;var f=String(fact),entity=String(thread.entity||"");
+  if(entity&&typeof isSameCardEntity==="function"){
+    var mentions=false;try{mentions=nameAppears(entity,f);}catch(_){mentions=CEFH_nameMention(f,entity);}
+    if(!mentions&&f.length<260)return false;
+  }
+  if(/\b(?:not true|false that|ruled out|didn't|did not|isn't|is not|wasn't|was not|never was|no evidence)\b/i.test(f))return false;
+  return true;
+}
+
+if(typeof Library!=="undefined"&&Library){
+  var CEFH_ORIG_extractResolved=Library.extractResolvedTwistFact;
+  if(typeof CEFH_ORIG_extractResolved==="function")Library.extractResolvedTwistFact=function(thread,visibleText){var fact=CEFH_ORIG_extractResolved(thread,visibleText);if(!fact)return fact;return CEFH_resolvedFactScopeSafe(thread,fact)?fact:"";};
+}
+
+// ---------------------------------------------------------------------------
+// Retry + state integrity
+// ---------------------------------------------------------------------------
+function CEFH_snapshotMind(turn){
+  var s=CEFH_state();if(!s)return;var minds=state&&state.unsaid&&state.unsaid.minds?CEFH_clone(state.unsaid.minds):null;if(!minds)return;
+  s.retry.mindSnapshots=s.retry.mindSnapshots.filter(function(x){return x&&Number(x.turn)!==Number(turn);});
+  s.retry.mindSnapshots.push({turn:Number(turn)||0,minds:minds});if(s.retry.mindSnapshots.length>4)s.retry.mindSnapshots=s.retry.mindSnapshots.slice(-4);
+}
+
+function CEFH_restoreMindForRetry(turn){
+  var s=CEFH_state();if(!s||!state||!state.unsaid)return false;var row=s.retry.mindSnapshots.slice().reverse().find(function(x){return x&&Number(x.turn)===Number(turn);});if(!row||!row.minds)return false;state.unsaid.minds=CEFH_clone(row.minds)||state.unsaid.minds;CEFH_recordRepair("retry-mind-rollback","Restored UNSAID minds before regenerating turn "+turn);return true;
+}
+
+function CEFH_prepareInput(rawText){
+  CEFH_RUNTIME.phase="input";var s=CEFH_state();if(!s)return;var turn=CEFH_now();
+  if(Number(s.retry.lastOutputTurn)>=turn)CEFH_restoreMindForRetry(turn);
+  CEFH_snapshotMind(turn);s.retry.lastInputTurn=turn;
+  try{if(typeof CEDS_stateBox==="function")CEDS_stateBox();}catch(_){}
+  CEFH_maintenance("input",rawText);
+}
+
+function CEFH_prepareContext(text){
+  CEFH_RUNTIME.phase="context";var s=CEFH_state();CEFH_RUNTIME.contextHash=CEFH_hash(text);
+  if(s) s.retry.contextRetryTurn = Number(s.retry.lastOutputTurn)>=CEFH_now() ? CEFH_now() : -1;
+  CEFH_captureRelationshipPolicies(text,"live-context");
+  try{CEDS_syncRelationshipContracts();}catch(_){}
+  CEFH_maintenance("context",text);
+}
+
+function CEFH_prepareOutput(rawText){
+  CEFH_RUNTIME.phase="output";var s=CEFH_state();if(!s)return;var turn=CEFH_now(),sig=CEFH_hash(rawText);
+  if(Number(s.retry.lastOutputTurn)===turn&&Number(s.retry.contextRetryTurn)!==turn&&s.retry.lastOutputSignature&&s.retry.lastOutputSignature!==sig)CEFH_restoreMindForRetry(turn);
+  CEFH_maintenance("output-pre",rawText);
+}
+
+function CEFH_finishOutput(visibleText){
+  var s=CEFH_state();if(!s)return;var turn=CEFH_now();
+  CEFH_reconcileMindAgainstVisible(visibleText);
+  try{CEDS_syncRelationshipContracts();}catch(_){}
+  s.retry.lastOutputTurn=turn;s.retry.lastOutputSignature=CEFH_hash(visibleText);s.retry.contextRetryTurn=-1;CEFH_RUNTIME.lastVisibleOutput=String(visibleText||"");
+  CEFH_maintenance("output-post",visibleText);
+}
+
+function CEFH_compactDeepState(){
+  var full=CEFH_state();if(!full)return;
+  full.relationship.policies=full.relationship.policies.filter(function(p){return p&&p.active!==false;}).slice(-120);
+  full.integrity.repairs=full.integrity.repairs.slice(-24);full.integrity.warnings=full.integrity.warnings.slice(-18);full.retry.mindSnapshots=full.retry.mindSnapshots.slice(-3);
+  try{
+    var box=CEDS_stateBox();if(box){
+      if(box.relationship&&Array.isArray(box.relationship.history))box.relationship.history=box.relationship.history.slice(-80);
+      if(box.twist&&Array.isArray(box.twist.history))box.twist.history=box.twist.history.slice(-80);
+      if(box.twist&&box.twist.threadMeta){var ids=Object.keys(box.twist.threadMeta);if(ids.length>160){ids.sort(function(a,b){return Number(box.twist.threadMeta[b]&&box.twist.threadMeta[b].createdTurn||0)-Number(box.twist.threadMeta[a]&&box.twist.threadMeta[a].createdTurn||0);});var keep={};ids.slice(0,160).forEach(function(id){keep[id]=box.twist.threadMeta[id];});box.twist.threadMeta=keep;}}
+    }
+  }catch(_){}
+}
+
+function CEFH_repairMalformedState(){
+  var repaired=0;
+  try{if(typeof initUnsaid==="function")initUnsaid();}catch(e){CEFH_recordWarning("unsaid-init",e&&e.message);}
+  try{if(typeof CW_init==="function")CW_init();}catch(e){CEFH_recordWarning("crossed-wires-init",e&&e.message);}
+  try{if(typeof Library!=="undefined"&&Library&&typeof Library.initState==="function")Library.initState();}catch(e){CEFH_recordWarning("twists-init",e&&e.message);}
+  try{if(typeof ECHO_VEIL!=="undefined"&&ECHO_VEIL&&typeof ECHO_VEIL.getState==="function")ECHO_VEIL.getState();}catch(e){CEFH_recordWarning("echo-init",e&&e.message);}
+  try{
+    var contracts=CEDS_stateBox().relationship.contracts||{};Object.keys(contracts).forEach(function(k){var c=contracts[k];if(!c||typeof c!=="object"){delete contracts[k];repaired++;return;}if(!Array.isArray(c.romanticEvidenceTurns)){c.romanticEvidenceTurns=[];repaired++;}if(!Array.isArray(c.ruptures)){c.ruptures=[];repaired++;}if(!Array.isArray(c.repairs)){c.repairs=[];repaired++;}});
+  }catch(_){}
+  if(repaired)CEFH_recordRepair("state-schema","Repaired "+repaired+" malformed deep-state field(s)");
+}
+
+function CEFH_maintenance(phase,text){
+  var s=CEFH_state();if(!s)return;var turn=CEFH_now();
+  if(s.integrity.lastMaintenanceTurn!==turn||phase==="output-post"){
+    CEFH_repairMalformedState();CEFH_compactDeepState();s.integrity.lastMaintenanceTurn=turn;
+  }
+  try{var chars=JSON.stringify(state).length;s.performance.lastStateChars=chars;s.performance.maxStateCharsSeen=Math.max(Number(s.performance.maxStateCharsSeen||0),chars);if(chars>1500000)CEFH_recordWarning("state-size","Persistent state is very large ("+chars+" chars); old diagnostics/checkpoints are being compacted.");}catch(_){}
+}
+
+// ---------------------------------------------------------------------------
+// Conservative player-agency output repair
+// ---------------------------------------------------------------------------
+function CEFH_lastPlayerInput(){
+  try{if(state&&state.crossedEchoesCanonSentinel&&state.crossedEchoesCanonSentinel.lastInputText)return String(state.crossedEchoesCanonSentinel.lastInputText);}catch(_){}
+  try{if(typeof history!=="undefined"&&Array.isArray(history)){for(var i=history.length-1;i>=0;i--){var h=history[i];if(h&&/^(?:do|say|story|player|input)$/i.test(String(h.type||""))&&h.text)return String(h.text);}}}catch(_){}
+  return "";
+}
+
+function CEFH_agencySentenceViolation(sentence,input){
+  var s=String(sentence||""),i=String(input||"");
+  // Never strip ordinary involuntary consequences (you stumble, you are hit,
+  // pain flashes, etc.). Only target volunteered dialogue/decision/thought acts.
+  var voluntary=/\byou\s+(?:decide|choose|resolve|promise|agree|refuse|plan|intend|want|think|realize|realise|remember|feel|say|tell|ask|whisper|shout|admit|confess)\b/i.exec(s);
+  if(!voluntary)return false;
+  var phrase=voluntary[0].replace(/^you\s+/i,"");
+  if(phrase&&new RegExp("\\b"+phrase.replace(/[.*+?^${}()|[\]\\]/g,"\\$&")+"\\b","i").test(i))return false;
+  // Player input can explicitly contain quoted dialogue; avoid deleting a valid
+  // resolution when the model simply echoes/continues that exact choice.
+  var core=CEFH_norm(s).replace(/^you\s+/,"").slice(0,80),inputNorm=CEFH_norm(i);
+  if(core.length>12&&inputNorm.indexOf(core.slice(0,40))>=0)return false;
+  return true;
+}
+
+function CEFH_repairPlayerAgency(text){
+  var src=String(text||"");if(!src.trim())return src;var input=CEFH_lastPlayerInput();
+  var chunks=src.match(/[^.!?]+(?:[.!?]+|$)/g)||[src],kept=[],removed=[];
+  chunks.forEach(function(sentence){if(CEFH_agencySentenceViolation(sentence,input))removed.push(sentence);else kept.push(sentence);});
+  if(!removed.length)return src;
+  CEFH_recordRepair("player-agency","Removed "+removed.length+" invented voluntary player sentence(s)");
+  var out=kept.join(" ").replace(/\s{2,}/g," ").trim();return out||"\u200B";
+}
+
+function CEFH_doctor(){
+  var s=CEFH_state(),deep=null;try{deep=CEDS_healthSnapshot();}catch(_){deep={};}
+  var lines=[
+    "CROSSED ECHOES — FULL SYSTEM DOCTOR",
+    "Reliability kernel: "+CEFH_FULL_VERSION+" | Deep kernel: "+(typeof CEDS_DEEP_VERSION!=="undefined"?CEDS_DEEP_VERSION:"n/a"),
+    "Turn: "+CEFH_now(),
+    "Relationships: "+(deep.relationships&&deep.relationships.contracts||0)+" contracts | "+(deep.relationships&&deep.relationships.activeBoundaries||0)+" active boundaries | "+s.relationship.policies.filter(function(p){return p&&p.active!==false;}).length+" persistent canon policies",
+    "UNSAID: "+(deep.minds&&deep.minds.minds||0)+" minds | "+(deep.minds&&deep.minds.beliefs||0)+" subjective beliefs | plans completed="+s.mind.metrics.plansCompleted+" | abandoned="+s.mind.metrics.plansAbandoned,
+    "Twists: "+(deep.twists&&deep.twists.threads||0)+" threads | safe ready="+(deep.twists&&deep.twists.safeReady||0)+" | blocked="+(deep.twists&&deep.twists.blockedReady||0),
+    "Integrity: repairs="+s.integrity.repairCount+" | warnings="+s.integrity.warnings.length+" | state chars="+s.performance.lastStateChars,
+    "Contracts: current explicit canon outranks scores; private thought cannot create world fact; counter-evidence vetoes reveals; Retry replaces rejected hidden state; family/professional roles never auto-convert into romance."
+  ];
+  return lines.join("\n");
+}
+
+function CEFH_healthSnapshot(){
+  var s=CEFH_state(),deep=null;try{deep=CEDS_healthSnapshot();}catch(_){deep={};}
+  var snap={version:CEFH_FULL_VERSION,turn:CEFH_now(),deep:deep,policies:s.relationship.policies.filter(function(p){return p&&p.active!==false;}).length,repairs:s.integrity.repairCount,warnings:s.integrity.warnings.length,stateChars:s.performance.lastStateChars};
+  s.integrity.lastHealth=snap;return snap;
+}
+
+// Capture live policies even when Crossed Wires itself yields due to context
+// headroom. This wrapper is intentionally last so it sees the actual host text.
+var CEFH_ORIG_CW_onContext = (typeof CW_onContext === "function") ? CW_onContext : null;
+if(CEFH_ORIG_CW_onContext){
+  CW_onContext=function(text){CEFH_captureRelationshipPolicies(text,"live-context");return CEFH_ORIG_CW_onContext(text);};
+}
+
+// Keep the original deep doctor available while exposing the whole-system view.
+var CEFH_ORIG_CEDS_doctor=(typeof CEDS_doctor==="function")?CEDS_doctor:null;
+CEDS_doctor=function(){var old=CEFH_ORIG_CEDS_doctor?CEFH_ORIG_CEDS_doctor():"";return CEFH_doctor()+(old?"\n\n"+old:"");};
+
+// End CROSSED ECHOES — FULL SYSTEM RELIABILITY KERNEL.

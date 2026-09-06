@@ -1415,6 +1415,7 @@ var modifier = (text) => {
   var originalText = text;
   try {
     if (typeof UN_resetHookCaches === "function") UN_resetHookCaches("output");
+    if (typeof CEFH_prepareOutput === "function") CEFH_prepareOutput(originalText);
 
     // /wire commands are local admin turns; only Crossed Wires should consume
     // their generated placeholder response.
@@ -1431,13 +1432,17 @@ var modifier = (text) => {
     var afterUnsaid = unsaidModifier(afterTwists.text);
     var visible = afterUnsaid && typeof afterUnsaid.text !== "undefined" ? afterUnsaid.text : afterTwists.text;
     if (typeof CW_onOutput === "function") visible = CW_onOutput(visible);
+    if (typeof CEFH_repairPlayerAgency === "function") visible = CEFH_repairPlayerAgency(visible);
     // Salvage only explicit, visible NPC behaviour when the private UNSAID
     // protocol is absent. This never infers or writes hidden feelings/motives.
     if (typeof observeUnsaidVisibleBehavior === "function") observeUnsaidVisibleBehavior(visible);
     if (typeof ECHO_VEIL !== "undefined" && ECHO_VEIL.output) visible = ECHO_VEIL.output(visible);
     if (typeof CE_stripVisibleScriptArtifacts === "function") visible = CE_stripVisibleScriptArtifacts(visible);
     if (typeof CEW_onOutput === "function") CEW_onOutput(visible);
+    if (typeof CECS_auditOutput === "function") CECS_auditOutput(visible);
+    if (typeof CECS_onOutput === "function") CECS_onOutput(visible);
     if (typeof UN_afterOutput === "function") UN_afterOutput(visible);
+    if (typeof CEFH_finishOutput === "function") CEFH_finishOutput(visible);
     if (typeof CE_bridgeEchoThreadsToTwists === "function") CE_bridgeEchoThreadsToTwists();
     if (typeof CE_syncStoryCardPresentation === "function") CE_syncStoryCardPresentation();
     return { text: visible };

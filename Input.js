@@ -540,6 +540,7 @@ var modifier = (text) => {
   var originalText = text;
   try {
     if (typeof UN_resetHookCaches === "function") UN_resetHookCaches("input");
+    if (typeof CEFH_prepareInput === "function") CEFH_prepareInput(originalText);
 
     var coordinatorCommand = ownedControlCommand(originalText);
     if (coordinatorCommand && /^\/(?:crossedechoes(?:status)?|cestatus|ce|threadbound(?:status)?|tbstatus|unified(?:status)?|world(?:engine)?)\b/i.test(coordinatorCommand)) {
@@ -551,8 +552,10 @@ var modifier = (text) => {
         } else if (/^\/(?:world|worldengine)\s+pulse\s*$/i.test(coordinatorCommand)) {
           var pulse = typeof CEW_forcePulse === "function" ? CEW_forcePulse() : null;
           pushMessage(pulse ? ("🌍 WORLD ENGINE pulse candidate — "+pulse.entity+": "+pulse.basis) : "🌍 No evidence-backed off-screen pulse is currently eligible.");
+        } else if (/^\/(?:crossedechoes|ce)\s+doctor\s*$/i.test(coordinatorCommand)) {
+          pushMessage(typeof CEFH_doctor === "function" ? CEFH_doctor() : (typeof CEDS_doctor === "function" ? CEDS_doctor() : "Full-system doctor unavailable."));
         } else if (/^\/(?:crossedechoes|ce)\s+(?:help|commands?|guide)\s*$/i.test(coordinatorCommand)) {
-          pushMessage(crossedEchoesCommandHelp()+"\n\nWORLD ENGINE: /world, /world doctor, /world pulse");
+          pushMessage(crossedEchoesCommandHelp()+"\n/crossedechoes doctor — full relationships/UNSAID/twists/integrity diagnostic\n\nWORLD ENGINE: /world, /world doctor, /world pulse");
         } else if (/^\/(?:crossedechoes(?:status)?|cestatus|ce|threadbound(?:status)?|tbstatus|unified(?:status)?)(?:\s+status)?\s*$/i.test(coordinatorCommand)) {
           pushMessage(UN_statusText());
         } else {
@@ -584,6 +587,7 @@ var modifier = (text) => {
     if (typeof CW_onInput === "function") visible = CW_onInput(visible);
     if (typeof ECHO_VEIL !== "undefined" && ECHO_VEIL.input) visible = ECHO_VEIL.input(visible);
     if (typeof CEW_onInput === "function") CEW_onInput(visible);
+    if (typeof CECS_onInput === "function") CECS_onInput(originalText);
     if (typeof UN_profileConsensus === "function") UN_profileConsensus();
     return { text: visible };
   } catch (e) {

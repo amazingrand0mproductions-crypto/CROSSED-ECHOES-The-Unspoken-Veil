@@ -199,6 +199,36 @@ Optimized Context is supported. CROSSED ECHOES preserves the host's existing Con
 
 ---
 
+## 🛡️ Canon Sentinel — live-play reliability hardening
+
+This build adds a final evidence-and-recency arbitration layer designed for long AI Dungeon adventures where current story state can disagree with older Story Cards or summaries. It prioritizes the latest explicit player action and newest visible canon, protects player agency, preserves NPC knowledge boundaries and relationship boundaries, keeps theories/claims below confirmed fact, and prevents stale age/relationship summaries from silently winning.
+
+The relationship engine also seeds explicit current relationship developments from live scenario context (for example a mutual kiss, a later rejection, or a stated boundary) without converting attraction into consent or commitment. The seed ledger is deduplicated so the same scenario summary does not inflate a relationship every turn.
+
+Canon Sentinel is appended last and budget-fitted. Existing ECHO VEIL, Crossed Wires, WORLD ENGINE and UNSAID context reservations win first; the Sentinel shrinks or yields rather than pushing the host over its Context limit.
+
+---
+
+## 🧩 Deep relationship, mind and twist contracts
+
+The current engine adds persistent state machines underneath the older narrative layers. They are designed to survive isolated Input/Context/Output hooks, retries and long gaps between scenes.
+
+**Crossed Wires** now separates relationship **class** from relationship **stage**. Family, mentor/student, professional, ally and rival roles do not sit on a hidden ladder that eventually becomes romance. Romantic development has its own consent/boundary contract, including rejection locks, rupture/repair history, speaker-aware reversals and evidence requirements before a previously closed arc can reopen.
+
+**UNSAID** separates what an NPC knows, suspects, privately believes, wants, fears, plans, values and performs socially. A private thought cannot create objective canon. NPCs can revise or retire old beliefs when later evidence disproves them, so the mind model is allowed to learn instead of endlessly repeating an obsolete suspicion.
+
+**TWISTS AND TURNS** now tracks clue lineage and independent evidence families. Rewording the same clue does not mature a twist twice. Fresh counter-evidence blocks an automatic payoff until genuinely newer evidence answers it. Natural reveals require an evidence-backed reveal contract; explicit author commands retain their deliberate override semantics without turning unsupported guesses into established facts.
+
+Cross-system evidence remains firewalled: relationship tension is not proof of a conspiracy, an UNSAID suspicion is not a world fact, and an unconfirmed twist cannot rewrite a character's psychology.
+
+## 🔧 Full-system reliability layer
+
+A final reliability kernel coordinates persistent relationship policies, same-turn Retry replacement, speaker attribution, malformed-state repair, bounded state health and whole-system diagnostics. Relationship policies are owner-aware, so a boundary belonging to one NPC cannot leak onto another NPC simply because both appear in the same Context.
+
+Use `/crossedechoes doctor` (or `/ce doctor`) for the combined relationships / UNSAID / twists / integrity diagnostic.
+
+---
+
 ## 🩺 Troubleshooting
 
 ### CODEX config is missing
@@ -232,6 +262,8 @@ Check the public Character Story Cards first. High-stakes relationships require 
 I test CROSSED ECHOES against isolated AI Dungeon-style hooks, long-running state, malformed saves, write refusal, large Story Card libraries, different genres, conflicting identities and real-play failures.
 
 The target is not a large test number. The target is for the script to visibly do what it claims in normal play while still knowing when **not** to invent something.
+
+The current release passes the 185-test core suite, dedicated deep-system and twist suites, full-system/adversarial/host-contract checks, NEXT CLASS real-play and supplied-scenario regressions, 30/30 cross-genre matrices in both Context modes, 60-turn general simulations, 48-turn fluidity simulations, high-concept temporal/multiversal simulations, 312-card relationship-foundation stress, and the 5,000-card correctness ceiling. Exact details and measured timings are in `TEST_REPORT.txt`.
 
 Technical verification is kept with the release for anyone who wants to inspect it, but the public documentation stays focused on using the script rather than exposing internal fixtures or private scenario material.
 
