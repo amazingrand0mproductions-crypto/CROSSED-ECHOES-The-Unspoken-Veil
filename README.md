@@ -34,7 +34,7 @@ Key corrections:
 - **UNSAID observable continuity:** guarded/rehearsed/evasive visible behaviour can persist without inventing private thoughts.
 - **Diagnostics:** unrelated global twist threads are no longer pasted into every entity card.
 
-New regression gate: **8/8 NEXT CLASS real-play tests PASS**. The supplied minimal regression fixture is `NEXT_CLASS_REALPLAY_FIXTURE.json`; the user’s full private adventure export is not bundled.
+New regression gate: **11/11 NEXT CLASS real-play tests PASS**. The supplied minimal regression fixture is `NEXT_CLASS_REALPLAY_FIXTURE.json`; the user’s full private adventure export is not bundled.
 
 ---
 
@@ -781,3 +781,16 @@ When private relationship tags are missing, Crossed Wires can conservatively rec
 ### Twist hardening audit
 
 See `TWISTS_HARDENING_AUDIT.txt` for the dedicated TWISTS AND TURNS 1.3.1 live-story audit and final regression results.
+
+## Cross-genre double validation — 6 September 2026
+
+This release was revalidated twice after the NEXT CLASS live-play audit. A separate real Input → Context → Output matrix now exercises all 30 WORLD ENGINE scenario families in both Standard and Optimized Context.
+
+Three classifier gaps discovered by that matrix are permanent regressions:
+- `megacorp called Neon Kestrel` → **Faction**
+- `estate called Blackthorn Manor` → **Location**
+- `clinic called Saint Orison Clinic` → **Location**
+
+The release therefore uses explicit organization grammar separately from physical-venue grammar instead of guessing from a suffix alone.
+
+Current package gates: **175/175 core · 23/23 TWISTS · 31/31 World Engine · 6/6 host-contract · 6/6 adversarial · 11/11 NEXT CLASS real-play · 30/30 cross-genre Standard · 30/30 cross-genre Optimized**.

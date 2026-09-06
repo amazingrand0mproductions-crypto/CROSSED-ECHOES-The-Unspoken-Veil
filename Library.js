@@ -6494,9 +6494,9 @@ function codexTypedEntityCue(name, source, type) {
   source = cleanName ? codexLocalEvidenceForName(cleanName, source) : "";
   if (!n || !source) return false;
   const types = {
-    location: "city|town|village|kingdom|realm|district|region|planet|world|station|base|facility|school|academy|college|university|hospital|hotel|tavern|inn|house|building|street|road|river|mountain|forest|island|courtroom|courthouse|office|farm|ranch|arena|stadium|prison|laboratory|museum|library|beach|cave|mine|cemetery",
+    location: "city|town|village|kingdom|realm|district|region|planet|world|station|base|facility|school|academy|college|university|hospital|clinic|hotel|tavern|inn|saloon|nightclub|restaurant|diner|bistro|bakery|pizzeria|bar|pub|cafe|coffee\s+shop|store|shop|market|house|home|estate|manor|safehouse|bunker|shelter|asylum|archive|venue|theater|theatre|building|street|road|river|mountain|forest|island|courtroom|courthouse|office|farm|ranch|arena|stadium|prison|laboratory|museum|library|beach|cave|mine|cemetery",
     item: "item|object|artifact|relic|weapon|sword|blade|gun|device|tool|book|document|letter|contract|map|vehicle|car|ship|starship|phone|smartphone|computer|laptop|tablet|console|controller|gamepad|handheld|headset|monitor|television|tv|keyboard|router|printer|speaker|earbuds|smartwatch|medicine|dish|meal|drink|cocktail|dessert|recipe",
-    faction: "faction|organization|organisation|group|guild|order|clan|company|corporation|agency|team|club|league|union|association|department|bureau|committee|party|band|crew|government|police|restaurant|store|shop|brand|network"
+    faction: "faction|organization|organisation|group|guild|order|clan|company|corporation|megacorp|agency|team|club|league|union|association|department|bureau|committee|party|band|crew|government|police|restaurant|store|shop|brand|network"
   };
   const words = types[type];
   if (!words) return false;
@@ -6723,7 +6723,7 @@ function codexOperationalExplicitType(name, text) {
     {
       type: "faction", score: 10, reason: "explicit-organization",
       patterns: [
-        new RegExp(`\\b(?:holding\\s+)?(?:company|corporation|firm|business|enterprise|agency|organization|organisation|group|syndicate|foundation|network|conglomerate)\\s+(?:called|named|known\\s+as|registered\\s+as|trading\\s+as)\\s+${q1}${n}${q2}(?=\\s|[,.;:!?—-]|$)`, "i")
+        new RegExp(`\\b(?:holding\\s+)?(?:company|corporation|megacorp|firm|business|enterprise|agency|organization|organisation|group|syndicate|foundation|network|conglomerate)\\s+(?:called|named|known\\s+as|registered\\s+as|trading\\s+as)\\s+${q1}${n}${q2}(?=\\s|[,.;:!?—-]|$)`, "i")
       ]
     }
   ];
@@ -6765,7 +6765,7 @@ function strongCodexNonCharacterEvidence(name, text) {
     "(?:location|place|site|venue|garden|grove|park|plaza|square|city|town|" +
     "village|hamlet|settlement|kingdom|realm|country|nation|district|region|" +
     "province|port|harbou?r|forest|woods|woodland|mountain|valley|island|" +
-    "station|outpost|colony|tavern|inn|hotel|motel|castle|fortress|temple|" +
+    "station|outpost|colony|tavern|inn|saloon|nightclub|restaurant|diner|bistro|bakery|pizzeria|bar|pub|cafe|coffee\s+shop|store|shop|market|hotel|motel|estate|manor|safehouse|bunker|shelter|asylum|archive|castle|fortress|temple|" +
     "shrine|academy|school|college|university|campus|facility|base|office|" +
     "apartment|house|home|warehouse|factory|farm|ranch|arena|stadium|" +
     "courtroom|courthouse|prison|jail|theater|theatre|museum|library|mall|" +
@@ -6780,7 +6780,7 @@ function strongCodexNonCharacterEvidence(name, text) {
     "(?:bookstore|bookshop|book\\s+shop|restaurant|diner|bistro|caf[eé]|" +
     "coffee\\s+shop|bakery|pizzeria|steakhouse|deli|bar|pub|tavern|store|" +
     "shop|market|supermarket|grocery|pharmacy|salon|boutique|hotel|inn|motel|" +
-    "cinema|theater|theatre|museum|library|mall|clinic|hospital|gym|studio)";
+    "cinema|theater|theatre|museum|library|archive|mall|clinic|hospital|asylum|gym|studio|nightclub|saloon|venue)";
 
   const itemKinds =
     "(?:item|object|artifact|relic|device|weapon|tool|sword|blade|gun|rifle|" +
@@ -6794,7 +6794,7 @@ function strongCodexNonCharacterEvidence(name, text) {
 
   const factionKinds =
     "(?:order|guild|alliance|faction|clan|brotherhood|council|syndicate|" +
-    "coalition|company|corporation|agency|organization|organisation|group|cell|" +
+    "coalition|company|corporation|megacorp|agency|organization|organisation|group|cell|" +
     "gang|cult|society|restaurant|store|shop|brand|network|team|club|league|" +
     "union|association|foundation|charity|department|bureau|committee|party|" +
     "campaign|band|orchestra|label|school|college|university|crew|fleet|" +
@@ -6831,6 +6831,11 @@ function strongCodexNonCharacterEvidence(name, text) {
       new RegExp(`\\b${n}\\b\\s+(?:is|was|are|were)\\s+(?:a|an|the)\\s+(?:[a-z-]+\\s+){0,3}${venueKinds}\\b`, "i")
     ];
     if (venueExplicit.some(re => re.test(source))) scores.location += 5;
+    // Physical venue naming should outrank an organization-like suffix on the
+    // entity name itself (e.g. "the clinic called Saint Orison Clinic").
+    // This keeps companies/agencies as factions while treating an explicitly
+    // named place of business/institution as the place the scene can enter.
+    if (new RegExp(`\\b${venueKinds}\\s+(?:called|named|known\\s+as|dubbed)\\s+["“”'‘’]?${n}\\b`, "i").test(source)) scores.location += 10;
     if (new RegExp(`\\b(?:enters?|entered|visits?|visited|walks?\\s+into|walked\\s+into|steps?\\s+into|stepped\\s+into|arrives?\\s+at|arrived\\s+at|goes?\\s+to|went\\s+to|heads?\\s+to|headed\\s+to|leaves?|left)\\s+(?:the\\s+)?${n}\\b`, "i").test(source)) scores.location += 5;
     if (new RegExp(`\\b(?:in|inside|outside|into|through|near|around|toward|towards|from|within|across|beneath|above|at)\\s+(?:the\\s+)?${n}\\b`, "i").test(source)) scores.location += 1;
     if (new RegExp(`\\b${n}\\b\\s+(?:lies?|sits?|stands?|is\\s+located|is\\s+situated|can\\s+be\\s+found)\\s+(?:in|near|on|beside|within|outside|north|south|east|west)\\b`, "i").test(source)) scores.location += 3;
