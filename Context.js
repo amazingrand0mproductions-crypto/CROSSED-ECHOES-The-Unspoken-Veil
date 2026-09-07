@@ -821,10 +821,11 @@ var modifier = (text) => {
     if (typeof CEW_onContext === "function") {
       var worldPacket = CEW_onContext(working);
       if (worldPacket) {
-        if (typeof CE_isCacheEfficientContext === "function" && CE_isCacheEfficientContext() && typeof CE_appendCompleteContextSuffix === "function") {
-          var worldAppend = CE_appendCompleteContextSuffix(working, worldPacket, 0);
+        var canonTailReserve = typeof CE_contextSafetyTailReserve === "function" ? CE_contextSafetyTailReserve() : 0;
+        if (typeof CE_appendCompleteContextSuffix === "function") {
+          var worldAppend = CE_appendCompleteContextSuffix(working, worldPacket, canonTailReserve);
           if (worldAppend.appended) working = worldAppend.text;
-          else if (typeof utSkipRuntimeTask === "function") utSkipRuntimeTask("world-engine-cache-headroom");
+          else if (typeof utSkipRuntimeTask === "function") utSkipRuntimeTask("world-engine-canon-headroom");
         } else working += worldPacket;
       }
     }
@@ -832,11 +833,11 @@ var modifier = (text) => {
     if (typeof UN_contextPacket === "function") {
       var bridgePacket = UN_contextPacket(working);
       if (bridgePacket) {
-        if (typeof CE_isCacheEfficientContext === "function" && CE_isCacheEfficientContext() &&
-            typeof CE_appendCompleteContextSuffix === "function") {
-          var bridgeAppend = CE_appendCompleteContextSuffix(working, bridgePacket, 0);
+        var canonTailReserve2 = typeof CE_contextSafetyTailReserve === "function" ? CE_contextSafetyTailReserve() : 0;
+        if (typeof CE_appendCompleteContextSuffix === "function") {
+          var bridgeAppend = CE_appendCompleteContextSuffix(working, bridgePacket, canonTailReserve2);
           if (bridgeAppend.appended) working = bridgeAppend.text;
-          else if (typeof utSkipRuntimeTask === "function") utSkipRuntimeTask("fusion-cache-headroom");
+          else if (typeof utSkipRuntimeTask === "function") utSkipRuntimeTask("fusion-canon-headroom");
         } else working += bridgePacket;
       }
     }

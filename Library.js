@@ -6520,11 +6520,27 @@ function stripConfigNoise(text) {
   return cleaned;
 }
 
+function CE_contextSafetyTailReserve(){
+  try{
+    if(typeof info==="undefined"||!info||!Number.isFinite(Number(info.maxChars)))return 0;
+    var m=Number(info.maxChars);
+    if(m<=7000)return 260;
+    if(m<=10000)return 340;
+    if(m<=14000)return 760;
+    if(m<=20000)return 1200;
+    return 1450;
+  }catch(_){return 0;}
+}
+
 function fitInstructionToBudget(baseText, instruction) {
   const hasBudget = typeof info !== "undefined" && info && typeof info.maxChars === "number";
   if (!hasBudget) return instruction;
 
-  const budget = Math.max(0, info.maxChars - CONTEXT_SAFETY_MARGIN);
+  // Optional structured workers (UNSAID/Codex) leave a small tail for the
+  // final Canon Sentinel. This prevents a private-thought tag from consuming
+  // the last bytes needed for player-agency/evidence/kinship safeguards.
+  const tailReserve = typeof CE_contextSafetyTailReserve === "function" ? CE_contextSafetyTailReserve() : 0;
+  const budget = Math.max(0, info.maxChars - CONTEXT_SAFETY_MARGIN - tailReserve);
   const baseLength = typeof baseText === "string" ? baseText.length : 0;
   if ((baseLength + instruction.length) <= budget) return instruction;
 
@@ -11083,17 +11099,46 @@ const CW_SCENARIO_MODES = [
 ];
 
 const CW_ROLE_CODES = [
-  "unknown", "stranger", "acquaintance", "friend", "best_friend", "family", "parent", "child",
-  "sibling", "relative", "romantic", "ex", "rival", "ally", "enemy", "mentor", "student",
+  "unknown", "stranger", "acquaintance", "friend", "best_friend",
+  // Family / kinship is deliberately granular. These codes are orthogonal to
+  // romance stages, so a close family bond can never become romance because a
+  // numeric relationship score happened to rise.
+  "family", "relative", "chosen_family",
+  "parent", "child", "adoptive_parent", "adoptive_child", "foster_parent", "foster_child",
+  "step_parent", "step_child", "guardian", "ward", "godparent", "godchild",
+  "sibling", "adoptive_sibling", "foster_sibling", "half_sibling", "step_sibling", "twin",
+  "grandparent", "grandchild", "great_grandparent", "great_grandchild",
+  "aunt_uncle", "niece_nephew", "great_aunt_uncle", "great_niece_nephew", "cousin",
+  "parent_in_law", "child_in_law", "sibling_in_law", "in_law", "ancestor", "descendant",
+  "romantic", "ex", "rival", "ally", "enemy", "mentor", "student",
   "superior", "subordinate", "colleague", "teammate", "political", "professional",
   "caregiver", "dependent", "clinician", "patient", "attorney", "client",
   "handler", "asset", "captain", "crew"
 ];
-const CW_FAMILY_ROLES = ["family", "parent", "child", "sibling", "relative"];
+const CW_FAMILY_ROLES = [
+  "family", "relative", "chosen_family",
+  "parent", "child", "adoptive_parent", "adoptive_child", "foster_parent", "foster_child",
+  "step_parent", "step_child", "guardian", "ward", "godparent", "godchild",
+  "sibling", "adoptive_sibling", "foster_sibling", "half_sibling", "step_sibling", "twin",
+  "grandparent", "grandchild", "great_grandparent", "great_grandchild",
+  "aunt_uncle", "niece_nephew", "great_aunt_uncle", "great_niece_nephew", "cousin",
+  "parent_in_law", "child_in_law", "sibling_in_law", "in_law", "ancestor", "descendant"
+];
 const CW_PROFESSIONAL_ROLES = ["superior", "subordinate", "colleague", "professional", "mentor", "student", "teammate", "clinician", "patient", "attorney", "client", "handler", "asset", "captain", "crew"];
 const CW_ROLE_INVERSE = {
-  friend: "friend", best_friend: "best_friend", family: "family", parent: "child", child: "parent",
-  sibling: "sibling", relative: "relative", romantic: "romantic", ex: "ex", rival: "rival", ally: "ally",
+  friend: "friend", best_friend: "best_friend",
+  family: "family", relative: "relative", chosen_family: "chosen_family",
+  parent: "child", child: "parent", adoptive_parent: "adoptive_child", adoptive_child: "adoptive_parent",
+  foster_parent: "foster_child", foster_child: "foster_parent", step_parent: "step_child", step_child: "step_parent",
+  guardian: "ward", ward: "guardian", godparent: "godchild", godchild: "godparent",
+  sibling: "sibling", adoptive_sibling: "adoptive_sibling", foster_sibling: "foster_sibling", half_sibling: "half_sibling", step_sibling: "step_sibling", twin: "twin",
+  grandparent: "grandchild", grandchild: "grandparent",
+  great_grandparent: "great_grandchild", great_grandchild: "great_grandparent",
+  aunt_uncle: "niece_nephew", niece_nephew: "aunt_uncle",
+  great_aunt_uncle: "great_niece_nephew", great_niece_nephew: "great_aunt_uncle",
+  cousin: "cousin", parent_in_law: "child_in_law", child_in_law: "parent_in_law",
+  sibling_in_law: "sibling_in_law", in_law: "in_law", ancestor: "descendant", descendant: "ancestor",
+  romantic: "romantic", ex: "ex", rival: "rival", ally: "ally",
   enemy: "enemy", mentor: "student", student: "mentor", superior: "subordinate", subordinate: "superior",
   colleague: "colleague", teammate: "teammate", political: "political", professional: "professional",
   acquaintance: "acquaintance", stranger: "stranger", unknown: "unknown",
@@ -11157,7 +11202,7 @@ const CW_PROFILE_DEFINITIONS = {
   MILITARY: { label: "Military", clues: ["military", "army", "soldier", "squad", "platoon", "commander", "commanding officer", "special forces", "marine", "navy", "air force", "barracks", "war zone"], directive: "Use chain of command, comradeship, duty, competence, sacrifice and moral disagreement. Do not mistake obedience for affection." },
   WORKPLACE: { label: "Workplace", clues: ["workplace", "office", "coworker", "co-worker", "boss", "manager", "company", "promotion", "shift", "colleague", "employee", "hospital", "law firm", "retail", "store manager"], directive: "Use professional boundaries, hierarchy, collaboration, competition, reputation and career consequences. Romance should never be assumed from proximity." },
   SCHOOL: { label: "School / campus", clues: ["school", "high school", "boarding school", "university", "college", "campus", "student", "teacher", "professor", "classroom", "dorm", "exam", "academy"], directive: "Use peer groups, belonging, mentorship, competition, friendship and authority dynamics. Adult-only mechanics remain strictly age-gated." },
-  FAMILY: { label: "Family", clues: ["family", "mother", "father", "sister", "brother", "sibling", "parent", "daughter", "son", "cousin", "grandmother", "grandfather"], directive: "Use shared history, obligation, favoritism, expectations, care and boundaries. Never romanticize a bond identified as family." },
+  FAMILY: { label: "Family", clues: ["family", "mother", "father", "sister", "brother", "sibling", "parent", "daughter", "son", "cousin", "grandmother", "grandfather", "grandparent", "grandchild", "aunt", "uncle", "niece", "nephew", "stepmother", "stepfather", "stepsister", "stepbrother", "adoptive", "foster", "guardian", "ward", "in-law", "chosen family"], directive: "Use exact kinship, shared history, obligation, expectations, care and boundaries. Preserve grandparent/cousin/aunt/uncle/adoptive/step/foster/in-law distinctions when canon gives them. Never romanticize a bond identified as family." },
   ADVENTURE: { label: "Adventure", clues: ["adventure", "quest", "expedition", "treasure", "treasure hunt", "pirate", "ruins", "journey", "exploration", "dungeon", "artifact", "adventurer"], directive: "Use leadership, risk tolerance, promises, rescue, teamwork and competing goals to deepen relationships alongside the adventure." },
   COMEDY: { label: "Comedy", clues: ["comedy", "sitcom", "comedic", "funny", "absurd", "ridiculous", "prank", "farce"], directive: "Use timing, banter, misunderstandings and social embarrassment without treating every joke as permanent emotional damage." },
   HISTORICAL: { label: "Historical", clues: ["historical", "victorian", "regency", "edwardian", "1920s", "ancient rome", "roman empire", "ancient greece", "renaissance", "medieval court", "feudal", "western", "cowboy", "frontier", "historical fiction"], directive: "Respect established period pressures, duty, reputation, class and custom while preserving character agency and the scenario's own tone." },
@@ -12188,8 +12233,19 @@ const CW_ROLE_PRIORITY = {
   unknown:0, stranger:5, acquaintance:10, professional:32, colleague:34, teammate:36, ally:38,
   political:40, client:42, attorney:42, patient:42, clinician:42, asset:42, handler:42,
   crew:44, captain:44, subordinate:44, superior:44, student:46, mentor:46,
-  friend:52, best_friend:60, rival:64, enemy:68, romantic:78, ex:82,
-  relative:90, family:91, sibling:94, parent:96, child:96, caregiver:70, dependent:70
+  friend:52, best_friend:60, rival:64, enemy:68, caregiver:70, dependent:70, romantic:78, ex:82,
+  // Generic family labels remain lower than exact kinship so a later/cleaner
+  // card can refine "relative" into grandparent/cousin/etc without losing the
+  // family firewall.
+  relative:88, family:89, chosen_family:90, in_law:90,
+  cousin:91, sibling_in_law:91, godparent:91, godchild:91,
+  aunt_uncle:92, niece_nephew:92, great_aunt_uncle:93, great_niece_nephew:93,
+  sibling:94, adoptive_sibling:95, foster_sibling:95, half_sibling:95, step_sibling:95, twin:96,
+  grandparent:95, grandchild:95, great_grandparent:96, great_grandchild:96,
+  parent_in_law:94, child_in_law:94,
+  parent:97, child:97, adoptive_parent:98, adoptive_child:98,
+  foster_parent:97, foster_child:97, step_parent:97, step_child:97,
+  guardian:97, ward:97, ancestor:94, descendant:94
 };
 
 function CW_rolePriority(role) {
@@ -12230,17 +12286,70 @@ function CW_foundationRoleSpec(clause) {
   // foundation simply because it contains words such as "friendship".
   if (/\b(?:no\s+(?:specific\s+|established\s+|current\s+|known\s+)?(?:personal\s+)?(?:history|relationship|family|romantic|friendship|rivalry|mentorship)|relationship\s+(?:is|remains)\s+(?:unknown|unestablished)|unknown\s+relationship|do\s+not\s+invent\s+(?:one|a\s+relationship))\b/i.test(c)) return null;
 
+  // Order is intentionally specific-first. CW_rolePriority is still the final
+  // arbiter if one clause contains more than one legitimate relationship term.
   const tests = [
     {role:"ex", re:/\b(?:ex[- ]?(?:husband|wife|spouse|boyfriend|girlfriend|partner)|former\s+(?:husband|wife|spouse|boyfriend|girlfriend|romantic\s+partner|partner|relationship)|previous\s+(?:spouse|romantic\s+partner)|former\s+partner\s*\/\s*co[- ]?parent)\b/i, flags:{brokenUp:true}},
-    {role:"parent", re:/\b(?:adoptive\s+|foster\s+|step[- ]?|biological\s+)?(?:mother|father|parent)\s+(?:of|to)\b/i},
-    {role:"parent", re:/\b[^;,:]{1,80}[’']s\s+(?:biological\s+|adoptive\s+|foster\s+|step[- ]?)?(?:mother|father|parent)\b/i},
-    {role:"child", re:/\b(?:adopted\s+|foster\s+|step[- ]?)?(?:daughter|son|child)\s+(?:of|to)\b/i},
-    {role:"child", re:/\b[^;,:]{1,80}[’']s\s+(?:adopted\s+|foster\s+|step[- ]?)?(?:daughter|son|child)\b/i},
-    {role:"sibling", re:/\b(?:step[- ]|half[- ])?(?:sister|brother|sibling)\s+(?:of|to)\b/i},
-    {role:"sibling", re:/\b[^;,:]{1,80}[’']s\s+(?:step[- ]|half[- ])?(?:sister|brother|sibling)\b/i},
-    {role:"relative", re:/\b(?:grandmother|grandfather|grandparent|granddaughter|grandson|grandchild|aunt|uncle|niece|nephew|cousin|(?:mother|father|sister|brother|son|daughter)-in-law)\s+(?:of|to)\b/i},
-    {role:"relative", re:/\b[^;,:]{1,80}[’']s\s+(?:grandmother|grandfather|grandparent|granddaughter|grandson|grandchild|aunt|uncle|niece|nephew|cousin|(?:mother|father|sister|brother|son|daughter)-in-law)\b/i},
-    {role:"relative", re:/\b(?:in-law|extended\s+family|chosen[- ]family|family\s+elder)\b/i},
+
+    // Exact parent/child variants.
+    {role:"adoptive_parent", re:/\b(?:adoptive|adopting)\s+(?:mother|father|parent)\s+(?:of|to)\b|\b[^;,:]{1,80}[’']s\s+adoptive\s+(?:mother|father|parent)\b/i},
+    {role:"adoptive_child", re:/\b(?:adopted|adoptive)\s+(?:daughter|son|child)\s+(?:of|to)\b|\b[^;,:]{1,80}[’']s\s+(?:adopted|adoptive)\s+(?:daughter|son|child)\b/i},
+    {role:"foster_parent", re:/\bfoster\s+(?:mother|father|parent)\s+(?:of|to)\b|\b[^;,:]{1,80}[’']s\s+foster\s+(?:mother|father|parent)\b/i},
+    {role:"foster_child", re:/\bfoster\s+(?:daughter|son|child)\s+(?:of|to)\b|\b[^;,:]{1,80}[’']s\s+foster\s+(?:daughter|son|child)\b/i},
+    {role:"step_parent", re:/\bstep[- ]?(?:mother|father|parent)\s+(?:of|to)\b|\b[^;,:]{1,80}[’']s\s+step[- ]?(?:mother|father|parent)\b/i},
+    {role:"step_child", re:/\bstep[- ]?(?:daughter|son|child)\s+(?:of|to)\b|\b[^;,:]{1,80}[’']s\s+step[- ]?(?:daughter|son|child)\b/i},
+    {role:"guardian", re:/\b(?:legal\s+)?guardian\s+(?:of|to|for)\b/i},
+    {role:"ward", re:/\bward\s+(?:of|to)\b/i},
+    {role:"godparent", re:/\b(?:godmother|godfather|godparent)\s+(?:of|to)\b/i},
+    {role:"godchild", re:/\b(?:goddaughter|godson|godchild)\s+(?:of|to)\b/i},
+    {role:"parent", re:/\b(?:biological\s+|birth\s+)?(?:mother|father|parent)\s+(?:of|to)\b/i},
+    {role:"parent", re:/\b[^;,:]{1,80}[’']s\s+(?:biological\s+|birth\s+)?(?:mother|father|parent)\b/i},
+    {role:"child", re:/\b(?:biological\s+|birth\s+)?(?:daughter|son|child)\s+(?:of|to)\b/i},
+    {role:"child", re:/\b[^;,:]{1,80}[’']s\s+(?:biological\s+|birth\s+)?(?:daughter|son|child)\b/i},
+
+    // Siblings.
+    {role:"twin", re:/\b(?:identical\s+|fraternal\s+)?twin(?:\s+(?:sister|brother|sibling))?\s+(?:of|to)\b|\b[^;,:]{1,80}[’']s\s+(?:identical\s+|fraternal\s+)?twin(?:\s+(?:sister|brother|sibling))?\b/i},
+    {role:"adoptive_sibling", re:/\b(?:adopted|adoptive)\s+(?:sister|brother|sibling)\s+(?:of|to)\b|\b[^;,:]{1,80}[’']s\s+(?:adopted|adoptive)\s+(?:sister|brother|sibling)\b/i},
+    {role:"foster_sibling", re:/\bfoster\s+(?:sister|brother|sibling)\s+(?:of|to)\b|\b[^;,:]{1,80}[’']s\s+foster\s+(?:sister|brother|sibling)\b/i},
+    {role:"half_sibling", re:/\bhalf[- ]?(?:sister|brother|sibling)\s+(?:of|to)\b|\b[^;,:]{1,80}[’']s\s+half[- ]?(?:sister|brother|sibling)\b/i},
+    {role:"step_sibling", re:/\bstep[- ]?(?:sister|brother|sibling)\s+(?:of|to)\b|\b[^;,:]{1,80}[’']s\s+step[- ]?(?:sister|brother|sibling)\b/i},
+    {role:"sibling", re:/\b(?:biological\s+)?(?:sister|brother|sibling)\s+(?:of|to)\b/i},
+    {role:"sibling", re:/\b[^;,:]{1,80}[’']s\s+(?:adopted\s+|adoptive\s+|biological\s+)?(?:sister|brother|sibling)\b/i},
+
+    // Generational and extended kinship. Include common UK/US family words in
+    // dynamic prose, but require "of/to" here so ordinary address terms such as
+    // "Gran" do not become objective canon by themselves.
+    {role:"great_grandparent", re:/\b(?:great[- ]?(?:grandmother|grandfather|grandparent)|great[- ]?gran(?:dma|dpa)?|great[- ]?nan(?:a)?)\s+(?:of|to)\b/i},
+    {role:"great_grandchild", re:/\b(?:great[- ]?(?:granddaughter|grandson|grandchild))\s+(?:of|to)\b/i},
+    {role:"grandparent", re:/\b(?:grandmother|grandfather|grandparent|grandma|grandpa|grandad|granddad|granda|gran|nan|nana)\s+(?:of|to)\b/i},
+    {role:"grandchild", re:/\b(?:granddaughter|grandson|grandchild)\s+(?:of|to)\b/i},
+    {role:"great_aunt_uncle", re:/\b(?:great[- ]?(?:aunt|auntie|aunty|uncle)|grand[- ]?(?:aunt|uncle)|grandaunt|granduncle)(?:\s*\/\s*extended\s+family)?\s+(?:of|to)\b/i},
+    {role:"great_niece_nephew", re:/\b(?:great[- ]?(?:niece|nephew)|grand[- ]?(?:niece|nephew))\s+(?:of|to)\b/i},
+    {role:"aunt_uncle", re:/\b(?:aunt|auntie|aunty|uncle)\s+(?:of|to)\b/i},
+    {role:"niece_nephew", re:/\b(?:niece|nephew)\s+(?:of|to)\b/i},
+    {role:"cousin", re:/\b(?:first|second|third|fourth|double|cross)?\s*cousin(?:\s+(?:once|twice)\s+removed)?\s+(?:of|to)\b|\bcousin[- ]family\s+(?:of|to)\b/i},
+
+    // Possessive forms used by many imported cards.
+    {role:"great_grandparent", re:/\b[^;,:]{1,80}[’']s\s+great[- ]?(?:grandmother|grandfather|grandparent)\b/i},
+    {role:"great_grandchild", re:/\b[^;,:]{1,80}[’']s\s+great[- ]?(?:granddaughter|grandson|grandchild)\b/i},
+    {role:"grandparent", re:/\b[^;,:]{1,80}[’']s\s+(?:grandmother|grandfather|grandparent|grandma|grandpa|grandad|granddad|granda|gran|nan|nana)\b/i},
+    {role:"grandchild", re:/\b[^;,:]{1,80}[’']s\s+(?:granddaughter|grandson|grandchild)\b/i},
+    {role:"great_aunt_uncle", re:/\b[^;,:]{1,80}[’']s\s+(?:great[- ]?(?:aunt|auntie|aunty|uncle)|grandaunt|granduncle)\b/i},
+    {role:"great_niece_nephew", re:/\b[^;,:]{1,80}[’']s\s+great[- ]?(?:niece|nephew)\b/i},
+    {role:"aunt_uncle", re:/\b[^;,:]{1,80}[’']s\s+(?:aunt|auntie|aunty|uncle)\b/i},
+    {role:"niece_nephew", re:/\b[^;,:]{1,80}[’']s\s+(?:niece|nephew)\b/i},
+    {role:"cousin", re:/\b[^;,:]{1,80}[’']s\s+(?:first\s+|second\s+|third\s+)?cousin\b/i},
+
+    // Marriage kinship.
+    {role:"parent_in_law", re:/\b(?:mother|father|parent)[- ]in[- ]law\s+(?:of|to)\b/i},
+    {role:"child_in_law", re:/\b(?:daughter|son|child)[- ]in[- ]law\s+(?:of|to)\b/i},
+    {role:"sibling_in_law", re:/\b(?:sister|brother|sibling)[- ]in[- ]law\s+(?:of|to)\b/i},
+    {role:"in_law", re:/\b(?:in[- ]law|relative\s+by\s+marriage|family\s+by\s+marriage)\b/i},
+
+    {role:"ancestor", re:/\bancestor\s+(?:of|to)\b/i},
+    {role:"descendant", re:/\bdescendant\s+(?:of|to)\b/i},
+    {role:"chosen_family", re:/\b(?:chosen[- ]family|found[- ]family)\b/i},
+
     {role:"romantic", re:/\b(?:married\s+to|wife\s+of|husband\s+of|spouse\s+of|widow(?:er)?\s+of|boyfriend\s+of|girlfriend\s+of|romantic\s+partner\s+(?:of|to)|engaged\s+to)\b/i, flags:{defined:true,exclusive:true,committed:true}},
     {role:"best_friend", re:/\bbest\s+friend(?:s)?\b/i},
     {role:"friend", re:/\b(?:close\s+|long[- ]term\s+|trusted\s+)?friend(?:s|ship)?\b/i},
@@ -12266,7 +12375,7 @@ function CW_foundationRoleSpec(clause) {
     {role:"professional", re:/\b(?:professional\s+partner|working\s+relationship|professional\s+relationship|professional\s+trust\s+with|works?\s+(?:closely\s+)?with)\b/i},
     {role:"political", re:/\b(?:political\s+opponent|political\s+ally|political\s+partner)\b/i},
     {role:"ally", re:/\b(?:long[- ]term\s+|trusted\s+|close\s+)?all(?:y|ies)|\ballied\s+with\b/i},
-    {role:"family", re:/\b(?:family\s+bond|family\s+relationship|family\s+member|chosen[- ]family)\b/i},
+    {role:"family", re:/\b(?:family\s+bond|family\s+relationship|family\s+member|extended\s+family|family\s+elder)\b/i},
     // A deliberately generic but explicit relationship statement can still
     // carry familiarity/trust without inventing friendship or romance.
     {role:"acquaintance", re:/\brelationship\s+with\b.*\b(?:trust|respect|familiarity)\b|\b(?:respected|trusted)\s+by\b/i}
@@ -12281,7 +12390,7 @@ function CW_foundationRoleSpec(clause) {
     // parent→partner family direction.
     const pre=c.slice(Math.max(0,m.index-18),m.index);
     if(/(?:\bnot|\bnever|\bno\s+longer|isn't|isnt|wasn't|wasnt|aren't|arent|weren't|werent)\s*$/i.test(pre)) continue;
-    if(t.role==="parent"&&(/co[- ]?parent/i.test(String(m[0]||""))||/co[- ]?$/.test(c.slice(Math.max(0,m.index-4),m.index)))) continue;
+    if((t.role==="parent"||t.role==="adoptive_parent"||t.role==="foster_parent"||t.role==="step_parent")&&(/co[- ]?parent/i.test(String(m[0]||""))||/co[- ]?$/.test(c.slice(Math.max(0,m.index-4),m.index)))) continue;
     const candidate={role:t.role,flags:Object.assign({},t.flags||{}),matchIndex:Number(m.index)||0,matchEnd:(Number(m.index)||0)+String(m[0]||"").length,matchText:String(m[0]||"")};
     if (!best || CW_rolePriority(t.role) > CW_rolePriority(best.role)) best = candidate;
   }
@@ -12291,7 +12400,6 @@ function CW_foundationRoleSpec(clause) {
   }
   return best;
 }
-
 function CW_aliasIsVariantQualifiedInClause(clause, aliasKey) {
   const c=String(clause||""), a=String(aliasKey||"").trim();
   if(!c||!a) return false;
@@ -12424,13 +12532,52 @@ function CW_relationshipField(entry) {
   const text = String(entry || "");
   const lines = text.split(/\r?\n/);
   const fields=[];
+  function pushRaw(value){ if(value&&String(value).trim()) fields.push(String(value).trim()); }
+  function pushDirectional(prefix,value){
+    const v=String(value||"").trim(); if(!v)return;
+    // Preserve slash-separated names because the foundation alias scanner
+    // already resolves each target safely.
+    fields.push(prefix+" "+v);
+  }
   for (const line of lines) {
-    const m = /^\s*(?:Relationships?|Relationship\s+Status)\s*:\s*(.+)$/i.exec(line);
-    if (m && m[1]) fields.push(m[1].trim());
+    let m = /^\s*(Relationships?|Relationship\s+Status|Family|Family\s+Relationships?|Kinship|Relatives?)\s*:\s*(.+)$/i.exec(line);
+    if (m && m[2]) { pushRaw(m[2]); continue; }
+
+    m=/^\s*(Parents?|Mother|Father)\s*:\s*(.+)$/i.exec(line);
+    if(m){pushDirectional("child of",m[2]);continue;}
+    m=/^\s*(Children|Child|Sons?|Daughters?)\s*:\s*(.+)$/i.exec(line);
+    if(m){pushDirectional("parent of",m[2]);continue;}
+    m=/^\s*(Siblings?|Brothers?|Sisters?)\s*:\s*(.+)$/i.exec(line);
+    if(m){pushDirectional("sibling of",m[2]);continue;}
+    m=/^\s*(Spouse|Husband|Wife|Partner|Romantic\s+Partner)\s*:\s*(.+)$/i.exec(line);
+    if(m){pushDirectional("married to",m[2]);continue;}
+    m=/^\s*(Grandparents?|Grandmother|Grandfather)\s*:\s*(.+)$/i.exec(line);
+    if(m){pushDirectional("grandchild of",m[2]);continue;}
+    m=/^\s*(Grandchildren|Grandchild|Grandsons?|Granddaughters?)\s*:\s*(.+)$/i.exec(line);
+    if(m){pushDirectional("grandparent of",m[2]);continue;}
+    m=/^\s*(Great[- ]?Grandparents?|Great[- ]?Grandmother|Great[- ]?Grandfather)\s*:\s*(.+)$/i.exec(line);
+    if(m){pushDirectional("great-grandchild of",m[2]);continue;}
+    m=/^\s*(Great[- ]?Grandchildren|Great[- ]?Grandchild)\s*:\s*(.+)$/i.exec(line);
+    if(m){pushDirectional("great-grandparent of",m[2]);continue;}
+    m=/^\s*(Aunts?|Uncles?)\s*:\s*(.+)$/i.exec(line);
+    if(m){pushDirectional("niece/nephew of",m[2]);continue;}
+    m=/^\s*(Nieces?|Nephews?)\s*:\s*(.+)$/i.exec(line);
+    if(m){pushDirectional("aunt/uncle of",m[2]);continue;}
+    m=/^\s*(Great[- ]?Aunts?|Great[- ]?Uncles?)\s*:\s*(.+)$/i.exec(line);
+    if(m){pushDirectional("great-niece/nephew of",m[2]);continue;}
+    m=/^\s*(Great[- ]?Nieces?|Great[- ]?Nephews?)\s*:\s*(.+)$/i.exec(line);
+    if(m){pushDirectional("great-aunt/uncle of",m[2]);continue;}
+    m=/^\s*Cousins?\s*:\s*(.+)$/i.exec(line);
+    if(m){pushDirectional("cousin of",m[1]);continue;}
+    m=/^\s*(Guardian|Guardians)\s*:\s*(.+)$/i.exec(line);
+    if(m){pushDirectional("ward of",m[2]);continue;}
+    m=/^\s*(Ward|Wards)\s*:\s*(.+)$/i.exec(line);
+    if(m){pushDirectional("guardian of",m[2]);continue;}
+    m=/^\s*(In[- ]?Laws?|Family\s+By\s+Marriage)\s*:\s*(.+)$/i.exec(line);
+    if(m){pushDirectional("in-law of",m[2]);continue;}
   }
   return fields.join("; ");
 }
-
 function CW_storyCardCharacterIndex() {
   const chars=[],aliasOwners={},raw=[];
   if (typeof storyCards === "undefined" || !Array.isArray(storyCards)) return {chars:chars, aliases:{}};
@@ -12470,20 +12617,110 @@ function CW_storyCardCharacterIndex() {
   CW_playerNames().forEach(function(k){if(k&&k!=="you")aliases[k]="YOU";});
   return {chars:chars,aliases:aliases};
 }
+
+function CW_familyRoleCompatible(a,b) {
+  const x=String(a||"unknown"), y=String(b||"unknown");
+  if(!CW_isFamilyRole(x)||!CW_isFamilyRole(y)) return false;
+  if(x===y) return true;
+  const generic={family:1,relative:1};
+  if(generic[x]||generic[y]) return true;
+  const groups=[
+    ["parent","adoptive_parent","foster_parent","step_parent","guardian"],
+    ["child","adoptive_child","foster_child","step_child","ward"],
+    ["sibling","adoptive_sibling","foster_sibling","half_sibling","step_sibling","twin"],
+    ["grandparent","great_grandparent"],
+    ["grandchild","great_grandchild"],
+    ["aunt_uncle","great_aunt_uncle"],
+    ["niece_nephew","great_niece_nephew"],
+    ["parent_in_law","in_law"],["child_in_law","in_law"],["sibling_in_law","in_law"],
+    ["chosen_family"],["cousin"],["godparent"],["godchild"],["ancestor"],["descendant"]
+  ];
+  for(const g of groups) if(g.indexOf(x)>=0&&g.indexOf(y)>=0)return true;
+  return false;
+}
+function CW_statusCardPairNames(card,index) {
+  if(!card||!index||!index.aliases)return [];
+  const title=String(card.title||"");
+  if(!title.trim())return [];
+  const titleKey=CW_key(title), found=[], seen={};
+  const keys=Object.keys(index.aliases).sort(function(a,b){return b.length-a.length;});
+  for(const aliasKey of keys){
+    if(!aliasKey||titleKey.indexOf(aliasKey)<0)continue;
+    if(!CW_wordPresent(title,aliasKey))continue;
+    const canonical=index.aliases[aliasKey];
+    if(!canonical)continue;
+    const ck=canonical==="YOU"?"you":CW_key(canonical);
+    if(seen[ck])continue;
+    seen[ck]=true;found.push(canonical);
+  }
+  return found.slice(0,4);
+}
+
+function CW_relationshipStatusCardSpec(card,index) {
+  if(!card)return null;
+  const type=String(card.type||"");
+  if(!/^(?:concept|event|character|npc)$/i.test(type))return null;
+  const title=String(card.title||""), body=CW_cardEntryText(card), desc=String(card.description||"");
+  const combined=title+"\n"+body;
+  // Historical/archival pair cards are useful evidence but must not silently
+  // overwrite a newer current Character-card status.
+  const archive=/\b(?:archive|archived|historical\s+(?:reference|snapshot)|completed\s+event)\b/i.test(desc+"\n"+body.slice(0,220));
+  const potential=/\b(?:potential\s+relationship|early\s+potential|possible\s+relationship|relationship\s+not\s+established|no\s+relationship\s+established|romantic\s+(?:feelings|attraction)\s+(?:are\s+)?unknown|friendship,\s+dating,\s+rejection\s+or\s+no\s+romance|possibility\s+space)\b/i.test(combined);
+  if(potential)return null;
+  const names=CW_statusCardPairNames(card,index);
+  if(names.length!==2)return null;
+
+  const currentSignal=/\b(?:current\s+(?:rule|status|relationship)|now|currently|later\s+(?:explicitly\s+)?(?:establishes?|established)|after\s+(?:the\s+)?(?:second|later)\s+(?:jump|time\s+jump)|three[- ]month\s+jump|mutual\s+and\s+established|relationship\s+is\s+mutual\s+and\s+established)\b/i.test(combined);
+  const romanticTitle=/\b(?:established\s+relationship|established\s+romance|current\s+relationship|marriage|married|dating|couple)\b/i.test(title);
+  const romanticBody=/\b(?:are\s+(?:now\s+)?(?:in\s+)?(?:a\s+)?(?:loving(?:,\s*strong)?\s+)?romantic\s+relationship|are\s+(?:now\s+)?(?:an?\s+)?established\s+couple|became\s+(?:an?\s+)?established\s+(?:romantic\s+)?partner|relationship\s+is\s+(?:mutual\s+and\s+)?established|are\s+dating|currently\s+dating|remain\s+married|established\s+marriage|mutual\s+affection.*(?:dating|relationship)|loving,\s*strong\s+(?:romantic\s+)?relationship)\b/i.test(combined);
+  const marriage=/\b(?:married\s+to|remain\s+married|established\s+marriage|husband\s+and\s+wife|spouses?)\b/i.test(combined);
+  if((romanticTitle||romanticBody) && (!archive||currentSignal)) {
+    return {role:"romantic",names:names,flags:{defined:true,exclusive:!!marriage,committed:true,married:!!marriage,statusCard:true},evidence:CW_clipText(body||title,220)};
+  }
+
+  const friendTitle=/\b(?:established|restored|resumed|current)\s+friend(?:ship|s)?\b/i.test(title);
+  const friendBody=/\b(?:friendship\s+(?:is\s+)?(?:restored|resumed|repaired|established)|resumed\s+(?:their\s+)?friendship|are\s+(?:again\s+)?friends|established\s+friendship)\b/i.test(combined);
+  if((friendTitle||friendBody)&&(!archive||currentSignal))return {role:"friend",names:names,flags:{statusCard:true},evidence:CW_clipText(body||title,220)};
+  return null;
+}
+
+function CW_addRelationshipStatusCardFoundations(index,target) {
+  if(typeof storyCards==="undefined"||!Array.isArray(storyCards))return 0;
+  let added=0;
+  for(const card of storyCards){
+    const spec=CW_relationshipStatusCardSpec(card,index);if(!spec)continue;
+    const a=spec.names[0],b=spec.names[1], title=String(card.title||"relationship status");
+    const before=Object.keys(target).length;
+    CW_foundationAdd(target,a,b,spec.role,spec.evidence||title,title,spec.flags||{});
+    if(Object.keys(target).length>before)added++;
+  }
+  return added;
+}
+
 function CW_storyCardFoundationSignature() {
   if (typeof storyCards === "undefined" || !Array.isArray(storyCards)) return "";
   const parts=[];
+  // Character relationship fields are the primary source.
   for(const card of storyCards){
     if(!card||!/^(?:character|npc)$/i.test(String(card.type||"")))continue;
     const title=CW_cleanName(CE_cardIdentityName(card)); if(!title)continue;
-    parts.push(CW_key(title)+"|"+CW_relationshipField(CW_cardEntryText(card)));
+    parts.push("C|"+CW_key(title)+"|"+CW_relationshipField(CW_cardEntryText(card)));
+  }
+  // Current pair-status cards can carry a relationship that the Character card
+  // has not yet been rewritten to include (common after long live adventures).
+  // Include only cards whose title/body can plausibly affect this subsystem so
+  // unrelated lore edits do not force expensive foundation rebuilds.
+  for(const card of storyCards){
+    if(!card||!/^(?:concept|event)$/i.test(String(card.type||"")))continue;
+    const title=String(card.title||""), body=CW_cardEntryText(card);
+    if(!/\b(?:relationship|romance|dating|couple|marriage|friendship|recovery|reconciliation)\b/i.test(title+"\n"+body))continue;
+    parts.push("S|"+CW_key(title)+"|"+CW_clipText(body,500));
   }
   const players=(typeof info!=="undefined"&&Array.isArray(info.characterNames)?info.characterNames:[]).map(CW_key).sort().join(",");
   return players+"\n"+parts.sort().join("\n");
 }
 
-
-function CW_highStakesFoundationRole(role){return ["romantic","ex","parent","child","sibling","relative","family"].indexOf(String(role||""))>=0;}
+function CW_highStakesFoundationRole(role){const r=String(role||"");return r==="romantic"||r==="ex"||CW_isFamilyRole(r);}
 function CW_reciprocalFoundationSupports(index, subject, target, role) {
   if(!index||!subject||!target)return false;
   var subjectKey=CW_key(subject), targetKey=CW_key(target);
@@ -12497,7 +12734,7 @@ function CW_reciprocalFoundationSupports(index, subject, target, role) {
       var mentionsSubject=CW_wordPresent(scoped,subject)||CW_wordPresent(scoped,String(subject).split(/\s+/)[0]);
       if(!mentionsSubject)continue;
       var inv=CW_ROLE_INVERSE[String(role||"")]||String(role||"");
-      if(spec.role===inv||spec.role===role||CW_isFamilyRole(spec.role)&&CW_isFamilyRole(role))return true;
+      if(spec.role===inv||spec.role===role||CW_familyRoleCompatible(spec.role,inv))return true;
     }
   }
   return false;
@@ -12552,6 +12789,11 @@ function CW_rebuildStoryCardFoundations(turn) {
       for(const targetName of targets) CW_foundationAdd(next,subject,targetName,spec.role,clause,rec.sourceTitle||rec.title,spec.flags||{});
     }
   }
+  // Pair-status cards are deliberately applied after Character cards. A current
+  // explicit relationship can fill a stale/missing Character relationship
+  // field, while role priority and the family firewall prevent it from
+  // overwriting exact kinship.
+  CW_addRelationshipStatusCardFoundations(index,next);
   cw.foundations=next;
   cw.foundationSignature=signature;
   cw.foundationRebuiltTurn=Number(turn)||0;
@@ -12605,10 +12847,47 @@ function CW_setRole(from, to, role, turn) {
 
 const CW_EXPLICIT_ROLE_TERMS = [
   { role:"best_friend", terms:["best friend"] },
-  { role:"sibling", terms:["sister","brother","sibling"] },
+
+  // Exact family terms. These are interpreted from phrases such as
+  // "your grandfather Kyle" or "Maya is your aunt"; address words alone do
+  // not rewrite Story Card kinship.
+  { role:"great_grandparent", terms:["great-grandmother","great grandmother","great-grandfather","great grandfather","great-grandparent","great grandparent"] },
+  { role:"great_grandchild", terms:["great-granddaughter","great granddaughter","great-grandson","great grandson","great-grandchild","great grandchild"] },
+  { role:"grandparent", terms:["grandmother","grandfather","grandparent","grandma","grandpa","grandad","granddad","granda","gran","nan","nana"] },
+  { role:"grandchild", terms:["granddaughter","grandson","grandchild"] },
+  { role:"great_aunt_uncle", terms:["great-aunt","great aunt","great-auntie","great auntie","great-aunty","great aunty","great-uncle","great uncle","grandaunt","granduncle"] },
+  { role:"great_niece_nephew", terms:["great-niece","great niece","great-nephew","great nephew"] },
+  { role:"aunt_uncle", terms:["aunt","auntie","aunty","uncle"] },
+  { role:"niece_nephew", terms:["niece","nephew"] },
+  { role:"cousin", terms:["first cousin","second cousin","third cousin","cousin"] },
+
+  { role:"adoptive_parent", terms:["adoptive mother","adoptive father","adoptive parent"] },
+  { role:"adoptive_child", terms:["adopted daughter","adopted son","adopted child","adoptive daughter","adoptive son","adoptive child"] },
+  { role:"foster_parent", terms:["foster mother","foster father","foster parent"] },
+  { role:"foster_child", terms:["foster daughter","foster son","foster child"] },
+  { role:"step_parent", terms:["stepmother","step mother","stepfather","step father","step-parent","step parent"] },
+  { role:"step_child", terms:["stepdaughter","step daughter","stepson","step son","step-child","step child"] },
+  { role:"adoptive_sibling", terms:["adopted sister","adopted brother","adopted sibling","adoptive sister","adoptive brother","adoptive sibling"] },
+  { role:"foster_sibling", terms:["foster sister","foster brother","foster sibling"] },
+  { role:"half_sibling", terms:["half-sister","half sister","half-brother","half brother","half-sibling","half sibling"] },
+  { role:"step_sibling", terms:["stepsister","step sister","stepbrother","step brother","step-sibling","step sibling"] },
+  { role:"twin", terms:["twin sister","twin brother","twin sibling","twin"] },
   { role:"parent", terms:["mother","father","mom","mum","dad","parent"] },
   { role:"child", terms:["daughter","son","child"] },
-  { role:"relative", terms:["cousin","aunt","uncle","niece","nephew","relative"] },
+  { role:"sibling", terms:["sister","brother","sibling"] },
+  { role:"guardian", terms:["legal guardian","guardian"] },
+  { role:"ward", terms:["ward"] },
+  { role:"godparent", terms:["godmother","godfather","godparent"] },
+  { role:"godchild", terms:["goddaughter","godson","godchild"] },
+  { role:"parent_in_law", terms:["mother-in-law","mother in law","father-in-law","father in law","parent-in-law","parent in law"] },
+  { role:"child_in_law", terms:["daughter-in-law","daughter in law","son-in-law","son in law","child-in-law","child in law"] },
+  { role:"sibling_in_law", terms:["sister-in-law","sister in law","brother-in-law","brother in law","sibling-in-law","sibling in law"] },
+  { role:"in_law", terms:["in-law","in law","relative by marriage"] },
+  { role:"chosen_family", terms:["chosen family","found family"] },
+  { role:"ancestor", terms:["ancestor"] },
+  { role:"descendant", terms:["descendant"] },
+  { role:"relative", terms:["relative"] },
+
   { role:"romantic", terms:["husband","wife","spouse","boyfriend","girlfriend","romantic partner","partner"] },
   { role:"ex", terms:["ex-husband","ex-wife","ex-boyfriend","ex-girlfriend","ex partner","former partner"] },
   { role:"friend", terms:["friend"] },
@@ -12669,7 +12948,18 @@ function CW_inferExplicitRoles(text, turn) {
 }
 
 function CW_roleDisplay(role) {
-  return String(role || "unknown").replace(/_/g, " ");
+  const r=String(role||"unknown").toLowerCase();
+  const labels={
+    aunt_uncle:"aunt/uncle",niece_nephew:"niece/nephew",
+    great_aunt_uncle:"great-aunt/great-uncle",great_niece_nephew:"great-niece/great-nephew",
+    parent_in_law:"parent-in-law",child_in_law:"child-in-law",sibling_in_law:"sibling-in-law",in_law:"in-law",
+    adoptive_parent:"adoptive parent",adoptive_child:"adopted child",
+    foster_parent:"foster parent",foster_child:"foster child",
+    step_parent:"step-parent",step_child:"step-child",half_sibling:"half-sibling",step_sibling:"step-sibling",
+    great_grandparent:"great-grandparent",great_grandchild:"great-grandchild",
+    chosen_family:"chosen family"
+  };
+  return labels[r]||r.replace(/_/g," ");
 }
 
 function CW_isFamilyRole(role) {
@@ -13880,12 +14170,26 @@ function CW_foundationContextPhrase(link) {
 
 function CW_foundationRoleLabel(role) {
   const r=String(role||"unknown").toLowerCase();
-  if(r==="parent") return "established parent-child bond";
-  if(r==="child") return "established child-parent bond";
-  if(r==="sibling") return "established sibling bond";
-  if(r==="relative") return "established extended-family bond";
-  if(r==="family") return "established family bond";
-  return "established "+CW_roleDisplay(r)+" relationship";
+  const labels={
+    parent:"established parent-child bond",child:"established child-parent bond",
+    adoptive_parent:"established adoptive parent-child bond",adoptive_child:"established adopted child-parent bond",
+    foster_parent:"established foster parent-child bond",foster_child:"established foster child-parent bond",
+    step_parent:"established step-parent/step-child bond",step_child:"established step-child/step-parent bond",
+    guardian:"established guardian-ward bond",ward:"established ward-guardian bond",
+    godparent:"established godparent-godchild bond",godchild:"established godchild-godparent bond",
+    sibling:"established sibling bond",adoptive_sibling:"established adoptive-sibling bond",foster_sibling:"established foster-sibling bond",half_sibling:"established half-sibling bond",step_sibling:"established step-sibling bond",twin:"established twin-sibling bond",
+    grandparent:"established grandparent-grandchild bond",grandchild:"established grandchild-grandparent bond",
+    great_grandparent:"established great-grandparent/great-grandchild bond",great_grandchild:"established great-grandchild/great-grandparent bond",
+    aunt_uncle:"established aunt/uncle–niece/nephew bond",niece_nephew:"established niece/nephew–aunt/uncle bond",
+    great_aunt_uncle:"established great-aunt/great-uncle–great-niece/great-nephew bond",
+    great_niece_nephew:"established great-niece/great-nephew–great-aunt/great-uncle bond",
+    cousin:"established cousin bond",
+    parent_in_law:"established parent-in-law/child-in-law bond",child_in_law:"established child-in-law/parent-in-law bond",
+    sibling_in_law:"established sibling-in-law bond",in_law:"established family-by-marriage bond",
+    chosen_family:"established chosen-family bond",ancestor:"established ancestor-descendant relationship",descendant:"established descendant-ancestor relationship",
+    relative:"established extended-family bond",family:"established family bond"
+  };
+  return labels[r]||("established "+CW_roleDisplay(r)+" relationship");
 }
 
 function CW_foundationBehaviorHint(link) {
@@ -13895,8 +14199,22 @@ function CW_foundationBehaviorHint(link) {
   if(f.married) hint="Use lived-in familiarity, spouse shorthand, shared history and ordinary expectations when relevant; spouses must not behave like newly introduced coworkers. Disagreement is not a relationship reset; do not force affection or drama every turn.";
   else if(role==="parent") hint="Let this established parent role shape protective responsibility, boundaries and familiarity without making the other person helpless.";
   else if(role==="child") hint="Let this established child-to-parent history shape familiarity, trust, independence and family shorthand without making the character childlike unless their age actually is.";
-  else if(role==="sibling") hint="Use sibling familiarity, shared history and the right to disagree bluntly without treating ordinary friction as estrangement.";
-  else if(role==="relative"||role==="family") hint="Treat them as established family with shared history and obligations; do not make them behave like new acquaintances.";
+  else if(role==="adoptive_parent"||role==="adoptive_child") hint="Treat the adoptive bond as fully real family. Preserve its exact direction and history; never frame adoption as a lesser or temporary version of family.";
+  else if(role==="foster_parent"||role==="foster_child") hint="Preserve the established foster-family history and care responsibilities without inventing current legal status, permanence or parental authority beyond canon.";
+  else if(role==="step_parent"||role==="step_child") hint="Use established step-family familiarity while preserving the exact kinship; do not reduce the bond to 'not real family' or silently turn it into a biological relationship.";
+  else if(role==="guardian"||role==="ward") hint="Preserve the established guardian/ward care and authority history without automatically treating it as biological parenthood or permanent dependency.";
+  else if(role==="godparent"||role==="godchild") hint="Preserve the established godparent/godchild bond and cultural/family significance without inventing legal guardianship.";
+  else if(role==="sibling"||role==="adoptive_sibling"||role==="foster_sibling"||role==="half_sibling"||role==="step_sibling"||role==="twin") hint="Use sibling familiarity, shared history and the right to disagree bluntly without treating ordinary friction as estrangement; preserve the exact sibling type given by canon.";
+  else if(role==="grandparent") hint="Use established grandparent familiarity, family history and intergenerational care without making the grandchild automatically obedient or the grandparent omniscient.";
+  else if(role==="grandchild") hint="Use established grandchild familiarity and intergenerational history while preserving the character's age and independence; do not infantilize an older grandchild.";
+  else if(role==="great_grandparent"||role==="great_grandchild") hint="Preserve the exact great-grandparent/great-grandchild generation and family history; do not collapse it into ordinary parenthood.";
+  else if(role==="aunt_uncle"||role==="niece_nephew") hint="Use established aunt/uncle–niece/nephew family familiarity. Age does not determine authority here: a younger aunt/uncle remains an aunt/uncle, and the bond is not a sibling or parent relationship unless canon says so.";
+  else if(role==="great_aunt_uncle"||role==="great_niece_nephew") hint="Preserve the exact great-aunt/great-uncle–great-niece/great-nephew relationship; do not drift it into grandparent/grandchild or ordinary aunt/niece kinship.";
+  else if(role==="cousin") hint="Use established cousin familiarity where supported. Cousins may be close, distant, sibling-like or formal, but the script must not assume one of those dynamics without story evidence.";
+  else if(role==="parent_in_law"||role==="child_in_law"||role==="sibling_in_law"||role==="in_law") hint="Treat this as established family by marriage while preserving separate loyalties and the actual degree of closeness; do not silently convert it into blood kinship.";
+  else if(role==="chosen_family") hint="Treat chosen family as a durable family bond established by choice and history, not as casual friendship and not as blood/legal kinship unless canon also says so.";
+  else if(role==="ancestor"||role==="descendant") hint="Preserve the established genealogical direction and generation distance; do not infer personal familiarity if the story has not established it.";
+  else if(role==="relative"||role==="family") hint="Treat them as established family with shared history and obligations; keep the relationship generic only because canon has not supplied a more exact kinship.";
   else if(role==="best_friend"||role==="friend") hint="Use established ease, remembered history and earned familiarity; friendship does not require constant agreement or emotional disclosure.";
   else if(role==="ally"||role==="teammate") hint="Use established trust/cooperation where supported while preserving separate goals, loyalties and judgments.";
   else if(role==="colleague"||role==="professional") hint="Use established professional shorthand, competence expectations and boundaries rather than introductory formality.";
@@ -13908,7 +14226,6 @@ function CW_foundationBehaviorHint(link) {
   if(toPlayer) hint+=(hint?" ":"")+"This is objective relationship history only; never invent YOU's feelings, consent, promises or choices.";
   return hint;
 }
-
 function CW_relationshipContextLine(link, turn) {
   const cfg = CW_config();
   const last = link.memories.length ? link.memories[link.memories.length - 1] : null;
@@ -14873,7 +15190,8 @@ function CW_onContext(text) {
   let headroom = cfg.contextBudgetChars;
   if (typeof info !== "undefined" && Number.isFinite(Number(info.maxChars))) {
     const bridgeReserve = typeof UN_afterCrossedReserveChars === "function" ? UN_afterCrossedReserveChars() : 0;
-    headroom = Math.max(0, Math.min(headroom, Math.floor(Number(info.maxChars)) - String(text || "").length - 24 - bridgeReserve));
+    const canonReserve = typeof CE_contextSafetyTailReserve === "function" ? CE_contextSafetyTailReserve() : 0;
+    headroom = Math.max(0, Math.min(headroom, Math.floor(Number(info.maxChars)) - String(text || "").length - 24 - bridgeReserve - canonReserve));
   }
   return text + CW_contextBlock(turn, headroom, text);
 }
@@ -22098,6 +22416,22 @@ var CECS_PLAYER_AGENCY_TERMS = [
   "choice","choices","decision","decisions","intent","intention","intentional","voluntary",
   "power use","major choice","major choices","only player-controlled","only player controlled"
 ];
+// Agency locks must be normative instructions, never ordinary second-person
+// narration. Without this guard a line such as "You lie awake, feeling..." can
+// accidentally become a durable player-rule simply because it contains both
+// "you" and "feeling".
+function CECS_isAgencyRuleLine(line){
+  var s=CECS_text(line).trim();
+  if(!s||!CECS_containsAny(s,CECS_PLAYER_AGENCY_TERMS))return false;
+  // Strong explicit ownership / prohibition language used by AI Instructions,
+  // Plot Essentials and Character-card rules.
+  if(/\b(?:player|player[- ]controlled|belongs?\s+(?:only\s+)?to\s+(?:the\s+)?player|only\s+player|never\s+(?:invent|decide|write|choose)|do\s+not\s+(?:invent|decide|write|choose)|must\s+not\s+(?:invent|decide|write|choose))\b/i.test(s))return true;
+  if(/^(?:rule|player|agency|player agency|player lock|boundary)\s*[:—-]/i.test(s))return true;
+  // A direct "you" statement is only a rule when it explicitly assigns control
+  // or ownership; descriptive narration such as "you feel cold" is excluded.
+  if(/\byou\b/i.test(s)&&/\b(?:control|controlled|belong|belongs|own|owned|decide|choice|consent|voluntary|intentional)\b/i.test(s)&&/\b(?:only|never|must|do not|don't|cannot|can't)\b/i.test(s))return true;
+  return false;
+}
 var CECS_BOUNDARY_PATTERNS = [
   /\bdoes\s+not\s+want\b/i,/\bdo\s+not\s+want\b/i,/\bdeclined\b/i,/\brefused\b/i,
   /\bdrew\s+a\s+line\b/i,/\bboundar(?:y|ies)\b/i,/\bnot\s+interested\b/i,
@@ -22108,9 +22442,21 @@ var CECS_BOUNDARY_PATTERNS = [
 var CECS_UNCERTAINTY_PATTERNS = [
   /\b(?:is|are|was|were)\s+(?:still\s+)?unknown\b/i,/\bnot\s+(?:yet\s+)?confirmed\b/i,
   /\bnot\s+proven\b/i,/\bunverified\b/i,/\buncertain\b/i,/\btheory\b/i,
-  /\bpossibilit(?:y|ies)\b/i,/\bmay\b/i,/\bmight\b/i,/\bcould\b/i,
+  /\bpossibilit(?:y|ies)\b/i,/\bmay\b/,/\bmight\b/i,/\bcould\b/i,
   /\bclaims?\b/i,/\breported\s+evidence\b/i,/\bnot\s+automatic\s+truth\b/i
 ];
+function CECS_isMaterialUncertaintyLine(line){
+  var s=CECS_text(line).trim();if(!s)return false;
+  // Strong epistemic/status language is always material.
+  if(/\b(?:not\s+(?:yet\s+)?confirmed|not\s+proven|unverified|unconfirmed|uncertain|unknown|unproven|hypothesis|theory|presumed|not\s+automatic\s+truth|remain(?:s|ed)?\s+unknown|not\s+established|not\s+revealed)\b/i.test(s))return true;
+  if(/\bpossibilit(?:y|ies)\b/i.test(s)&&/\b(?:rule|status|unknown|unresolved|future|possible|possibility|possibilities|canon|evidence)\b/i.test(s))return true;
+  // Bare modal words in ordinary prose ("might be your hoodie", "may walk
+  // home") are not canon locks. Retain them only when the line is explicitly a
+  // rule/status/evidence statement.
+  if(/\b(?:may|might|could)\b/i.test(s)&&/^(?:rule|status|unknown|unresolved|current|boundary|evidence|interpretation|future|possible)\s*[:—-]/i.test(s))return true;
+  if(/\bclaims?\b/i.test(s)&&/\b(?:evidence|authority|identity|status|cause|motive|knowledge|relationship|power|timeline|surveillance)\b/i.test(s))return true;
+  return false;
+}
 var CECS_KNOWLEDGE_PATTERNS = [
   /\bnow\s+knows?\b/i,/\bbecame\s+explicit\b/i,/\bhas\s+been\s+told\b/i,/\bhave\s+been\s+told\b/i,
   /\bdoes\s+not\s+know\b/i,/\bdo\s+not\s+know\b/i,/\bdoesn't\s+know\b/i,
@@ -22145,6 +22491,7 @@ function CECS_sentences(text){
 function CECS_lines(text){ return CECS_text(text).replace(/\r/g,"").split(/\n+/).map(function(x){return x.trim();}).filter(Boolean); }
 function CECS_storyCards(){ try{return (typeof storyCards!=="undefined"&&Array.isArray(storyCards))?storyCards:[];}catch(_){return [];} }
 function CECS_cardText(card){ if(!card)return""; return [card.title,card.keys,card.value,card.entry,card.description].filter(Boolean).join("\n"); }
+function CECS_cardCanonText(card){ if(!card)return""; return [card.title,card.keys,card.value,card.entry].filter(Boolean).join("\n"); }
 function CECS_recent(text,chars){ return CECS_text(text).slice(-Math.max(500,chars||7000)); }
 function CECS_containsAny(text,words){ var n=CECS_norm(text); return (words||[]).some(function(w){return n.indexOf(CECS_norm(w))>=0;}); }
 function CECS_matchesAny(text,patterns){ return (patterns||[]).some(function(rx){ try{return rx.test(text);}catch(_){return false;} }); }
@@ -22182,7 +22529,7 @@ function CECS_indexStamp(){
   // scans. Values are sampled from rule-bearing cards and active character cards.
   for(var i=0;i<cards.length;i++){
     var c=cards[i]; if(!c)continue;
-    var body=CECS_cardText(c);
+    var body=CECS_cardCanonText(c);
     if(CECS_isCharacter(c)||CECS_containsAny(body,CECS_HARD_RULE_WORDS)||CECS_matchesAny(body,CECS_KNOWLEDGE_PATTERNS)||CECS_matchesAny(body,CECS_BOUNDARY_PATTERNS)){
       parts.push(CECS_clip((c.title||"")+"|"+(c.keys||"")+"|"+(c.value||c.entry||"")+"|"+(c.description||""),180));
     }
@@ -22193,16 +22540,16 @@ function CECS_buildIndex(){
   var stamp=CECS_indexStamp(); if(CECS_INDEX_CACHE.stamp===stamp)return CECS_INDEX_CACHE;
   var hard=[],knowledge=[],relationship=[],uncertainty=[],timeline=[],agency=[];
   CECS_storyCards().forEach(function(c){
-    var body=CECS_cardText(c),owner=CECS_nameFromCard(c),kind=CECS_kind(c);
+    var body=CECS_cardCanonText(c),owner=CECS_nameFromCard(c),kind=CECS_kind(c);
     var diagnosticOrConfig=/\bconfig\b/i.test(owner)||/CROSSED ECHOES|TWISTS AND TURNS|UNSPOKEN TURNS|ECHO VEIL|CROSSED WIRES/i.test(owner);
     CECS_lines(body).forEach(function(line){
       var lower=line.toLowerCase();
       if(!diagnosticOrConfig&&CECS_HARD_RULE_WORDS.some(function(w){return lower.indexOf(w)>=0;}))hard.push({text:line,card:owner,kind:kind});
       if(!diagnosticOrConfig&&CECS_matchesAny(line,CECS_KNOWLEDGE_PATTERNS))knowledge.push({owner:owner,text:line});
-      if(!diagnosticOrConfig&&(CECS_matchesAny(line,CECS_BOUNDARY_PATTERNS)||(/\bRelationships?\s*:/i.test(line)&&/\b(?:not|unknown|early|potential|friend|spouse|married|dating|kiss|declined)\b/i.test(line))))relationship.push({owner:owner,text:line});
-      if(!diagnosticOrConfig&&CECS_matchesAny(line,CECS_UNCERTAINTY_PATTERNS))uncertainty.push({owner:owner,text:line});
+      if(!diagnosticOrConfig&&(CECS_matchesAny(line,CECS_BOUNDARY_PATTERNS)||(/\b(?:Relationships?|Relationship\s+Status|Family|Kinship)\s*:/i.test(line)&&/\b(?:not|unknown|early|potential|friend|spouse|married|dating|kiss|declined|parent|mother|father|daughter|son|sibling|sister|brother|grandparent|grandmother|grandfather|grandchild|aunt|uncle|niece|nephew|cousin|adopt|foster|step|guardian|ward|in[- ]law|chosen[- ]family)\b/i.test(line))))relationship.push({owner:owner,text:line});
+      if(!diagnosticOrConfig&&CECS_isMaterialUncertaintyLine(line))uncertainty.push({owner:owner,text:line});
       if(!diagnosticOrConfig&&(CECS_matchesAny(line,CECS_TIME_PATTERNS)||(/\b(?:current|timeline|day one|day two|monday|tuesday|wednesday|birthday|age)\b/i.test(line)&&/\b(?:rule|current|age|time|start|era|now|today)\b/i.test(line))))timeline.push({owner:owner,text:line});
-      if(CECS_containsAny(line,CECS_PLAYER_AGENCY_TERMS)&&/\b(?:player|you|only|never|belong)\b/i.test(line))agency.push(line);
+      if(CECS_isAgencyRuleLine(line))agency.push(line);
     });
   });
   CECS_INDEX_CACHE={stamp:stamp,hard:CECS_unique(hard,function(x){return CECS_norm(x.text);}),knowledge:CECS_unique(knowledge,function(x){return CECS_norm(x.owner+" "+x.text);}),relationship:CECS_unique(relationship,function(x){return CECS_norm(x.owner+" "+x.text);}),uncertainty:CECS_unique(uncertainty,function(x){return CECS_norm(x.owner+" "+x.text);}),timeline:CECS_unique(timeline,function(x){return CECS_norm(x.owner+" "+x.text);}),agency:CECS_unique(agency)};
@@ -22628,15 +22975,18 @@ var CECS_PROVENANCE_SIGNALS = [
   {level:"observed", phrase:"scanned — timeline"},
 ];
 function CECS_provenanceLevel(sentence){
-  var n=CECS_norm(sentence),best="unknown",rank={unknown:0,speculative:1,inferred:2,reported:3,observed:4};
+  var raw=CECS_text(sentence),n=CECS_norm(sentence),best="unknown",rank={unknown:0,speculative:1,inferred:2,reported:3,observed:4};
+  // Calendar month "May" is not epistemic uncertainty (e.g. Birthday: 12 May).
+  // Preserve other uncertainty words on the same line if present.
+  var calendarMay=/\b(?:birthday|born|date)\b[^\n]{0,50}\b(?:\d{1,2}\s+May|May\s+\d{1,2})\b/i.test(raw);
   // Sentence-shape evidence beats the broad phrase catalog. This catches live
   // prose such as "telemetry confirmed the spike" without requiring every
   // grammatical variant to exist in the static signal bank.
   if(/\b(?:claims?|claimed|says?|said|reports?|reported|alleges?|alleged|according to)\b/.test(n))best="reported";
-  else if(/\b(?:might|may|could|possibly|perhaps|unverified|unconfirmed|unknown|unclear)\b/.test(n))best="speculative";
+  else if(/\b(?:might|may|could|possibly|perhaps|unverified|unconfirmed|unknown|unclear)\b/.test(n)&&!(calendarMay&& !/\b(?:might|could|possibly|perhaps|unverified|unconfirmed|unknown|unclear)\b/.test(n)))best="speculative";
   else if(/\b(?:theory|hypothesis|suggests?|suggested|implies?|implied|indicates?|inferred|likely|appears?)\b/.test(n))best="inferred";
   else if(/\b(?:telemetry|sensor|scan|record|log|test|measurement|camera|medical|forensic|instrument)\b/.test(n)&&/\b(?:confirmed|verified|measured|recorded|logged|observed|detected|showed|shows|found)\b/.test(n))best="observed";
-  CECS_PROVENANCE_SIGNALS.forEach(function(x){var p=CECS_norm(String(x.phrase||"").split(" — ")[0]);if(p&&n.indexOf(p)>=0&&rank[x.level]>rank[best])best=x.level;});
+  CECS_PROVENANCE_SIGNALS.forEach(function(x){var p=CECS_norm(String(x.phrase||"").split(" — ")[0]);if(calendarMay&&p==="may"&&!/\bmay\b/.test(raw))return;if(p&&n.indexOf(p)>=0&&rank[x.level]>rank[best])best=x.level;});
   return best;
 }
 function CECS_provenanceStats(){var out={observed:0,reported:0,inferred:0,speculative:0};CECS_PROVENANCE_SIGNALS.forEach(function(x){out[x.level]=(out[x.level]||0)+1;});return out;}
@@ -22690,9 +23040,9 @@ function CECS_extractLiveLocks(text){
     if(CECS_HARD_RULE_WORDS.some(function(w){return low.indexOf(w)>=0;}))out.hard.push(line);
     if(CECS_matchesAny(line,CECS_KNOWLEDGE_PATTERNS))out.knowledge.push(line);
     if(CECS_matchesAny(line,CECS_BOUNDARY_PATTERNS))out.relationship.push(line);
-    if(CECS_matchesAny(line,CECS_UNCERTAINTY_PATTERNS))out.uncertainty.push(line);
+    if(CECS_isMaterialUncertaintyLine(line))out.uncertainty.push(line);
     if(CECS_matchesAny(line,CECS_TIME_PATTERNS))out.timeline.push(line);
-    if(CECS_containsAny(line,CECS_PLAYER_AGENCY_TERMS)&&/\b(?:player|you|only|never|belong)\b/i.test(line))out.player.push(line);
+    if(CECS_isAgencyRuleLine(line))out.player.push(line);
   });
   Object.keys(out).forEach(function(k){out[k]=CECS_unique(out[k]).slice(-12);});
   return out;
@@ -22762,14 +23112,78 @@ function CECS_filterTimelineForLiveAge(rows,player,cardAge,liveAge){
     return !new RegExp("\\bage\\s*[:=]?\\s*"+cardAge+"\\b","i").test(t);
   });
 }
+
+function CECS_mysteryIntegrityLocks(names,text,cap){
+  var rows=[],scope=CECS_norm(text),nset=(names||[]).map(CECS_norm),inputNorm=CECS_norm(CECS_lastInput());
+  var generic={what:1,about:1,think:1,open:1,mystery:1,mysteries:1,mean:1,they:1,them:1,connected:1,connect:1,with:1,from:1,that:1,this:1,these:1,those:1,are:1,all:1,and:1,the:1,you:1,say:1};
+  var inputTokens=inputNorm.split(/\s+/).filter(function(w){return w.length>=3&&!generic[w];}).slice(0,24);
+  CECS_extractHardRules(320).forEach(function(r){
+    var line=CECS_text(r&&r.text||r),card=CECS_text(r&&r.card||"");
+    if(!line)return;
+    var mystery=/\b(?:unknown|unresolved|presumed|unconfirmed|not confirmed|not revealed|missing|hypothesis|theory|sealed|disbanded|closed|independent|independently|not automatically|do not pre-decide|do not assume|do not make every|doors,? not answers)\b/i.test(line);
+    var discipline=/\b(?:develop\w*\s+(?:them\s+)?independently|do not (?:pre-decide|assume|automatically|make every|collapse|connect)|not (?:confirmed|revealed|proven)|remain\w* unknown|presumed|unless later evidence|until evidence)\b/i.test(line);
+    if(!mystery||!discipline)return;
+    var score=CECS_scoreRule(r,names,text)+4;
+    var ln=CECS_norm(line),cn=CECS_norm(card),wordSet={};
+    (ln+" "+cn).split(/\s+/).forEach(function(w){if(w)wordSet[w]=1;});
+    // When the player explicitly asks about named mysteries/entities, their
+    // current question outranks unrelated older story salience. Whole-token
+    // matching avoids e.g. "all" accidentally matching the title "Fall".
+    if(inputTokens.length&& !inputTokens.some(function(w){return !!wordSet[w];}))return;
+    if(nset.some(function(n){return n&&(ln.indexOf(n)>=0||cn===n||cn.indexOf(n)>=0);}))score+=6;
+    inputTokens.forEach(function(w){if(wordSet[w])score+=3;});
+    if(/doors,? not answers|develop\w*\s+(?:them\s+)?independently/i.test(line))score+=10;
+    rows.push({score:score,text:line,card:card});
+  });
+  rows.sort(function(a,b){return b.score-a.score;});
+  return CECS_unique(rows,function(x){return CECS_norm(x.text);}).slice(0,cap||2);
+}
+
+function CECS_kinshipLocks(names,text,cap){
+  var out=[],seen={},cw=null,player=CECS_extractPlayerName()||"YOU",norm=CECS_norm(text),nset=(names||[]).map(CECS_norm);
+  try{cw=state&&state.crossedWires;}catch(_){}
+  if(!cw||!cw.foundations)return out;
+  var rows=[];
+  Object.keys(cw.foundations).forEach(function(k){
+    var f=cw.foundations[k];if(!f)return;
+    var role=String(f.role||"unknown");
+    try{if(typeof CW_isFamilyRole!=="function"||!CW_isFamilyRole(role))return;}catch(_){return;}
+    var from=String(f.from||""),to=String(f.to||"");
+    if(!from||!to)return;
+    var shownTo=String(to).toUpperCase()==="YOU"?player:to;
+    var fn=CECS_norm(from),tn=CECS_norm(shownTo),score=0;
+    if(nset.indexOf(fn)>=0)score+=8;if(nset.indexOf(tn)>=0)score+=8;
+    if(fn&&norm.indexOf(fn)>=0)score+=5;if(tn&&norm.indexOf(tn)>=0)score+=5;
+    if(String(to).toUpperCase()==="YOU")score+=1;
+    if(score<=0)return;
+    rows.push({score:score,from:from,to:shownTo,role:role});
+  });
+  rows.sort(function(a,b){return b.score-a.score;});
+  for(var i=0;i<rows.length&&out.length<(cap||4);i++){
+    var r=rows[i],pair=[CECS_norm(r.from),CECS_norm(r.to)].sort().join("<->"),role=r.role;
+    // Keep both directions from flooding the packet; one exact directional
+    // statement plus the known inverse is sufficient.
+    if(seen[pair])continue;seen[pair]=1;
+    var display=role;try{if(typeof CW_roleDisplay==="function")display=CW_roleDisplay(role);}catch(_){}
+    out.push(r.from+" → "+r.to+": "+display+" (explicit Story Card kinship)");
+  }
+  return out;
+}
+
 function CECS_liveContract(baseText){
-  var src=CECS_recent(baseText,16000), live=CECS_extractLiveLocks(src), player=CECS_extractPlayerName(), cardAge=CECS_extractPlayerAge(player), liveAge=CECS_livePlayerAge(src,player), age=liveAge!=null?liveAge:cardAge, names=CECS_namesInText(src), input=CECS_lastInput();
+  var src=CECS_recent(baseText,16000), live=CECS_extractLiveLocks(src), player=CECS_extractPlayerName(), cardAge=CECS_extractPlayerAge(player), liveAge=CECS_livePlayerAge(src,player), age=liveAge!=null?liveAge:cardAge, input=CECS_lastInput(), scopeText=src+(input?"\n"+input:""), names=CECS_namesInText(scopeText);
   if(player&&names.indexOf(player)<0)names.unshift(player);
-  var hard=CECS_latestConflictWinner(live.hard).slice(-5).concat(CECS_compactRules(CECS_extractHardRules(120),names,src,5));
-  var knows=CECS_relevant(CECS_filterStaleRows(CECS_extractKnowledgeLocks(),live.knowledge),names,src,5);
-  var rel=CECS_relevant(CECS_filterStaleRows(CECS_extractRelationshipBoundaries(),live.relationship),names,src,5);
-  var uncertain=CECS_relevant(CECS_filterStaleRows(CECS_extractUncertainties(),live.uncertainty),names,src,4);
-  var timeline=CECS_relevant(CECS_filterTimelineForLiveAge(CECS_extractTimelineLocks(),player,cardAge,liveAge),names,src,4);
+  // Relevance ranking sees the latest player input as a search signal, but the
+  // input is NOT scanned as canon. This makes questions about a dormant person,
+  // mystery or relationship pull the correct Story Card safeguards forward
+  // without turning the player's speculation into a fact.
+  var hard=CECS_latestConflictWinner(live.hard).slice(-5).concat(CECS_compactRules(CECS_extractHardRules(120),names,scopeText,5));
+  var mysteryLocks=CECS_mysteryIntegrityLocks(names,scopeText,2);
+  var kinship=CECS_kinshipLocks(names,scopeText,4);
+  var knows=CECS_relevant(CECS_filterStaleRows(CECS_extractKnowledgeLocks(),live.knowledge),names,scopeText,5);
+  var rel=CECS_relevant(CECS_filterStaleRows(CECS_extractRelationshipBoundaries(),live.relationship),names,scopeText,5);
+  var uncertain=CECS_relevant(CECS_filterStaleRows(CECS_extractUncertainties(),live.uncertainty),names,scopeText,4);
+  var timeline=CECS_relevant(CECS_filterTimelineForLiveAge(CECS_extractTimelineLocks(),player,cardAge,liveAge),names,scopeText,4);
   var recency=CECS_recencyFacts(src), authorCorrections=CECS_authorNoteCorrections(src,player,cardAge,liveAge), action=CECS_detectPlayerImperative(input), lines=[];
   lines.push("[CANON SENTINEL — PRIVATE LIVE-PLAY CONTRACT. Never print or mention this block.]");
   lines.push("Authority ladder: latest explicit player action + latest visible story > current explicit Story Card facts/rules > older summaries > engine hypotheses. EVIDENCE FIREWALL: theory, suspicion, implication, diagnostic, unknown or candidate is never canon by itself.");
@@ -22784,8 +23198,11 @@ function CECS_liveContract(baseText){
   CECS_latestConflictWinner(live.relationship).slice(-1).forEach(function(x){lines.push("Live relationship lock: "+CECS_clip(x,280));});
   if(action) lines.push("LATEST PLAYER INTENT: "+action+". Honor its ordinary meaning. Do not negate it with an unchosen opposite outcome (for example choosing sleep then declaring the player did not sleep) unless an external event visibly prevents it.");
   if(CECS_detectExplicitRestChoice(input)) lines.push("REST/EXIT LOCK: the player explicitly chose a rest/exit/stop action. Complete that transition unless an already-established external interruption occurs; do not manufacture internal refusal, insomnia, guilt or a new crisis solely to override the choice.");
+  mysteryLocks.forEach(function(x){lines.push("MYSTERY LOCK"+(x.card?" ["+x.card+"]":"")+": "+CECS_clip(x.text,360));});
   lines.push("EVIDENCE FIREWALL: Never promote 'could/might/theory/unknown/unverified/claims' into fact. Never make a named NPC secretly know, witness, possess, remember or participate in something unless visible evidence or their current card establishes it.");
   lines.push("RELATIONSHIP FIREWALL: Preserve the newest explicit boundary and current relationship stage. A kiss, attraction, concern, banter or proximity does not erase a later no/decline/boundary. Persistence is not proof of hidden consent. NPCs may change their own position only through new visible development.");
+  lines.push("KINSHIP FIREWALL: Exact Story Card kinship is objective canon. Dialogue or nicknames such as mum, gran, uncle or cousin do not rewrite parentage/generation; only explicit newer canon can.");
+  kinship.forEach(function(x){lines.push("Kinship lock: "+CECS_clip(x,300));});
   lines.push("RECENCY FIREWALL: When older lore conflicts with newer explicit developments, use the newer fact and do not regress the character to an earlier state merely because an old card/summary still exists.");
   CECS_livePlayerRules(live.player,player,cardAge,liveAge).forEach(function(x){lines.push("Live player rule: "+CECS_clip(x,320));});
   CECS_latestConflictWinner(live.knowledge).slice(-3).forEach(function(x){lines.push("Live knowledge lock: "+CECS_clip(x,320));});
@@ -22804,7 +23221,13 @@ function CECS_liveContract(baseText){
   lines.push("[/CANON SENTINEL]");
   var maxChars=16000; try{if(typeof info!=="undefined"&&info&&Number(info.maxChars)>0)maxChars=Number(info.maxChars);}catch(_){}
   var cap=maxChars<=9000?1150:(maxChars<=18000?2300:3000),out=[],len=0;
-  lines.forEach(function(line){var add=(out.length?1:0)+line.length;if(len+add<=cap||out.length<6){out.push(line);len+=add;}});
+  var closing=lines.length?lines[lines.length-1]:"[/CANON SENTINEL]",bodyLines=lines.slice(0,-1);
+  // Preserve the structured closing marker even when the first-stage packet is
+  // compacted. The final CECS_fitPacketToBudget pass can then safely prioritize
+  // individual locks without ever exposing a dangling hidden instruction.
+  var bodyCap=Math.max(0,cap-closing.length-1);
+  bodyLines.forEach(function(line){var add=(out.length?1:0)+line.length;if(len+add<=bodyCap||out.length<6){out.push(line);len+=add;}});
+  out.push(closing);
   return "\n"+out.join("\n")+"\n";
 }
 
@@ -22816,7 +23239,7 @@ function CECS_fitPacketToBudget(packet,budget){
   var opening=lines[0]||"[CANON SENTINEL — PRIVATE]",closing=lines[lines.length-1]||"[/CANON SENTINEL]";
   var priority=[];
   function take(rx){for(var i=1;i<lines.length-1;i++){if(rx.test(lines[i])&&priority.indexOf(lines[i])<0)priority.push(lines[i]);}}
-  take(/^Authority ladder:/i);take(/^PLAYER LOCK:/i);take(/^AGE RECENCY LOCK:/i);take(/^STALE SUMMARY CORRECTION:/i);take(/^CRITICAL LIVE:/i);take(/^LATEST PLAYER INTENT:/i);take(/^REST\/EXIT LOCK:/i);take(/^Live knowledge lock:/i);take(/^Live relationship lock:/i);take(/^Live uncertainty lock:/i);take(/^EVIDENCE FIREWALL:/i);take(/^RELATIONSHIP FIREWALL:/i);take(/^RECENCY FIREWALL:/i);take(/^Knowledge lock/i);take(/^Relationship lock/i);take(/^Uncertainty lock/i);take(/^Timeline lock/i);
+  take(/^Authority ladder:/i);take(/^PLAYER LOCK:/i);take(/^AGE RECENCY LOCK:/i);take(/^STALE SUMMARY CORRECTION:/i);take(/^CRITICAL LIVE:/i);take(/^LATEST PLAYER INTENT:/i);take(/^REST\/EXIT LOCK:/i);take(/^MYSTERY LOCK/i);take(/^Live knowledge lock:/i);take(/^Live relationship lock:/i);take(/^Live uncertainty lock:/i);take(/^EVIDENCE FIREWALL:/i);take(/^RELATIONSHIP FIREWALL:/i);take(/^KINSHIP FIREWALL:/i);take(/^Kinship lock:/i);take(/^RECENCY FIREWALL:/i);take(/^Knowledge lock/i);take(/^Relationship lock/i);take(/^Uncertainty lock/i);take(/^Hard canon:/i);take(/^Timeline lock/i);
   var out=[opening],used=opening.length+closing.length+2;
   for(var j=0;j<priority.length;j++){
     var line=priority[j],need=line.length+1;
@@ -22831,7 +23254,7 @@ function CECS_fitPacketToBudget(packet,budget){
   var result="\n"+out.join("\n")+"\n";
   return result.length<=cap?result:"";
 }
-function CECS_onInput(text){ var v=CECS_clip(text,1200),box=CECS_stateBox(); CECS_RUNTIME.input=v; box.lastInput=v; box.lastInputTurn=CECS_now(); CECS_RUNTIME.turn=CECS_now(); CECS_RUNTIME.packet=""; }
+function CECS_onInput(text){ var v=CECS_clip(text,1200),box=CECS_stateBox(); CECS_RUNTIME.input=v; box.lastInput=v; box.lastInputText=v; box.lastInputTurn=CECS_now(); CECS_RUNTIME.turn=CECS_now(); CECS_RUNTIME.packet=""; }
 function CECS_onContext(text){
   var turn=CECS_now(); if(CECS_RUNTIME.packet&&CECS_RUNTIME.turn===turn)return CECS_RUNTIME.packet;
   var p=CECS_liveContract(text); CECS_RUNTIME.turn=turn; CECS_RUNTIME.packet=p; return p;
@@ -23254,7 +23677,7 @@ function CEDS_roleStage(from, to) {
     if (role === "romantic") return "dating";
     if (role === "ex") return "ex";
     if (role === "friend") return "friend";
-    if (role === "family" || role === "parent" || role === "child" || role === "sibling" || role === "relative") return "close_friend";
+    if (typeof CW_isFamilyRole==="function" && CW_isFamilyRole(role)) return "close_friend";
     if (role && role !== "unknown") return "peer";
   } catch (_) {}
   return "unknown";
@@ -24663,7 +25086,7 @@ CEDS_applyPolicyToContract = function(contract){
 
 function CEFH_relationshipRoleClass(from,to){
   var role="unknown"; try{role=CW_getRole(from,to)||"unknown";}catch(_){}
-  if(/^(?:family|parent|child|sibling|relative)$/.test(role))return "family";
+  if(typeof CW_isFamilyRole==="function"&&CW_isFamilyRole(role))return "family";
   if(/^(?:mentor|student|superior|subordinate|colleague|professional|teammate|clinician|patient|attorney|client|handler|asset|captain|crew|caregiver|dependent)$/.test(role))return "professional";
   if(role==="romantic")return "romantic";
   if(role==="ex")return "former-romantic";
@@ -25019,13 +25442,40 @@ function CEFH_maintenance(phase,text){
 // Conservative player-agency output repair
 // ---------------------------------------------------------------------------
 function CEFH_lastPlayerInput(){
-  try{if(state&&state.crossedEchoesCanonSentinel&&state.crossedEchoesCanonSentinel.lastInputText)return String(state.crossedEchoesCanonSentinel.lastInputText);}catch(_){}
+  try{
+    if(state&&state.crossedEchoesCanonSentinel){
+      if(state.crossedEchoesCanonSentinel.lastInputText)return String(state.crossedEchoesCanonSentinel.lastInputText);
+      if(state.crossedEchoesCanonSentinel.lastInput)return String(state.crossedEchoesCanonSentinel.lastInput);
+    }
+  }catch(_){}
   try{if(typeof history!=="undefined"&&Array.isArray(history)){for(var i=history.length-1;i>=0;i--){var h=history[i];if(h&&/^(?:do|say|story|player|input)$/i.test(String(h.type||""))&&h.text)return String(h.text);}}}catch(_){}
   return "";
 }
 
+function CEFH_transitionContradiction(sentence,input){
+  var s=CEFH_norm(sentence),i=CEFH_norm(input);
+  if(!s||!i)return false;
+  // Keep genuine external interruption. The repair only removes an invented
+  // opposite player state, never an alarm/attack/knock/etc that visibly prevents
+  // the requested transition.
+  var external=/\b(?:alarm|sirens?|knock|doorbell|explosion|attack|attacks|shout|scream|phone\s+(?:rings|buzzes)|message\s+arrives|someone\s+(?:grabs|stops|interrupts|wakes)|earthquake|fire|crash|impact)\b/i.test(sentence);
+  if(/\b(?:sleep|get some sleep|go to sleep|rest)\b/.test(i)){
+    if(/\byou\s+(?:do not|don't|cannot|can't|never)\s+(?:sleep|rest)\b/.test(s))return !external;
+    if(/\byou\s+(?:stay|remain|lie)\s+awake\b|\bsleep\s+(?:does not|doesn't|never)\s+come\b|\bsleep\s+eludes\s+you\b/.test(s))return !external;
+  }
+  if(/\b(?:leave|go home|head home|go back)\b/.test(i)){
+    if(/\byou\s+(?:stay|remain|do not leave|don't leave|turn back)\b/.test(s))return !external;
+  }
+  if(/\b(?:stay|wait|do nothing)\b/.test(i)){
+    if(/\byou\s+(?:leave|walk away|head out|follow|go after|chase)\b/.test(s))return !external;
+  }
+  if(/\bstop\b/.test(i)&&/\byou\s+(?:continue|keep going|press on|carry on)\b/.test(s))return !external;
+  return false;
+}
+
 function CEFH_agencySentenceViolation(sentence,input){
   var s=String(sentence||""),i=String(input||"");
+  if(CEFH_transitionContradiction(s,i))return true;
   // Never strip ordinary involuntary consequences (you stumble, you are hit,
   // pain flashes, etc.). Only target volunteered dialogue/decision/thought acts.
   var voluntary=/\byou\s+(?:decide|choose|resolve|promise|agree|refuse|plan|intend|want|think|realize|realise|remember|feel|say|tell|ask|whisper|shout|admit|confess)\b/i.exec(s);

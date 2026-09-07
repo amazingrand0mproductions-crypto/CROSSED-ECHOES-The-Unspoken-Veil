@@ -26,6 +26,10 @@ Relationships are directional and historical rather than a single friendship sco
 
 Family, romance, friendship, rivalry, resentment, loyalty, fear, professional ties, political relationships and other bonds can all develop independently. Identity resolution is deliberately strict around high-stakes relationships so a shared first name, surname or alias cannot casually create a marriage, parent-child bond or romance with the wrong character.
 
+Family is now directional and first-class rather than one generic `family` bucket. Supported kinship includes parent/child, grandparent/grandchild, great-grandparent/great-grandchild, aunt-or-uncle/niece-or-nephew, great-aunt-or-uncle/great-niece-or-nephew, cousins, twins, half/step/foster/adoptive siblings, adoptive/foster/step parents and children, guardian/ward, godparent/godchild, several in-law directions, ancestor/descendant and chosen family. Directional inverses are created only from explicit canon. All of these remain in the **family relationship class**, structurally separate from romance.
+
+Crossed Wires can bootstrap those bonds from Story Card fields such as `Relationships:`, `Relationship Status:`, `Family:`, `Kinship:`, `Parents:`, `Children:`, `Siblings:`, `Grandparents:`, `Aunts/Uncles:`, `Nieces/Nephews:`, `Cousins:`, `Guardian:` and similar explicit family fields. Current explicit relationship-status cards may supersede older historical stages; cards that only say *potential*, *possible*, *unknown* or *early attraction* cannot promote a romance by themselves.
+
 The player remains protected. CROSSED WIRES can remember how an NPC behaves toward **YOU**, but it does not invent the player's feelings, consent or decisions.
 
 ### 🌀 TWISTS AND TURNS
@@ -35,6 +39,8 @@ The long-form twist engine.
 TWISTS builds threads from evidence rather than randomly announcing surprises. Clues can reinforce, contradict, delay or resolve a thread. Repeated wording cannot artificially mature the same clue, ruled-out explanations count as counter-evidence, and historical archive material does not automatically become a current conspiracy.
 
 With `strictLogic=true`, a reveal has to earn its way into the story. `/twist` can accelerate a supported reveal, but it cannot create a secret from nothing. Compound twists also require an established bridge instead of inventing one just because combining two ideas would be dramatic.
+
+Current-story mystery rules are also protected as canon contracts. If a Story Card says several hooks are **independent**, that somebody is only **presumed** dead, that identities are **not pre-decided**, or that a theory is **unverified**, TWISTS AND TURNS may investigate those doors but cannot silently merge them into one master conspiracy or promote them to fact.
 
 ### 🌘 ECHO VEIL
 
