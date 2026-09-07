@@ -4,6 +4,24 @@ var contextRuntimeToken = typeof utBeginRuntimePhase === "function" ? utBeginRun
 try {
   if (typeof CE_bootstrapRequiredConfigCards === "function") CE_bootstrapRequiredConfigCards("context");
   initUnsaid();
+  // High-authority scenario declarations are a first-class CODEX input. Do
+  // this before the heavier twist/world/context directors so a large 300–500
+  // card adventure cannot repeatedly starve the one-time bootstrap behind the
+  // adaptive runtime governor. Static declarations do NOT count as appearances.
+  try {
+    if (typeof readUnsaidConfig === "function" && typeof trackScenarioContextDeclarations === "function") {
+      const earlyCodexCfg = readUnsaidConfig();
+      if (earlyCodexCfg && earlyCodexCfg.codexEnabled !== false) {
+        const declared = trackScenarioContextDeclarations(text, earlyCodexCfg);
+        if (declared && declared.length && typeof createCodexScenarioScaffoldCards === "function") {
+          const made = createCodexScenarioScaffoldCards(earlyCodexCfg, text, 1);
+          if (made && made.length && typeof pushMessage === "function") {
+            pushMessage("📇 CODEX recovered " + made.length + " scenario-declared Story Card" + (made.length === 1 ? "" : "s") + " from authoritative context.");
+          }
+        }
+      }
+    }
+  } catch (e) { if (typeof utRecordRuntimeError === "function") utRecordRuntimeError("Codex/early-scenario-bootstrap", e); }
   if (typeof CE_noteCacheCompatibleSeen === "function") CE_noteCacheCompatibleSeen();
   checkCacheEfficientWarning();
 } catch (e) {
@@ -128,8 +146,17 @@ var twistsModifier = (text) => {
     const cardTitles = Library.eligibleCardTitles(loreReferenceText, 96);
     Library.scanForLooseThreads(scanText, c, cfg, liveCardTitles);
 
+    // Never let a large archive starve the directly relevant current-entity
+    // mystery scan. This pass is bounded to the active card plus at most two
+    // explicitly related cards per entity. The broader rotating lore scan stays
+    // optional and yields first under runtime pressure.
+    if (liveCardTitles.length && (typeof utHasRuntimeBudget !== "function" || utHasRuntimeBudget(120))) {
+      Library.scanStoryCardsForScenarioThreads(c, cfg, liveCardTitles, true);
+    } else if (liveCardTitles.length && typeof utSkipRuntimeTask === "function") {
+      utSkipRuntimeTask("twist-current-card-scan");
+    }
     if (typeof utHasRuntimeBudget !== "function" || utHasRuntimeBudget(430)) {
-      Library.scanStoryCardsForScenarioThreads(c, cfg, liveCardTitles);
+      Library.scanStoryCardsForScenarioThreads(c, cfg, [], false);
     } else if (typeof utSkipRuntimeTask === "function") {
       utSkipRuntimeTask("twist-storycard-scan");
     }
@@ -467,6 +494,12 @@ var unsaidModifier = (text) => {
       // Repair a small rotating batch instead; current/new entities are already
       // handled by trackMentions in Input/Output.
       const codexState = state.unsaid.codex;
+
+      // Authoritative scenario declarations were already captured and one
+      // bounded scaffold was attempted at the top of this Context hook. Do not
+      // repeat the same 26k scan/classification here; one recovered card per
+      // turn is deliberate so CODEX cannot starve TWISTS/UNSAID/ECHO.
+
       const legacyNames = Object.keys(codexState.mentionCounts || {}).filter(name =>
         !!codexState.likelyCharacters[name] &&
         typeof codexState.introducedTurn[name] !== "number"
@@ -718,7 +751,10 @@ var unsaidModifier = (text) => {
       const isPlayerAction = actionType === "do" || actionType === "say";
       let effectiveChance = (cfg.reduceDuringActions && isPlayerAction) ? cfg.chance * 0.5 : cfg.chance;
 
-      const anyoneNeverRevealed = eligible.some(name => !state.unsaid.minds[name]);
+      const anyoneNeverRevealed = eligible.some(name => {
+        const mind = state.unsaid.minds[name];
+        return !mind || !!mind.shellOnly || !(mind.revealCount || mind.lastThoughtText || mind.core || (mind.thoughtOrder && mind.thoughtOrder.length));
+      });
       if (anyoneNeverRevealed) {
         // Give new NPCs a modest nudge, but never turn a 30% setting into an
         // almost-every-turn metadata request. Repeated model misses now trigger

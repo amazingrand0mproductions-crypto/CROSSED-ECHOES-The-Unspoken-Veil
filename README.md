@@ -24,7 +24,7 @@ The relationship engine.
 
 Relationships are directional and historical rather than a single friendship score. Existing bonds can be reconstructed from Story Cards, while new developments grow from visible story events.
 
-Family, romance, friendship, rivalry, resentment, loyalty, fear, professional ties, political relationships and other bonds can all develop independently. Identity resolution is deliberately strict around high-stakes relationships so a shared first name, surname or alias cannot casually create a marriage, parent-child bond or romance with the wrong character.
+Family, romance, friendship, rivalry, resentment, loyalty, fear, professional ties, political relationships, roommate/classmate/peer bonds and other connections can all develop independently. Identity resolution is deliberately strict around high-stakes relationships so a shared first name, surname or alias cannot casually create a marriage, parent-child bond or romance with the wrong character.
 
 Family is now directional and first-class rather than one generic `family` bucket. Supported kinship includes parent/child, grandparent/grandchild, great-grandparent/great-grandchild, aunt-or-uncle/niece-or-nephew, great-aunt-or-uncle/great-niece-or-nephew, cousins, twins, half/step/foster/adoptive siblings, adoptive/foster/step parents and children, guardian/ward, godparent/godchild, several in-law directions, ancestor/descendant and chosen family. Directional inverses are created only from explicit canon. All of these remain in the **family relationship class**, structurally separate from romance.
 
@@ -202,6 +202,27 @@ CROSSED ECHOES uses bounded caches, capped histories, active-first Story Card sa
 Required config capacity is reserved before non-essential automatic writes. At the hard Story Card ceiling, the script refuses new automatic lore rather than repurposing an existing card.
 
 Optimized Context is supported. CROSSED ECHOES preserves the host's existing Context and adds only bounded guidance when there is room.
+
+---
+
+
+## 🔬 Live-play audited large-adventure hardening
+
+This release was replayed against a real **374-Story-Card NEXT CLASS adventure** rather than relying only on synthetic fixtures. That audit exposed several issues that are now fixed in the engine itself.
+
+**Authoritative CODEX recovery** can now notice important named entities declared in AI Instructions / Plot Essentials even when ordinary prose discovery never produced a card. Recovery is incremental and bounded so creating missing lore cannot starve TWISTS, ECHO VEIL or UNSAID on the same turn.
+
+**Shared Story Card indexing** lets the largest systems reuse one per-hook card snapshot instead of repeatedly rebuilding their own 300+ card indexes. This materially reduces large-adventure Context cost without switching systems off.
+
+**UNSAID active-NPC shells** give an in-scene NPC a conservative mind container from public canon and relationship evidence before any private thought is known. Empty private fields stay empty; the shell is continuity infrastructure, not invented psychology.
+
+**Current-relevant TWISTS priority scanning** guarantees a tiny bounded check for a mystery card directly related to the active NPC before optional background lore scanning yields to runtime pressure. A current Callum mystery therefore cannot wait dozens of turns merely because the archive is large.
+
+**ECHO false-positive hardening** distinguishes actual injuries/mysteries from ordinary phrases such as “a straight shot for fifty metres” or navigational questions such as “where are we going?”. Author's Note fragments and control prose are also excluded from durable Echo threads.
+
+**Dialogue-only player agency** is stricter. If the player only speaks, the model may resolve external reactions, but it cannot silently convert that line into an intentional teleport, attack, grab, blast or other voluntary power choice.
+
+The private 374-card fixture is not distributed with the package. The release report records the audit result without embedding the user's story data.
 
 ---
 
