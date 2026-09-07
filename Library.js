@@ -12,6 +12,35 @@ var CE_CONFIG_TITLE_CODEX = "CROSSED ECHOES — Config — CODEX";
 var CE_CONFIG_TITLE_INTEGRATION = "CROSSED ECHOES — Config — INTEGRATION";
 
 
+// Platform compatibility: official docs still advertise info.characterNames,
+// while measured live played turns expose info.characters instead. Normalize
+// both shapes here so player-controlled identities never become autonomous NPCs.
+function CE_platformCharacterNames() {
+  var out = [], seen = Object.create(null);
+  try {
+    var pools = [];
+    if (typeof info !== "undefined" && info) {
+      if (Array.isArray(info.characterNames)) pools.push(info.characterNames);
+      if (Array.isArray(info.characters)) pools.push(info.characters);
+    }
+    pools.forEach(function(pool) {
+      pool.forEach(function(value) {
+        var raw = "";
+        if (typeof value === "string") raw = value;
+        else if (value && typeof value.name === "string") raw = value.name;
+        raw = String(raw || "").trim();
+        if (!raw) return;
+        var key = raw.toLowerCase();
+        if (seen[key]) return;
+        seen[key] = true;
+        out.push(raw);
+      });
+    });
+  } catch (_) {}
+  return out;
+}
+
+
 // Story Card persistence compatibility.
 // AI Dungeon's documented scripting contract guarantees only id/keys/entry/type
 // on live Story Cards and only the 3-argument add/update helpers. Newer builds
@@ -56,8 +85,10 @@ function CE_cardIdentityName(card) {
 // visible on the next hook when Library globals are recreated.
 var CE_SHARED_STORY_CARD_INDEX_CACHE = null;
 var CE_SHARED_STORY_CARD_INDEX_VERSION = 0;
+var CE_REQUIRED_CONFIG_PRESENCE_CACHE = null;
 function CE_invalidateSharedStoryCardIndex() {
   CE_SHARED_STORY_CARD_INDEX_CACHE = null;
+  CE_REQUIRED_CONFIG_PRESENCE_CACHE = null;
   CE_SHARED_STORY_CARD_INDEX_VERSION++;
   try { UNSAID_ALIAS_INDEX = null; UNSAID_ENTITY_LOOKUP_CACHE = Object.create(null); } catch (_) {}
   try { CW_RUNTIME_CARD_INDEX = null; CW_RUNTIME_EVENT_INDEX = null; } catch (_) {}
@@ -72,10 +103,14 @@ function CE_sharedStoryCardIndex() {
   const cards = (typeof storyCards !== "undefined" && Array.isArray(storyCards)) ? storyCards : [];
   const records = [], byType = Object.create(null), byIdentity = Object.create(null), byAlias = Object.create(null), byExactKeys = Object.create(null), byToken = Object.create(null);
   const characters = [], locations = [], items = [], factions = [], configs = [];
-  let rolling = 2166136261 >>> 0;
+  // Full-string 32-bit rolling hash. A shift/add DJB2 variant is materially
+  // faster than Math.imul-based FNV inside AI Dungeon's short-lived VM realms,
+  // while still touching every character so same-length middle edits invalidate
+  // dependent per-hook indexes.
+  let rolling = 5381 >>> 0;
   function mix(str) {
     str = String(str || "");
-    for (let i=0;i<str.length;i++) { rolling ^= str.charCodeAt(i); rolling = Math.imul(rolling,16777619) >>> 0; }
+    for (let i=0;i<str.length;i++) rolling = ((((rolling << 5) + rolling) ^ str.charCodeAt(i)) >>> 0);
   }
   function addMap(map,key,rec){ if(!key)return; if(!map[key])map[key]=[]; map[key].push(rec); }
   for (let i=0;i<cards.length;i++) {
@@ -100,7 +135,7 @@ function CE_sharedStoryCardIndex() {
     if(/(?:item|object|artifact|artefact|weapon|tool|vehicle|device|equipment|relic|key|book|document|armor|armour|clothing|resource|potion|ring|amulet|sword|gun|ship|car)/i.test(typeNorm))items.push(rec);
     if(/(?:faction|organization|organisation|group|guild|team|clan|agency|crew|family)/i.test(typeNorm))factions.push(rec);
     if(/config/i.test(typeNorm)||/^CROSSED ECHOES — Config —/i.test(identity))configs.push(rec);
-    mix(i+"|"+typeNorm+"|"+keysRaw+"|"+identity+"|"+entry.length+"|"+entry.slice(0,160)+"|"+entry.slice(-160));
+    mix(i+"|"+typeNorm+"|"+keysRaw+"|"+identity+"|"+entry.length+"|"); mix(entry);
   }
   CE_SHARED_STORY_CARD_INDEX_CACHE={version:CE_SHARED_STORY_CARD_INDEX_VERSION,count:cards.length,records:records,cards:cards,byType:byType,byIdentity:byIdentity,byAlias:byAlias,byExactKeys:byExactKeys,byToken:byToken,characters:characters,locations:locations,items:items,factions:factions,configs:configs,signature:String(rolling>>>0)+":"+cards.length};
   return CE_SHARED_STORY_CARD_INDEX_CACHE;
@@ -150,15 +185,9 @@ function CE_storyCardCount() {
 }
 function CE_missingRequiredConfigCount() {
   try {
-    if (typeof storyCards === "undefined" || !Array.isArray(storyCards)) return CE_RESERVED_CONFIG_KEYS.length;
+    var presence = CE_scanRequiredConfigPresence();
     var missing = 0;
-    for (var i = 0; i < CE_RESERVED_CONFIG_KEYS.length; i++) {
-      var key = CE_RESERVED_CONFIG_KEYS[i], found = false;
-      for (var j = 0; j < storyCards.length; j++) {
-        if (CE_hasCardKey(storyCards[j], key)) { found = true; break; }
-      }
-      if (!found) missing++;
-    }
+    for (var i=0;i<CE_RESERVED_CONFIG_KEYS.length;i++) if(!presence[CE_RESERVED_CONFIG_KEYS[i]]) missing++;
     return missing;
   } catch (_) { return CE_RESERVED_CONFIG_KEYS.length; }
 }
@@ -245,7 +274,11 @@ function CE_storyCardWriteIdentityExists(rec) {
     var expectedKey=String(rec.key||"").toLowerCase(), expectedName=String(rec.name||"").trim();
     return storyCards.some(function(card){
       if(!card)return false;
-      if(expectedKey && CE_hasCardKey(card, expectedKey)) return true;
+      if(expectedKey && CE_hasCardKey(card, expectedKey)) {
+        if (CE_RESERVED_CONFIG_KEYS.some(function(k){ return String(k).toLowerCase() === expectedKey; })) {
+          if (CE_isRequiredConfigCard(card, expectedKey)) return true;
+        } else return true;
+      }
       if(expectedName){
         var cn=typeof CE_cardIdentityName==="function"?CE_cardIdentityName(card):String(card.title||card.name||"");
         if(cn && typeof CE_sameName==="function" && CE_sameName(cn,expectedName)) return true;
@@ -302,12 +335,77 @@ var CE_CONFIG_KEY_ECHO = "__echo_veil_config__";
 var CE_CONFIG_KEY_INTEGRATION = "__crossed_echoes_integration__";
 var CE_TWIST_FACTS_SENTINEL = "__crossed_echoes_established_facts__";
 
+// Reserved config keys are intentionally inert, but current AI Dungeon hosts
+// permit duplicate Story Card keys. A key by itself therefore cannot prove
+// ownership: otherwise an unrelated card with the same key could be upgraded
+// and overwritten as configuration. Durable config identity requires either
+// an exact config title, or the reserved key together with our config type or
+// an engine-specific Entry signature.
+var CE_CONFIG_TITLE_BY_KEY = Object.create(null);
+CE_CONFIG_TITLE_BY_KEY[CE_CONFIG_KEY_UNSAID] = CE_CONFIG_TITLE_UNSAID;
+CE_CONFIG_TITLE_BY_KEY[CE_CONFIG_KEY_CODEX] = CE_CONFIG_TITLE_CODEX;
+CE_CONFIG_TITLE_BY_KEY[CE_CONFIG_KEY_CROSSED] = CE_CONFIG_TITLE_CROSSED;
+CE_CONFIG_TITLE_BY_KEY[CE_CONFIG_KEY_ECHO] = CE_CONFIG_TITLE_ECHO;
+CE_CONFIG_TITLE_BY_KEY[CE_CONFIG_KEY_INTEGRATION] = CE_CONFIG_TITLE_INTEGRATION;
+var CE_CONFIG_KEY_BY_TITLE = Object.create(null);
+Object.keys(CE_CONFIG_TITLE_BY_KEY).forEach(function(k){ CE_CONFIG_KEY_BY_TITLE[CE_CONFIG_TITLE_BY_KEY[k]] = k; });
+
+function CE_expectedConfigTitle(key) {
+  return CE_CONFIG_TITLE_BY_KEY[String(key || "").trim().toLowerCase()] || "";
+}
+function CE_configEntryMatchesKey(card, key) {
+  const entry = CE_cardEntryCore(card);
+  key = String(key || "").trim().toLowerCase();
+  if (key === "__crossed_echoes_config_unsaid__") {
+    return /==\s*TWISTS AND TURNS\s*==/i.test(entry) && /==\s*UNSAID\s*==/i.test(entry);
+  }
+  if (key === "__crossed_echoes_config_codex__") return /^\s*==\s*CODEX\s*==/i.test(entry);
+  if (key === "__crossed_echoes_config_crossed_wires__") return /^\s*Crossed Wires Settings\b/i.test(entry);
+  if (key === "__echo_veil_config__") return /^\s*ECHO VEIL CONFIG\b/i.test(entry);
+  if (key === "__crossed_echoes_integration__") return /^\s*CROSSED ECHOES INTEGRATION\b/i.test(entry);
+  return false;
+}
+function CE_isRequiredConfigCard(card, key) {
+  if (!card) return false;
+  key = String(key || "").trim().toLowerCase();
+  const expectedTitle = CE_expectedConfigTitle(key);
+  const title = String(card.title || card.name || "").trim();
+  if (expectedTitle && title === expectedTitle) return true;
+  if (!CE_hasCardKey(card, key)) return false;
+  if (String(card.type || "").trim().toLowerCase() === "crossed echoes config") return true;
+  return CE_configEntryMatchesKey(card, key);
+}
+function CE_scanRequiredConfigPresence() {
+  if (CE_REQUIRED_CONFIG_PRESENCE_CACHE) return CE_REQUIRED_CONFIG_PRESENCE_CACHE;
+  var out = Object.create(null);
+  for (var r=0;r<CE_RESERVED_CONFIG_KEYS.length;r++) out[CE_RESERVED_CONFIG_KEYS[r]] = false;
+  if (typeof storyCards === "undefined" || !Array.isArray(storyCards)) return out;
+  var remaining = CE_RESERVED_CONFIG_KEYS.length;
+  for (var i=0;i<storyCards.length && remaining>0;i++) {
+    var card=storyCards[i]; if(!card)continue;
+    var title=String(card.title||card.name||"").trim();
+    var titleKey=CE_CONFIG_KEY_BY_TITLE[title];
+    if(titleKey && !out[titleKey]) { out[titleKey]=true; remaining--; }
+    var raw=CE_cardKeysCore(card).toLowerCase();
+    if(!raw)continue;
+    var parts=raw.split(",").map(function(x){return x.trim();});
+    var typeOk=String(card.type||"").trim().toLowerCase()==="crossed echoes config";
+    for(var p=0;p<parts.length;p++) {
+      var key=parts[p];
+      if(!Object.prototype.hasOwnProperty.call(out,key)||out[key])continue;
+      if(typeOk||CE_configEntryMatchesKey(card,key)){out[key]=true;remaining--;}
+    }
+  }
+  CE_REQUIRED_CONFIG_PRESENCE_CACHE = out;
+  return out;
+}
+
 function CE_coreConfigTitle(card) {
-  if (CE_hasCardKey(card, CE_CONFIG_KEY_UNSAID)) return CE_CONFIG_TITLE_UNSAID;
-  if (CE_hasCardKey(card, CE_CONFIG_KEY_CODEX)) return CE_CONFIG_TITLE_CODEX;
-  if (CE_hasCardKey(card, CE_CONFIG_KEY_CROSSED)) return CE_CONFIG_TITLE_CROSSED;
-  if (CE_hasCardKey(card, CE_CONFIG_KEY_ECHO)) return CE_CONFIG_TITLE_ECHO;
-  if (CE_hasCardKey(card, CE_CONFIG_KEY_INTEGRATION)) return CE_CONFIG_TITLE_INTEGRATION;
+  if (CE_isRequiredConfigCard(card, CE_CONFIG_KEY_UNSAID)) return CE_CONFIG_TITLE_UNSAID;
+  if (CE_isRequiredConfigCard(card, CE_CONFIG_KEY_CODEX)) return CE_CONFIG_TITLE_CODEX;
+  if (CE_isRequiredConfigCard(card, CE_CONFIG_KEY_CROSSED)) return CE_CONFIG_TITLE_CROSSED;
+  if (CE_isRequiredConfigCard(card, CE_CONFIG_KEY_ECHO)) return CE_CONFIG_TITLE_ECHO;
+  if (CE_isRequiredConfigCard(card, CE_CONFIG_KEY_INTEGRATION)) return CE_CONFIG_TITLE_INTEGRATION;
   if (CE_hasCardKey(card, CE_TWIST_FACTS_SENTINEL)) return "CROSSED ECHOES — Established Facts";
   return "";
 }
@@ -3626,7 +3724,12 @@ var Library = (() => {
       }
       if (!card && keys) {
         const sentinels = String(Array.isArray(keys) ? keys.join(",") : keys).split(",").map(function(x){ return x.trim(); }).filter(function(x){ return /^__[^_].*__$/.test(x); });
-        if (sentinels.length) card = storyCards.find(function(c){ return sentinels.some(function(k){ return CE_hasCardKey(c,k); }); }) || null;
+        const reservedConfigWrite = CE_isRequiredConfigWrite(keys);
+        if (sentinels.length) card = storyCards.find(function(c){
+          return sentinels.some(function(k){
+            return reservedConfigWrite ? CE_isRequiredConfigCard(c,k) : CE_hasCardKey(c,k);
+          });
+        }) || null;
       }
       if (!card) {
         // addStoryCard returns the new card's index, or false if a card
@@ -3636,6 +3739,10 @@ var Library = (() => {
         const cardKeys = keys || title.toLowerCase();
         const added = CE_tryAddStoryCard(cardKeys, entry, type, title, notes, { allowReserved: CE_isRequiredConfigWrite(cardKeys) });
         card = added.card || storyCards.find(c => {
+              if (CE_isRequiredConfigWrite(cardKeys)) {
+                const primary = CE_requestedStoryCardPrimaryKey(cardKeys);
+                return primary ? CE_isRequiredConfigCard(c, primary) : false;
+              }
               const raw = Array.isArray(c && c.keys) ? c.keys.join(",") : String(c && c.keys || "");
               return raw.toLowerCase() === String(cardKeys || "").toLowerCase();
             }) || null;
@@ -5416,7 +5523,21 @@ function resolveUnsaidCanonicalName(rawName) {
   if (owners.length === 1) {UNSAID_CANONICAL_RESOLVE_CACHE[key]=owners[0];return owners[0];}
   const fuzzy=[];
   try {
-    const rows=CE_sharedStoryCardIndex().records;
+    const shared=CE_sharedStoryCardIndex();
+    let rows=shared.records;
+    // Fuzzy identity matching can otherwise become O(all Story Cards) for every
+    // unknown capitalized token. isSameCardEntity only succeeds when candidate
+    // words occur contiguously in the card identity, so on large libraries it is
+    // safe to narrow to the smallest token bucket that contains a candidate word.
+    if(shared.count>=250&&shared.byToken){
+      const words=CE_sharedCardNorm(raw).split(" ").filter(function(w){return w.length>=3;});
+      let narrowed=null;
+      for(let wi=0;wi<words.length;wi++){
+        const bucket=shared.byToken[words[wi]];
+        if(bucket&&bucket.length&&(narrowed===null||bucket.length<narrowed.length))narrowed=bucket;
+      }
+      rows=narrowed||[];
+    }
     for (let i=0;i<rows.length;i++) {
       const cardName=rows[i].identity;
       if(!cardName||isOwnCard(cardName))continue;
@@ -5698,9 +5819,9 @@ function findConfigCardTolerant(title, maxDistance) {
   for (let i = 0; i < storyCards.length; i++) {
     const card = storyCards[i]; if (!card) continue;
     const entry = CE_cardEntryCore(card);
-    if ((lowWanted.indexOf("codex") >= 0) && (CE_hasCardKey(card, CE_CONFIG_KEY_CODEX) || /^\s*==\s*CODEX\s*==/i.test(entry))) return card;
+    if ((lowWanted.indexOf("codex") >= 0) && (CE_isRequiredConfigCard(card, CE_CONFIG_KEY_CODEX) || /^\s*==\s*CODEX\s*==/i.test(entry))) return card;
     if ((lowWanted.indexOf("unspoken") >= 0 || lowWanted.indexOf("unsaid") >= 0) &&
-        (CE_hasCardKey(card, CE_CONFIG_KEY_UNSAID) || (/==\s*TWISTS AND TURNS\s*==/i.test(entry) && /==\s*UNSAID\s*==/i.test(entry)))) return card;
+        (CE_isRequiredConfigCard(card, CE_CONFIG_KEY_UNSAID) || (/==\s*TWISTS AND TURNS\s*==/i.test(entry) && /==\s*UNSAID\s*==/i.test(entry)))) return card;
   }
   const target = wanted.toLowerCase().replace(/[^a-z]/g, "");
   const limit = typeof maxDistance === "number" ? maxDistance : 2;
@@ -6241,7 +6362,7 @@ function ensureCodexConfigCard(sourceCard) {
   if (typeof storyCards !== "undefined" && Array.isArray(storyCards)) {
     card = storyCards.find(function(sc){
       if (!sc) return false;
-      if (CE_hasCardKey(sc, CE_CONFIG_KEY_CODEX)) return true;
+      if (CE_isRequiredConfigCard(sc, CE_CONFIG_KEY_CODEX)) return true;
       var title=String(sc.title || sc.name || "").trim();
       if (title===CE_CONFIG_TITLE_CODEX || title==="UNSAID Codex Config" || title==="Codex Config") return true;
       return /^\s*==\s*CODEX\s*==/i.test(CE_cardEntryCore(sc));
@@ -6260,7 +6381,7 @@ function ensureCodexConfigCard(sourceCard) {
     const keys = CE_CONFIG_KEY_CODEX;
     const added = CE_tryAddStoryCard(keys, renderCodexSection(seed), CE_CONFIG_CATEGORY, CE_CONFIG_TITLE_CODEX, CONFIG_DEFAULT_CODEX_NOTES_SECTION, { allowReserved:true });
     card = added.card;
-    if (!card) card = storyCards.find(sc => sc && (sc.title === CE_CONFIG_TITLE_CODEX || sc.keys === keys)) || null;
+    if (!card) card = storyCards.find(sc => sc && CE_isRequiredConfigCard(sc, CE_CONFIG_KEY_CODEX)) || null;
   }
   if (card) {
     card.title = CE_CONFIG_TITLE_CODEX; card.name = CE_CONFIG_TITLE_CODEX; card.type = CE_CONFIG_CATEGORY; card.keys = CE_CONFIG_KEY_CODEX;
@@ -6350,7 +6471,7 @@ function ensureSharedConfigCard() {
     const cardKeys = CE_CONFIG_KEY_UNSAID;
     const added = CE_tryAddStoryCard(cardKeys, initialEntry, CE_CONFIG_CATEGORY, CONFIG_CARD_TITLE, initialDescription, { allowReserved:true });
     card = added.card;
-    if (!card) card = storyCards.find(sc => sc.keys === cardKeys) || null;
+    if (!card) card = storyCards.find(sc => CE_isRequiredConfigCard(sc, CE_CONFIG_KEY_UNSAID)) || null;
     if (!card) {
       for (let i = 0; i < storyCards.length; i++) {
         if (storyCards[i] && storyCards[i].title === CONFIG_CARD_TITLE) { card = storyCards[i]; break; }
@@ -8251,16 +8372,8 @@ function isCardOfKind(card, kind) {
 function excludedNames(cfg) {
   const names = [];
   if (cfg.playerName) names.push(cfg.playerName);
-  if (typeof info !== "undefined" && info) {
-    if (Array.isArray(info.characters)) {
-      info.characters.forEach(c => {
-        if (typeof c === "string") names.push(c);
-        else if (c && c.name) names.push(c.name);
-      });
-    }
-    if (Array.isArray(info.characterNames)) {
-      info.characterNames.forEach(n => { if (typeof n === "string") names.push(n); });
-    }
+  if (typeof CE_platformCharacterNames === "function") {
+    CE_platformCharacterNames().forEach(n => names.push(n));
   }
   return names;
 }
@@ -11816,8 +11929,8 @@ function CW_playerNames() {
     const bits = key.split(/\s+/).filter(Boolean);
     if (bits.length >= 2 && bits[0].length >= 3) names.push(bits[0]);
   }
-  if (typeof info !== "undefined" && Array.isArray(info.characterNames)) {
-    for (const n of info.characterNames) addName(n);
+  if (typeof CE_platformCharacterNames === "function") {
+    for (const n of CE_platformCharacterNames()) addName(n);
   }
   const ph = (state && Array.isArray(state.placeholders)) ? state.placeholders : [];
   for (const p of ph) {
@@ -11829,7 +11942,7 @@ function CW_playerNames() {
   // AI Dungeon does not always expose characterNames to scripts. If exactly
   // one Character card explicitly identifies itself as the protagonist/player,
   // use that as a safe fallback instead of registering the player as an NPC.
-  if (typeof storyCards !== "undefined" && Array.isArray(storyCards)) {
+  if (names.length === 1 && typeof storyCards !== "undefined" && Array.isArray(storyCards)) {
     const explicit = [];
     for (const card of storyCards) {
       if (!card || !/^(?:character|npc)$/i.test(String(card.type || ""))) continue;
@@ -11898,7 +12011,7 @@ function CW_configCard() {
     const entry = CE_cardEntryCore(c);
     if (title === CW_CONFIG_TITLE.toLowerCase() || title === "crossed wires config") return (CW_RUNTIME_CONFIG_CARD = c);
     if (type === "crossed wires config") return (CW_RUNTIME_CONFIG_CARD = c); // v2/v3 migration
-    if (keys.includes("__crossed_wires_config__") || CE_hasCardKey(c, CW_CONFIG_KEYS) || keys.includes("__cw_config_bootstrap_8__")) return (CW_RUNTIME_CONFIG_CARD = c);
+    if (keys.includes("__crossed_wires_config__") || CE_isRequiredConfigCard(c, CW_CONFIG_KEYS) || keys.includes("__cw_config_bootstrap_8__")) return (CW_RUNTIME_CONFIG_CARD = c);
     if (notes.includes(CW_CONFIG_MARKER) || /^\s*Crossed Wires Settings/i.test(entry)) return (CW_RUNTIME_CONFIG_CARD = c);
   }
   return (CW_RUNTIME_CONFIG_CARD = null);
@@ -12955,15 +13068,26 @@ function CW_storyCardCharacterIndex() {
   }
   // Merge only explicit alias duplicate cards. Equal Name: values alone are not
   // enough: crossovers can legitimately contain two different people with the
-  // same civilian name.
-  for(let i=0;i<raw.length;i++)for(let j=i+1;j<raw.length;j++){
-    const a=raw[i],b=raw[j]; if(!a.nameField||!b.nameField||CW_key(a.nameField)!==CW_key(b.nameField))continue;
-    const aPoints=(a.explicitAliases||[]).some(function(x){return CW_key(x)===CW_key(b.title);});
-    const bPoints=(b.explicitAliases||[]).some(function(x){return CW_key(x)===CW_key(a.title);});
-    if(!aPoints&&!bPoints)continue;
-    const canonical=aPoints&&!bPoints?a.title:(bPoints&&!aPoints?b.title:((/historical.*alias|card\s+purpose\s*:\s*historical/i.test(a.entry)&&!/historical.*alias|card\s+purpose\s*:\s*historical/i.test(b.entry))?b.title:a.title));
-    a.canonical=canonical;b.canonical=canonical;
+  // same civilian name. Group by Name: first so a large character library does
+  // not pay an O(n²) comparison cost for records that could never match.
+  const duplicateNameGroups=Object.create(null);
+  for(let i=0;i<raw.length;i++){
+    const rec=raw[i]; if(!rec.nameField)continue;
+    const nk=CW_key(rec.nameField); if(!nk)continue;
+    if(!duplicateNameGroups[nk])duplicateNameGroups[nk]=[];
+    duplicateNameGroups[nk].push(rec);
   }
+  Object.keys(duplicateNameGroups).forEach(function(nk){
+    const group=duplicateNameGroups[nk]; if(!group||group.length<2)return;
+    for(let i=0;i<group.length;i++)for(let j=i+1;j<group.length;j++){
+      const a=group[i],b=group[j];
+      const aPoints=(a.explicitAliases||[]).some(function(x){return CW_key(x)===CW_key(b.title);});
+      const bPoints=(b.explicitAliases||[]).some(function(x){return CW_key(x)===CW_key(a.title);});
+      if(!aPoints&&!bPoints)continue;
+      const canonical=aPoints&&!bPoints?a.title:(bPoints&&!aPoints?b.title:((/historical.*alias|card\s+purpose\s*:\s*historical/i.test(a.entry)&&!/historical.*alias|card\s+purpose\s*:\s*historical/i.test(b.entry))?b.title:a.title));
+      a.canonical=canonical;b.canonical=canonical;
+    }
+  });
   raw.forEach(function(rec){
     const canonical=rec.canonical||rec.title;
     chars.push({card:rec.card,title:canonical,sourceTitle:rec.title,entry:rec.entry,aliases:rec.aliases,relationship:rec.relationship});
@@ -13062,6 +13186,12 @@ function CW_addRelationshipStatusCardFoundations(index,target) {
 function CW_storyCardFoundationSignature() {
   let shared=null;try{shared=CE_sharedStoryCardIndex();}catch(_){}
   if(!shared && (typeof storyCards === "undefined" || !Array.isArray(storyCards))) return "";
+  const players=(typeof CE_platformCharacterNames==="function"?CE_platformCharacterNames():[]).map(CW_key).sort().join(",");
+  // At very large card counts the shared full-content signature is both cheaper
+  // and stronger than re-parsing every relationship field merely to fingerprint
+  // it. Any card edit invalidates the foundation cache; the rebuild still applies
+  // the same relationship semantics when required.
+  if (shared && shared.count >= 750) return shared.signature+"|"+players;
   const parts=[];
   const records=shared?shared.records:storyCards.map(function(card){return{card:card,typeNorm:String(card&&card.type||"").toLowerCase(),identity:CE_cardIdentityName(card),entry:CW_cardEntryText(card)};});
   for(const rec of records){
@@ -13075,10 +13205,12 @@ function CW_storyCardFoundationSignature() {
     if(!/\b(?:relationship|romance|dating|couple|marriage|friendship|recovery|reconciliation)\b/i.test(title+"\n"+body))continue;
     parts.push("S|"+CW_key(title)+"|"+CW_clipText(body,500));
   }
-  const players=(typeof info!=="undefined"&&Array.isArray(info.characterNames)?info.characterNames:[]).map(CW_key).sort().join(",");
   // Prefix the shared signature so retry/content edits at the same action count
   // are visible before the per-turn short-circuit in the rebuild function.
-  return (shared?shared.signature:"")+"|"+players+"\n"+parts.sort().join("\n");
+  // Story Card order is already part of the shared signature, so sorting a
+  // thousands-row relationship signature adds cost without improving change
+  // detection. Preserve scan order and let the shared signature detect reorders.
+  return (shared?shared.signature:"")+"|"+players+"\n"+parts.join("\n");
 }
 
 function CW_highStakesFoundationRole(role){const r=String(role||"");return r==="romantic"||r==="ex"||CW_isFamilyRole(r);}
@@ -13384,6 +13516,44 @@ function CW_seedFromCharacterCards(turn) {
   if (typeof storyCards === "undefined" || !Array.isArray(storyCards)) return;
   CW_rebuildStoryCardFoundations(turn);
   const recent = CW_recentHistoryText();
+
+  // Large libraries: invert mention lookup through the shared alias index.
+  // This preserves exact current-scene discovery while avoiding thousands of
+  // boundary-regex checks against Character cards that are not mentioned.
+  let shared=null; try { shared=CE_sharedStoryCardIndex(); } catch (_) {}
+  if (shared && shared.count >= 250 && shared.byAlias) {
+    const words=CE_sharedCardNorm(recent).split(" ").filter(Boolean), selected=[], seen=Object.create(null);
+    for (let i=0;i<words.length;i++) {
+      let gram="";
+      for (let n=1;n<=6&&i+n<=words.length;n++) {
+        gram=gram?gram+" "+words[i+n-1]:words[i+n-1];
+        if (gram.length<3) continue;
+        const hits=shared.byAlias[gram]||[];
+        for (let h=0;h<hits.length;h++) {
+          const rec=hits[h], card=rec&&rec.card;
+          if (!card || !/^(?:character|npc)$/i.test(String(rec.typeNorm||card.type||""))) continue;
+          const id=String(rec.index);
+          if (seen[id]) continue;
+          seen[id]=1; selected.push(rec);
+        }
+      }
+    }
+    for (const rec of selected) {
+      const card=rec.card, candidates=[];
+      const titleName=CW_cleanName(rec.identity||CE_cardIdentityName(card));
+      if (titleName) candidates.push(titleName);
+      (rec.aliases||[]).forEach(function(raw){
+        const clean=CW_cleanName(raw);
+        if(clean&&!candidates.some(function(x){return CW_key(x)===CW_key(clean);}))candidates.push(clean);
+      });
+      if(!candidates.length)continue;
+      const canonical=candidates[0];
+      CW_registerNpc(canonical,turn,CW_detectAdultFromEntry(String(rec.entry!=null?rec.entry:CW_cardEntryText(card))+"\n"+(typeof CE_publicStoryCardNotes==="function"?CE_publicStoryCardNotes(card):String(card.description||card.notes||""))));
+      for(const alias of candidates.slice(1,8))CW_registerAlias(alias,canonical);
+    }
+    return;
+  }
+
   for (const card of storyCards) {
     if (!card) continue;
     const type = String(card.type || "").toLowerCase();
@@ -16138,7 +16308,7 @@ const ECHO_VEIL = (() => {
       const legacyTitle = title === "ECHO VEIL CONFIG" || title === "Configure ECHO VEIL";
       const markerMatch = String(c.description || c.notes || "").indexOf("ECHO VEIL CONFIG — OPTION NOTES") >= 0;
       const entryMatch = /^\s*ECHO VEIL CONFIG\b/i.test(CE_cardEntryCore(c));
-      if (keyMatch || title === CONFIG_CARD.title || legacyTitle || markerMatch || entryMatch) return i;
+      if ((keyMatch && CE_isRequiredConfigCard(c, CONFIG_CARD.keys)) || title === CONFIG_CARD.title || legacyTitle || markerMatch || entryMatch) return i;
     }
     return -1;
   }
@@ -17456,8 +17626,8 @@ const ECHO_VEIL = (() => {
         if (localNameQuestion) local.add(a.toLowerCase());
       }
     }
-    if (typeof info !== "undefined" && info && Array.isArray(info.characterNames)) {
-      info.characterNames.forEach(n => { const x=String(n||"").trim(); if (x) controlled.add(x.toLowerCase()); });
+    if (typeof CE_platformCharacterNames === "function") {
+      CE_platformCharacterNames().forEach(n => { const x=String(n||"").trim(); if (x) controlled.add(x.toLowerCase()); });
     }
     return { local, controlled };
   }
@@ -20017,7 +20187,14 @@ const ECHO_VEIL = (() => {
   function injectGuidance(text) {
     if (!CFG.enabled) return text;
     const hostMaxChars=typeof info!=="undefined"&&info&&Number.isFinite(info.maxChars)?info.maxChars:32000;
-    const memoryLength=typeof info!=="undefined"&&info&&Number.isFinite(info.memoryLength)?info.memoryLength:0;
+    const reportedMemoryLength=typeof info!=="undefined"&&info&&Number.isFinite(info.memoryLength)?info.memoryLength:0;
+    const reportedContextTokens=typeof info!=="undefined"&&info&&Number.isFinite(info.contextTokens)?info.contextTokens:null;
+    // Live played-turn probes in 2026 expose memoryLength as the same whole-context
+    // token estimate as contextTokens, despite older docs describing a character
+    // boundary for the Memory prefix. Never slice the prompt at a token count.
+    const memoryLengthIsContextTokenEstimate=reportedContextTokens!==null &&
+      Math.abs(Number(reportedContextTokens)-Number(reportedMemoryLength))<1;
+    const memoryLength=memoryLengthIsContextTokenEstimate?0:reportedMemoryLength;
     // In the unified build ECHO deliberately leaves room for the relationship
     // protocol and any structured UNSAID/Codex request. Without this reserve,
     // ECHO's valid standalone behavior can consume the entire Context budget.
@@ -20048,6 +20225,31 @@ const ECHO_VEIL = (() => {
         ? CE_appendCompleteContextSuffix(original,extra,Math.max(0,unifiedReserve))
         : {text:(extra.length<=room?original+extra:original),appended:extra.length<=room};
       if (!appended.appended && typeof utSkipRuntimeTask==="function") utSkipRuntimeTask("echo-cache-headroom");
+      return appended.text;
+    }
+
+    // On current live played turns there is no trustworthy character offset for
+    // the Memory prefix. In that host shape, preserve the entire assembled prompt
+    // byte-for-byte and append only if a complete guidance packet fits. It is safer
+    // to yield than to delete arbitrary context based on a token estimate.
+    if (memoryLengthIsContextTokenEstimate) {
+      const reserve=Math.max(0,unifiedReserve);
+      const room=typeof CE_contextHeadroom==="function"
+        ? CE_contextHeadroom(original,reserve)
+        : Math.max(0,hostMaxChars-original.length-reserve-48);
+      if (room<480) {
+        if (typeof utSkipRuntimeTask==="function") utSkipRuntimeTask("echo-live-context-headroom");
+        return original;
+      }
+      const target=Math.min(CFG.maxGuidanceChars,Math.max(0,room-2));
+      if (target<480) return original;
+      const guidance=buildGuidance(target);
+      const extra=guidance?"\n\n"+guidance:"";
+      if (!extra) return original;
+      const appended=typeof CE_appendCompleteContextSuffix==="function"
+        ? CE_appendCompleteContextSuffix(original,extra,reserve)
+        : {text:(extra.length<=room?original+extra:original),appended:extra.length<=room};
+      if (!appended.appended && typeof utSkipRuntimeTask==="function") utSkipRuntimeTask("echo-live-context-headroom");
       return appended.text;
     }
 
@@ -21030,7 +21232,7 @@ function UN_configCard() {
         c.title === "CROSSED ECHOES — The Unspoken Veil — Integration" ||
         c.title === "THREADBOUND — Integration" ||
         c.title === "UNIFIED NARRATIVE — Integration" ||
-        CE_hasCardKey(c, CE_CONFIG_KEY_INTEGRATION) ||
+        CE_isRequiredConfigCard(c, CE_CONFIG_KEY_INTEGRATION) ||
         /^\s*CROSSED ECHOES INTEGRATION/i.test(entry);
     }) || null;
   } catch (e) { return null; }
@@ -21256,20 +21458,10 @@ function UN_ensureConfigCard() {
 // surface. All five sentinel cards are verified independently every hook; CODEX
 // is no longer created merely as a side effect of UNSAID config parsing.
 function CE_requiredConfigPresence() {
-  var out = {};
-  CE_RESERVED_CONFIG_KEYS.forEach(function(k){ out[k] = false; });
-  try {
-    if (typeof storyCards !== "undefined" && Array.isArray(storyCards)) {
-      for (var i=0;i<storyCards.length;i++) {
-        var c=storyCards[i]; if(!c)continue;
-        for (var j=0;j<CE_RESERVED_CONFIG_KEYS.length;j++) {
-          var key=CE_RESERVED_CONFIG_KEYS[j];
-          if(!out[key] && CE_hasCardKey(c,key)) out[key]=true;
-        }
-      }
-    }
-  } catch (_) {}
-  return out;
+  try { return CE_scanRequiredConfigPresence(); }
+  catch (_) {
+    var out={}; CE_RESERVED_CONFIG_KEYS.forEach(function(k){out[k]=false;}); return out;
+  }
 }
 function CE_configBootstrapState() {
   if (typeof state === "undefined" || !state) return null;
@@ -21279,7 +21471,7 @@ function CE_configBootstrapState() {
   return state.crossedEchoesConfigBootstrap;
 }
 function CE_repairSharedConfigNotesPollution(card) {
-  if (!card || !CE_hasCardKey(card, CE_CONFIG_KEY_UNSAID)) return false;
+  if (!card || !CE_isRequiredConfigCard(card, CE_CONFIG_KEY_UNSAID)) return false;
   var notes=String(card.description || card.notes || "");
   if (notes.indexOf(CONFIG_SECTION_CODEX) < 0) return false;
   // Config Notes are documentation only. A prior host-compatibility bug could
@@ -21298,7 +21490,7 @@ function CE_bootstrapRequiredConfigCards(phase) {
   var shared=null;
   try {
     if (!before[CE_CONFIG_KEY_UNSAID]) shared=ensureSharedConfigCard();
-    else shared=findConfigCardTolerant(CE_CONFIG_TITLE_UNSAID) || (storyCards||[]).find(function(c){return CE_hasCardKey(c,CE_CONFIG_KEY_UNSAID);}) || null;
+    else shared=findConfigCardTolerant(CE_CONFIG_TITLE_UNSAID) || (storyCards||[]).find(function(c){return CE_isRequiredConfigCard(c,CE_CONFIG_KEY_UNSAID);}) || null;
   } catch (_) {}
   try { if (shared) CE_repairSharedConfigNotesPollution(shared); } catch (_) {}
 
@@ -22546,7 +22738,40 @@ function CEW_syncEntities(text){
   var present=[],objects=[],loc="";
   try{var ev=state.echoVeil||{},scene=ev.scene||{};loc=String(scene.location||"");if(loc)CEW_upsertEntity(loc,"location",{seen:true,mentioned:true,presence:"present",importance:4,source:"echo-scene"});Object.keys(scene.cast||{}).forEach(function(k){var c=scene.cast[k]||{},n=c.name||k;present.push(n);CEW_upsertEntity(n,"character",{seen:true,mentioned:true,presence:"present",location:loc,importance:5,source:"echo-cast"});});Object.keys(scene.objects||{}).forEach(function(k){var o=scene.objects[k]||{},n=o.name||k;objects.push(n);CEW_upsertEntity(n,"item",{seen:true,mentioned:true,presence:"present",location:loc,importance:3,source:"echo-object"});});Object.keys(ev.entities||{}).forEach(function(k){var x=ev.entities[k]||{},n=x.name||k;if(!n)return;var type=String(x.kind||"").toLowerCase()==="group"?"faction":"character";var recent=Number(x.lastSeen||-999)>=now-2;CEW_upsertEntity(n,type,{seen:recent,mentioned:recent,presence:recent?"recent":"unknown",importance:recent?2:0,source:"echo-entity"});});}catch(_){}
   // Story Cards supply typed durable entities and safe established goals/status.
-  try{var ceRows=(typeof CE_sharedStoryCardIndex==="function"?CE_sharedStoryCardIndex().records:(storyCards||[]).map(function(card){return {card:card,identity:CE_cardIdentityName(card)};}));ceRows.forEach(function(rec){var card=rec.card;if(!card||/^CROSSED ECHOES|^Twists and Turns|^UNSAID/i.test(String(rec.identity||card.title||"")))return;var name=String(rec.identity||CE_cardIdentityName(card)).trim(),type=CEW_cardType(card);if(!name||!type)return;var mentioned=false;try{mentioned=new RegExp("(^|[^\p{L}\p{N}])"+name.replace(/[.*+?^${}()|[\]\\]/g,"\\$&")+"(?=$|[^\p{L}\p{N}])","iu").test(src);}catch(_){mentioned=src.toLowerCase().indexOf(name.toLowerCase())>=0;}var pub=CEW_publicCardText(card),goal=CEW_extractField(pub,["Goal","Goals","Objective","Objectives","Current Goal","Current Objective","Motive","Motives"]),status=CEW_extractField(pub,["CURRENT","Current","Status","CURRENT STATUS","Current Status"]);if(!mentioned&&type!=="faction"&&!(cfg.offscreenSimulation!==false&&type==="character"&&(goal||status)))return;var e=CEW_upsertEntity(name,type,{mentioned:mentioned,presence:present.some(function(x){return CEW_same(x,name);})?"present":(mentioned?"recent":"offscreen"),goal:goal,status:status,importance:mentioned?3:((goal||status)?1:0),source:"story-card"});if(type==="faction"&&e)CEW_syncFactionFromEntity(e,card);});}catch(_){}
+  try{
+    var sharedCards=(typeof CE_sharedStoryCardIndex==="function"?CE_sharedStoryCardIndex():null);
+    var ceRows=sharedCards?sharedCards.records:(storyCards||[]).map(function(card){return {card:card,identity:CE_cardIdentityName(card)};});
+    var mentionedIndexes=null;
+    if(sharedCards&&sharedCards.count>=250&&sharedCards.byAlias){
+      mentionedIndexes=Object.create(null);
+      var mentionWords=CE_sharedCardNorm(src).split(" ").filter(Boolean);
+      for(var mi=0;mi<mentionWords.length;mi++){
+        var mg="";
+        for(var ml=1;ml<=6&&mi+ml<=mentionWords.length;ml++){
+          mg=mg?mg+" "+mentionWords[mi+ml-1]:mentionWords[mi+ml-1];
+          if(mg.length<3)continue;
+          var mh=sharedCards.byAlias[mg]||[];
+          for(var mj=0;mj<mh.length;mj++)if(mh[mj]&&Number.isFinite(Number(mh[mj].index)))mentionedIndexes[Number(mh[mj].index)]=1;
+        }
+      }
+    }
+    ceRows.forEach(function(rec){
+      var card=rec.card;if(!card||/^CROSSED ECHOES|^Twists and Turns|^UNSAID/i.test(String(rec.identity||card.title||"")))return;
+      var name=String(rec.identity||CE_cardIdentityName(card)).trim(),type=CEW_cardType(card);if(!name||!type)return;
+      var mentioned=false;
+      if(mentionedIndexes) mentioned=!!mentionedIndexes[Number(rec.index)];
+      else try{mentioned=new RegExp("(^|[^\p{L}\p{N}])"+name.replace(/[.*+?^${}()|[\]\\]/g,"\\$&")+"(?=$|[^\p{L}\p{N}])","iu").test(src);}catch(_){mentioned=src.toLowerCase().indexOf(name.toLowerCase())>=0;}
+      var pub=CEW_publicCardText(card),goal="",status="";
+      var needsOffscreenFields=cfg.offscreenSimulation!==false&&type==="character"&&/(?:^|\n)\s*(?:Goal|Goals|Objective|Objectives|Current Goal|Current Objective|Motive|Motives|CURRENT|Current|Status|CURRENT STATUS|Current Status)\s*:/im.test(pub);
+      if(mentioned||type==="faction"||needsOffscreenFields){
+        goal=CEW_extractField(pub,["Goal","Goals","Objective","Objectives","Current Goal","Current Objective","Motive","Motives"]);
+        status=CEW_extractField(pub,["CURRENT","Current","Status","CURRENT STATUS","Current Status"]);
+      }
+      if(!mentioned&&type!=="faction"&&!(cfg.offscreenSimulation!==false&&type==="character"&&(goal||status)))return;
+      var e=CEW_upsertEntity(name,type,{mentioned:mentioned,presence:present.some(function(x){return CEW_same(x,name);})?"present":(mentioned?"recent":"offscreen"),goal:goal,status:status,importance:mentioned?3:((goal||status)?1:0),source:"story-card"});
+      if(type==="faction"&&e)CEW_syncFactionFromEntity(e,card);
+    });
+  }catch(_){}
   // Anything previously present but absent from a known current cast becomes
   // off-screen rather than being silently teleported back by a name-drop.
   if(present.length){Object.keys(w.entities).forEach(function(k){var e=w.entities[k];if(e.type==="character"&&e.presence==="present"&&!present.some(function(n){return CEW_same(n,e.name);})&&Number(e.lastSeen)<now)e.presence="offscreen";});}
@@ -22933,8 +23158,36 @@ function CECS_extractUncertainties(){ return CECS_buildIndex().uncertainty.slice
 function CECS_extractTimelineLocks(){ return CECS_buildIndex().timeline.slice(0,45);
 }
 function CECS_namesInText(text){
-  var src=CECS_text(text),out=[];var rows;try{rows=CE_sharedStoryCardIndex().characters;}catch(_){rows=CECS_storyCards().map(function(c){return {card:c,identity:CECS_nameFromCard(c),aliases:[CECS_nameFromCard(c)].concat(CECS_text(c.keys).split(","))};});}
-  rows.forEach(function(rec){var c=rec.card;if(!CECS_isCharacter(c))return;var n=rec.identity||CECS_nameFromCard(c);if(!n)return;var aliases=(rec.aliases&&rec.aliases.length)?rec.aliases:[n].concat(CECS_text(c.keys).split(",").map(function(x){return x.trim();}).filter(Boolean));if(aliases.some(function(a){if(String(a).length<3)return false;var rx=new RegExp("(^|[^A-Za-z0-9])"+String(a).replace(/[.*+?^${}()|[\]\\]/g,"\\$&")+"([^A-Za-z0-9]|$)","i");return rx.test(src);} ))out.push(n);});
+  var src=CECS_text(text),out=[];
+  try{
+    var shared=CE_sharedStoryCardIndex();
+    // Large libraries: invert the lookup. Scan the bounded current text into
+    // short n-grams and resolve only aliases that actually occur, instead of
+    // compiling/testing a RegExp for every Character card.
+    if(shared&&shared.count>=250&&shared.byAlias){
+      var words=CE_sharedCardNorm(src).split(" ").filter(Boolean),seen=Object.create(null);
+      for(var i=0;i<words.length&&out.length<18;i++){
+        var gram="";
+        for(var n=1;n<=6&&i+n<=words.length;n++){
+          gram=gram?gram+" "+words[i+n-1]:words[i+n-1];
+          if(gram.length<3)continue;
+          var hits=shared.byAlias[gram]||[];
+          for(var h=0;h<hits.length&&out.length<18;h++){
+            var rec=hits[h],c=rec&&rec.card;
+            if(!c||!/^(?:character|npc)$/i.test(String(rec.typeNorm||c.type||"")))continue;
+            var name=String(rec.identity||CECS_nameFromCard(c)).trim(),k=CECS_norm(name);
+            if(!name||seen[k])continue;seen[k]=1;out.push(name);
+          }
+        }
+      }
+      return out.slice(0,18);
+    }
+    var rows=shared.characters||[];
+    rows.forEach(function(rec){var c=rec.card;if(!CECS_isCharacter(c))return;var nm=rec.identity||CECS_nameFromCard(c);if(!nm)return;var aliases=(rec.aliases&&rec.aliases.length)?rec.aliases:[nm].concat(CECS_text(c.keys).split(",").map(function(x){return x.trim();}).filter(Boolean));if(aliases.some(function(a){if(String(a).length<3)return false;var rx=new RegExp("(^|[^A-Za-z0-9])"+String(a).replace(/[.*+?^${}()|[\]\\]/g,"\\$&")+"([^A-Za-z0-9]|$)","i");return rx.test(src);} ))out.push(nm);});
+  }catch(_){
+    var fallback=CECS_storyCards();
+    fallback.forEach(function(c){if(!CECS_isCharacter(c))return;var nm=CECS_nameFromCard(c);if(nm&&src.toLowerCase().indexOf(nm.toLowerCase())>=0)out.push(nm);});
+  }
   return CECS_unique(out).slice(0,18);
 }
 

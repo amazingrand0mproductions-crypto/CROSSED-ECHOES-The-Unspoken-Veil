@@ -56,8 +56,8 @@ var twistsModifier = (text) => {
     const cacheEfficient = !!(typeof info !== "undefined" && info && info.useCacheEfficient);
     Library.updateCacheEfficiencyWarning(cacheEfficient);
 
-    if (typeof info !== "undefined" && info && Array.isArray(info.characterNames)) {
-      c.multiplayerNames = info.characterNames.filter(n => typeof n === "string");
+    if (typeof CE_platformCharacterNames === "function") {
+      c.multiplayerNames = CE_platformCharacterNames();
     }
 
     if (!cfg.enabled) {

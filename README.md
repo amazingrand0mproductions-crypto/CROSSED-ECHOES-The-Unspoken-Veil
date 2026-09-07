@@ -208,7 +208,7 @@ Optimized Context is supported. CROSSED ECHOES preserves the host's existing Con
 
 ## 🔬 Live-play audited large-adventure hardening
 
-This release was replayed against a real **374-Story-Card NEXT CLASS adventure** rather than relying only on synthetic fixtures. That audit exposed several issues that are now fixed in the engine itself.
+An earlier private-fixture audit replayed this engine against a real **374-Story-Card NEXT CLASS adventure** rather than relying only on synthetic fixtures. That audit exposed several issues that are now fixed in the engine itself. Because the private 374-card export is not bundled, the final 2026-09-07 re-audit does **not** count that historical 22/22 result as freshly rerun.
 
 **Authoritative CODEX recovery** can now notice important named entities declared in AI Instructions / Plot Essentials even when ordinary prose discovery never produced a card. Recovery is incremental and bounded so creating missing lore cannot starve TWISTS, ECHO VEIL or UNSAID on the same turn.
 
