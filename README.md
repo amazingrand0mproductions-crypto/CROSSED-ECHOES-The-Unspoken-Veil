@@ -80,13 +80,13 @@ That shared layer is deliberately conservative: one observation should not becom
 
 ## 🛡️ Current AI Dungeon / published-script compatibility
 
-CROSSED ECHOES is designed around AI Dungeon's current four-hook scripting model: **Library, Input, Context and Output**.
+CROSSED ECHOES is designed around AI Dungeon's current **four script tabs**—Library, Input, Context and Output—and its three lifecycle hooks: Input, Model Context and Output.
 
 For compatibility with published/attachable Script environments, this build treats scenario-owned Plot Components as read-only. It does **not** write to Plot Essentials, Author's Note, Front Memory or `state.memory`.
 
 Temporary narrative guidance is injected through the Context hook instead. Persistent CROSSED ECHOES runtime data stays in the script's own state, while editable configuration and generated public lore use Story Cards.
 
-Story Card creation follows the documented API contract and then verifies the resulting card identity. A numeric result from `addStoryCard()` is never trusted on its own.
+Story Card creation follows AI Dungeon's documented core API and then verifies the resulting card identity. A numeric result from `addStoryCard()` is never trusted on its own. For Name/Notes metadata, CROSSED ECHOES uses the optional extended Story Card parameters when the host supports them, but always reacquires and verifies the live card afterwards and retains a core-API fallback.
 
 ---
 
@@ -284,7 +284,11 @@ Check the public Character Story Cards first. High-stakes relationships require 
 
 ### Managed Notes do not persist
 
-CROSSED ECHOES now verifies entity-Notes persistence independently from config-card persistence. If the host accepts an in-memory Notes update but the change disappears on the next isolated hook, the script raises a dedicated warning instead of reporting the system healthy. AI Dungeon's documented scripting API exposes the core Story Card fields but does not document a separate Notes update helper, so live-host behavior may vary by platform version/settings.
+CROSSED ECHOES now writes Story Card metadata through a replacement-safe compatibility layer. Current AI Dungeon builds can replace `storyCards[index]` when `updateStoryCard(...)` runs, so writing `description`/Notes to the old object afterwards can silently target a detached reference. The script now passes title + Notes through the extended Story Card update path when available, reacquires the live card from `storyCards[index]`, and only then applies compatibility fallbacks. Older hosts that only accept the core update arguments remain supported.
+
+Entity Notes are also verified independently from config-card persistence. Modern `🌒 CROSSED ECHOES — SCRIPT STATE` Character Notes are now a bounded recovery layer as well as a dashboard: if the private UNSAID state is lost or malformed, supported continuity such as private attitudes, core stability and recent private-memory snippets can be reconstructed conservatively from the managed Notes instead of resetting the NPC to a blank state. Creator-written Notes remain preserved above the managed block.
+
+If a managed Notes write still disappears on the next isolated hook, CROSSED ECHOES raises a warning instead of pretending the dashboard is healthy. If that happens in AI Dungeon, make sure Scripts are enabled and Gameplay → Memory System → Memory Bank is enabled before retrying.
 
 ---
 
@@ -294,7 +298,7 @@ I test CROSSED ECHOES against isolated AI Dungeon-style hooks, long-running stat
 
 The target is not a large test number. The target is for the script to visibly do what it claims in normal play while still knowing when **not** to invent something.
 
-The current release passes the 185-test core suite, dedicated deep-system and twist suites, generic Notes/canon semantics, Notes-write-loss detection, full-system/adversarial/host-contract checks, 30/30 cross-genre matrices in both Context modes, 60-turn general simulations, 48-turn fluidity simulations, high-concept temporal/multiversal simulations, 312-card relationship-foundation stress, and the 5,000-card correctness ceiling. Exact details and measured timings are in `TEST_REPORT.txt`.
+The current release passes the 185-test core suite, the stricter 185-test JSON/replacement round-trip suite, dedicated deep-system and twist suites, live Story Card metadata persistence, generic Notes/canon semantics, Notes-write-loss detection, the ultimate persistence/recovery regressions, source-hygiene checks, full-system/adversarial/host-contract checks, 30/30 cross-genre matrices in both Context modes, 60-turn general simulations, 48-turn fluidity simulations, high-concept temporal/multiversal simulations, 312-card relationship-foundation stress, and the 5,000-card correctness ceiling. Exact details and measured timings are in `TEST_REPORT.txt`.
 
 Technical verification is kept with the release for anyone who wants to inspect it, but the public documentation stays focused on using the script rather than exposing internal fixtures or private scenario material.
 

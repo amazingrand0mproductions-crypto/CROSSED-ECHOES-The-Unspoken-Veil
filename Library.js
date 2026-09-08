@@ -161,25 +161,128 @@ function CE_sharedStoryCardIndex() {
 function CE_sharedStoryCardRecords(){ return CE_sharedStoryCardIndex().records; }
 function CE_sharedStoryCardCharacters(){ return CE_sharedStoryCardIndex().characters; }
 
+// updateStoryCard() can replace storyCards[index]. A Notes-only write should
+// not force a 5,000-card identity-index rebuild, but the cached record must
+// still point at the replacement object. Keep that one record coherent in
+// place; identity/Entry/type/name changes still invalidate the whole index.
+function CE_patchSharedStoryCardRecord(index, current) {
+  try {
+    var cache = CE_SHARED_STORY_CARD_INDEX_CACHE;
+    if (!cache || index < 0 || !current || !Array.isArray(cache.records)) return false;
+    var rec = null;
+    for (var i=0;i<cache.records.length;i++) {
+      if (cache.records[i] && Number(cache.records[i].index) === Number(index)) { rec = cache.records[i]; break; }
+    }
+    if (!rec) return false;
+    rec.card = current;
+    rec.notes = String(current.description || current.notes || "");
+    return true;
+  } catch (_) { return false; }
+}
+
 function CE_hasCardKey(card, wanted) {
   const key = String(wanted || "").trim().toLowerCase();
   if (!key) return false;
   return CE_cardKeysCore(card).toLowerCase().split(",").map(function(x){ return x.trim(); }).indexOf(key) >= 0;
 }
-function CE_commitCoreStoryCard(card, keys, entry, type) {
-  if (!card) return false;
+// Commit a Story Card through the host API, then ALWAYS reacquire the live
+// array element before touching metadata. Current AI Dungeon replaces
+// storyCards[index] inside updateStoryCard(); continuing to mutate the old
+// object writes into a detached reference and can leave Notes blank in-game.
+//
+// Newer hosts accept title/name and Notes/description as the 5th/6th update
+// arguments. Older hosts ignore extra JavaScript arguments, while stricter
+// wrappers may reject them; in that case we retry the documented 4-argument
+// form and still apply metadata to the reacquired live object as a fallback.
+function CE_updateStoryCardCompat(card, keys, entry, type, name, notes) {
+  var out = { ok:false, apiOk:false, card:card || null, index:-1, reason:"unavailable" };
+  if (!card) return out;
   const k = Array.isArray(keys) ? keys.join(",") : String(keys == null ? "" : keys);
   const e = String(entry == null ? "" : entry);
   const t = String(type == null ? "" : type);
-  let index = -1, apiOk = false;
+  const wantedName = name === undefined ? undefined : String(name == null ? "" : name);
+  const wantedNotes = notes === undefined ? undefined : String(notes == null ? "" : notes);
+
+  let index = -1, apiOk = false, apiReason = "";
   try { if (typeof storyCards !== "undefined" && Array.isArray(storyCards)) index = storyCards.indexOf(card); } catch (_) {}
+  out.index = index;
+
+  // Some older call sites historically prepared fields on the live object
+  // before committing. If the shared index already exists, its immutable core
+  // snapshot is the best representation of the pre-write host state and lets
+  // us detect those changes instead of accidentally leaving a stale cache.
+  var cachedRec = null;
+  try {
+    var cache = CE_SHARED_STORY_CARD_INDEX_CACHE;
+    if (cache && index >= 0 && Array.isArray(cache.records)) {
+      for (var ci=0;ci<cache.records.length;ci++) {
+        if (cache.records[ci] && Number(cache.records[ci].index) === Number(index)) { cachedRec = cache.records[ci]; break; }
+      }
+    }
+  } catch (_) {}
+  const oldKeys = cachedRec ? String(cachedRec.keysRaw || "") : CE_cardKeysCore(card);
+  const oldEntry = cachedRec ? String(cachedRec.entry || "") : CE_cardEntryCore(card);
+  const oldType = cachedRec ? String(cachedRec.type || "") : String(card.type == null ? "" : card.type);
+  const oldName = cachedRec ? String(cachedRec.identity || "") : String(card.title || card.name || "");
+  const coreIdentityChanged = oldKeys !== k || oldEntry !== e || oldType !== t || (wantedName !== undefined && oldName !== wantedName);
+
   if (index >= 0 && typeof updateStoryCard === "function") {
-    try { updateStoryCard(index, k, e, t); apiOk = true; } catch (_) {}
+    try {
+      // Measured September 2026 sandbox builds accept title/name and Notes as
+      // the 5th/6th arguments. This is the durable metadata path when present.
+      updateStoryCard(index, k, e, t, wantedName, wantedNotes);
+      apiOk = true;
+    } catch (extendedError) {
+      try {
+        // Official scripting docs guarantee the four core fields. Keep a
+        // strict fallback for wrappers/hosts that reject metadata arguments.
+        updateStoryCard(index, k, e, t);
+        apiOk = true;
+        apiReason = "extended metadata arguments rejected; used core fallback";
+      } catch (coreError) {
+        apiReason = coreError && coreError.message ? coreError.message : String(coreError || extendedError || "updateStoryCard failed");
+      }
+    }
+  } else apiReason = index < 0 ? "card index was not observable" : "updateStoryCard unavailable";
+
+  // The host may replace the object. Reacquire the authoritative array element
+  // before applying metadata, then mirror it back to the detached input object
+  // so legacy same-hook callers cannot accidentally read stale fields.
+  const current = (index >= 0 && typeof storyCards !== "undefined" && Array.isArray(storyCards) && storyCards[index]) ? storyCards[index] : card;
+  try {
+    current.keys = k;
+    current.entry = e;
+    current.type = t;
+    if (current.value !== undefined) current.value = e;
+    if (wantedName !== undefined) { current.title = wantedName; current.name = wantedName; }
+    if (wantedNotes !== undefined) { current.description = wantedNotes; current.notes = wantedNotes; }
+  } catch (_) {}
+  if (current !== card) {
+    try {
+      card.keys = k; card.entry = e; card.type = t;
+      if (card.value !== undefined) card.value = e;
+      if (wantedName !== undefined) { card.title = wantedName; card.name = wantedName; }
+      if (wantedNotes !== undefined) { card.description = wantedNotes; card.notes = wantedNotes; }
+    } catch (_) {}
   }
-  const current = (index >= 0 && typeof storyCards !== "undefined" && storyCards[index]) ? storyCards[index] : card;
-  try { current.keys = k; current.entry = e; current.type = t; if (current.value !== undefined) current.value = e; } catch (_) {}
-  try { CE_invalidateSharedStoryCardIndex(); } catch (_) {}
-  return apiOk || index >= 0;
+
+  out.apiOk = apiOk;
+  out.ok = apiOk || index >= 0;
+  out.card = current;
+  out.reason = apiOk ? (apiReason || "committed") : apiReason;
+
+  // Notes are presentation/private diagnostics and do not affect identity,
+  // aliases, Entry evidence or type. Patch that one cached row after a
+  // replacement. Any core/name change invalidates all dependent indexes.
+  if (coreIdentityChanged) {
+    try { CE_invalidateSharedStoryCardIndex(); } catch (_) {}
+  } else {
+    try { CE_patchSharedStoryCardRecord(index, current); } catch (_) {}
+  }
+  return out;
+}
+function CE_commitCoreStoryCard(card, keys, entry, type) {
+  return !!CE_updateStoryCardCompat(card, keys, entry, type, undefined, undefined).ok;
 }
 
 // Story Card capacity/write safety ------------------------------------------------
@@ -243,9 +346,11 @@ function CE_tryAddStoryCard(keys, entry, type, name, notes, options) {
   var before = storyCards.length, result = false;
   out.before = before;
   try {
-    // Published/attachable Scripts must stay on the documented helper
-    // contract. Metadata is assigned only after the core card is observed.
-    result = addStoryCard(keys, entry, type);
+    // Newer AI Dungeon hosts accept title/name and Notes as optional 4th/5th
+    // arguments. Older JavaScript implementations ignore extras. Supplying
+    // them here gives newly-created cards durable metadata immediately while
+    // the observable-append checks below still protect against bad return values.
+    result = addStoryCard(keys, entry, type, name, notes);
   }
   catch (e) { out.reason = "exception"; out.error = e && e.message ? e.message : String(e || "addStoryCard failed"); return out; }
   out.result = result; out.after = storyCards.length;
@@ -3832,12 +3937,7 @@ var Library = (() => {
       }
       if (card) {
         const finalKeys = keys || CE_cardKeysCore(card) || title.toLowerCase();
-        card.title = title;
-        card.type = type;
-        card.entry = entry;
-        card.description = notes;
-        card.keys = finalKeys;
-        CE_commitCoreStoryCard(card, finalKeys, entry, type);
+        CE_updateStoryCardCompat(card, finalKeys, entry, type, title, notes);
       }
     } catch (e) {}
   }
@@ -3940,10 +4040,10 @@ var Library = (() => {
     const card = ensureSharedConfigCard();
     if (!card) return;
     const nextEntry = spliceConfigSection(CW_cardEntryText(card), CONFIG_SECTION_TWIST, renderTwistSection(cfg));
-    const nextDescription = spliceConfigSection(card.description, CONFIG_SECTION_TWIST, renderTwistNotes(cfg, c));
-    if (CW_cardEntryText(card) !== nextEntry) { card.entry = nextEntry; card.value = nextEntry; }
-    if (card.description !== nextDescription) card.description = nextDescription;
-    CE_commitCoreStoryCard(card, CE_CONFIG_KEY_UNSAID, nextEntry, CE_CONFIG_CATEGORY);
+    const nextDescription = spliceConfigSection(String(card.description || card.notes || ""), CONFIG_SECTION_TWIST, renderTwistNotes(cfg, c));
+    // Commit Entry + Notes together. Do not mutate the pre-update object first:
+    // live hosts may replace it, and pre-mutation masks cache invalidation.
+    CE_updateStoryCardCompat(card, CE_CONFIG_KEY_UNSAID, nextEntry, CE_CONFIG_CATEGORY, CONFIG_CARD_TITLE, nextDescription);
   }
 
   function updateThreadsOverview(c) {
@@ -5799,27 +5899,10 @@ function codexUniqueWriteKeys(card, requestedKeys, name, type) {
 function codexCommitStoryCard(card, keys, entry, type, name, notes) {
   if (!card) return false;
   const finalKeys = codexUniqueWriteKeys(card, keys, name, type);
-  const index = typeof storyCards !== "undefined" && Array.isArray(storyCards) ? storyCards.indexOf(card) : -1;
-  let apiOk = false, apiReason = "";
-  if (index >= 0 && typeof updateStoryCard === "function") {
-    try {
-      updateStoryCard(index, finalKeys, entry, type);
-      apiOk = true;
-    } catch (e) { apiReason = e && e.message ? e.message : "updateStoryCard threw"; }
-  } else {
-    apiReason = index < 0 ? "card index was not observable" : "updateStoryCard unavailable";
-  }
-  // Keep compatibility with runtimes exposing title/notes only through the
-  // live card object; the documented core fields have already gone through
-  // updateStoryCard when available.
-  card.keys = finalKeys;
-  card.entry = entry;
-  card.type = type;
-  if (name) { card.title = name; card.name = name; }
-  if (notes !== undefined) { card.description = notes; card.notes = notes; }
-  if (name) codexRecordCardWrite(apiOk ? "success" : "degraded", apiOk ? "core fields committed through updateStoryCard" : apiReason, name);
+  const committed = CE_updateStoryCardCompat(card, finalKeys, entry, type, name || undefined, notes);
+  if (name) codexRecordCardWrite(committed.apiOk ? "success" : "degraded", committed.apiOk ? "core fields and metadata committed through updateStoryCard" : committed.reason, name);
   if (typeof invalidateUnsaidAliasIndex === "function") invalidateUnsaidAliasIndex();
-  return apiOk || index >= 0;
+  return !!committed.ok;
 }
 
 function createOrFindCard(keys, initialEntry, type, expectedName) {
@@ -6467,10 +6550,18 @@ function ensureCodexConfigCard(sourceCard) {
     if (!card) card = storyCards.find(sc => sc && CE_isRequiredConfigCard(sc, CE_CONFIG_KEY_CODEX)) || null;
   }
   if (card) {
-    card.title = CE_CONFIG_TITLE_CODEX; card.name = CE_CONFIG_TITLE_CODEX; card.type = CE_CONFIG_CATEGORY; card.keys = CE_CONFIG_KEY_CODEX;
-    if (!CW_cardEntryText(card).trim()) { card.entry = renderCodexSection(UNSAID_DEFAULTS); card.value = card.entry; } else if (!card.entry) card.entry = CW_cardEntryText(card);
-    if (String(card.description || card.notes || "") !== CONFIG_DEFAULT_CODEX_NOTES_SECTION) { card.description = CONFIG_DEFAULT_CODEX_NOTES_SECTION; card.notes = CONFIG_DEFAULT_CODEX_NOTES_SECTION; }
-    CE_commitCoreStoryCard(card, CE_CONFIG_KEY_CODEX, CW_cardEntryText(card), CE_CONFIG_CATEGORY);
+    var codexEntryNow = CW_cardEntryText(card);
+    var wantedCodexEntry = codexEntryNow.trim() ? codexEntryNow : renderCodexSection(UNSAID_DEFAULTS);
+    var codexNotesNow = String(card.description || card.notes || "");
+    var wantedCodexNotes = codexNotesNow === CONFIG_DEFAULT_CODEX_NOTES_SECTION ? codexNotesNow : CONFIG_DEFAULT_CODEX_NOTES_SECTION;
+    var codexNeedsCommit = CE_cardKeysCore(card) !== CE_CONFIG_KEY_CODEX ||
+      String(card.type || "") !== CE_CONFIG_CATEGORY ||
+      String(card.title || card.name || "") !== CE_CONFIG_TITLE_CODEX ||
+      codexEntryNow !== wantedCodexEntry || codexNotesNow !== wantedCodexNotes;
+    if (codexNeedsCommit) {
+      var committed = CE_updateStoryCardCompat(card, CE_CONFIG_KEY_CODEX, wantedCodexEntry, CE_CONFIG_CATEGORY, CE_CONFIG_TITLE_CODEX, wantedCodexNotes);
+      card = committed.card || card;
+    }
   }
   return card;
 }
@@ -6497,18 +6588,23 @@ function parseUnsaidSectionInto(cfg, section) {
   return cfg;
 }
 
-function normalizeSharedConfigEntry(card) {
-  if (!card) return false;
-  var current = CW_cardEntryText(card);
+function canonicalSharedConfigEntryText(current) {
+  current = String(current || "");
   var twistSection = extractConfigSection(current, CONFIG_SECTION_TWIST);
   var unsaidSection = extractConfigSection(current, CONFIG_SECTION_UNSAID);
-  if (!twistSection && !unsaidSection) return false;
+  if (!twistSection && !unsaidSection) return current;
   var twistCfg = Object.assign({}, CP_DEFAULTS, (state && state.contingencyConfig) || {});
   if (twistSection) applyTwistConfigText(twistCfg, twistSection);
   var unsaidCfg = Object.assign({}, UNSAID_DEFAULTS);
   if (unsaidSection) parseUnsaidSectionInto(unsaidCfg, unsaidSection);
   state.contingencyConfig = Object.assign({}, twistCfg);
-  var canonical = renderTwistSection(twistCfg).replace(/\s+$/, "") + "\n\n" + renderUnsaidSection(unsaidCfg);
+  return renderTwistSection(twistCfg).replace(/\s+$/, "") + "\n\n" + renderUnsaidSection(unsaidCfg);
+}
+
+function normalizeSharedConfigEntry(card) {
+  if (!card) return false;
+  var current = CW_cardEntryText(card);
+  var canonical = canonicalSharedConfigEntryText(current);
   if (canonical !== current) {
     card.entry = canonical;
     card.value = canonical;
@@ -6519,7 +6615,6 @@ function normalizeSharedConfigEntry(card) {
 
 function ensureSharedConfigCard() {
   let card = findConfigCardTolerant(CONFIG_CARD_TITLE) || findConfigCardTolerant("UNSPOKEN TURNS — Config");
-  if (card && card.title !== CONFIG_CARD_TITLE) { card.title = CONFIG_CARD_TITLE; card.name = CONFIG_CARD_TITLE; }
 
   if (!card) {
     const oldTwistCard = findConfigCardTolerant("Twists and Turns Config");
@@ -6575,41 +6670,41 @@ function ensureSharedConfigCard() {
   }
 
   if (card) {
-    card.title = CONFIG_CARD_TITLE;
-    card.name = CONFIG_CARD_TITLE;
-    card.type = CE_CONFIG_CATEGORY;
     // Keep an inert internal trigger rather than a blank key. It cannot occur in
     // normal prose, but unlike title/notes it is part of AI Dungeon's documented
     // persistent Story Card contract and therefore identifies this card next hook.
-    card.keys = CE_CONFIG_KEY_UNSAID;
-    if (CW_cardEntryText(card).indexOf(CONFIG_SECTION_TWIST) === -1) {
-      card.entry = spliceConfigSection(CW_cardEntryText(card), CONFIG_SECTION_TWIST, renderTwistSection(Object.assign({}, CP_DEFAULTS, (state.contingencyConfig || {}))));
-      card.value = card.entry;
+    var sharedEntryNow = CW_cardEntryText(card);
+    var wantedSharedEntry = sharedEntryNow;
+    if (wantedSharedEntry.indexOf(CONFIG_SECTION_TWIST) === -1) {
+      wantedSharedEntry = spliceConfigSection(wantedSharedEntry, CONFIG_SECTION_TWIST, renderTwistSection(Object.assign({}, CP_DEFAULTS, (state.contingencyConfig || {}))));
     }
-    if (CW_cardEntryText(card).indexOf(CONFIG_SECTION_UNSAID) === -1) {
-      card.entry = spliceConfigSection(CW_cardEntryText(card), CONFIG_SECTION_UNSAID, renderUnsaidSection(UNSAID_DEFAULTS));
-      card.value = card.entry;
+    if (wantedSharedEntry.indexOf(CONFIG_SECTION_UNSAID) === -1) {
+      wantedSharedEntry = spliceConfigSection(wantedSharedEntry, CONFIG_SECTION_UNSAID, renderUnsaidSection(UNSAID_DEFAULTS));
     }
     // Old combined cards could contain duplicated UNSAID keys, stray theme
-    // lists or missing newer options inside an otherwise valid section. Merely
-    // checking for section markers left that corruption alive forever. Parse
+    // lists or missing newer options inside an otherwise valid section. Parse
     // every known value, then rewrite the two live sections canonically.
-    normalizeSharedConfigEntry(card);
-    if (String(card.description || card.notes || "").indexOf(CONFIG_SECTION_TWIST) === -1) {
-      card.description = spliceConfigSection(
-        String(card.description || card.notes || ""),
-        CONFIG_SECTION_TWIST,
-        renderTwistNotes(
-          Object.assign({}, CP_DEFAULTS, (state.contingencyConfig || {})),
-          state.contingency || null
-        )
+    wantedSharedEntry = canonicalSharedConfigEntryText(wantedSharedEntry);
+
+    var sharedNotesNow = String(card.description || card.notes || "");
+    var wantedSharedNotes = sharedNotesNow;
+    if (wantedSharedNotes.indexOf(CONFIG_SECTION_TWIST) === -1) {
+      wantedSharedNotes = spliceConfigSection(
+        wantedSharedNotes, CONFIG_SECTION_TWIST,
+        renderTwistNotes(Object.assign({}, CP_DEFAULTS, (state.contingencyConfig || {})), state.contingency || null)
       );
     }
-    if (String(card.description || card.notes || "").indexOf(CONFIG_SECTION_UNSAID) === -1) {
-      card.description = spliceConfigSection(String(card.description || card.notes || ""), CONFIG_SECTION_UNSAID, CONFIG_DEFAULT_UNSAID_NOTES_SECTION);
-      card.notes = card.description;
+    if (wantedSharedNotes.indexOf(CONFIG_SECTION_UNSAID) === -1) {
+      wantedSharedNotes = spliceConfigSection(wantedSharedNotes, CONFIG_SECTION_UNSAID, CONFIG_DEFAULT_UNSAID_NOTES_SECTION);
     }
-    CE_commitCoreStoryCard(card, CE_CONFIG_KEY_UNSAID, CW_cardEntryText(card), CE_CONFIG_CATEGORY);
+    var sharedNeedsCommit = CE_cardKeysCore(card) !== CE_CONFIG_KEY_UNSAID ||
+      String(card.type || "") !== CE_CONFIG_CATEGORY ||
+      String(card.title || card.name || "") !== CONFIG_CARD_TITLE ||
+      sharedEntryNow !== wantedSharedEntry || sharedNotesNow !== wantedSharedNotes;
+    if (sharedNeedsCommit) {
+      var committed = CE_updateStoryCardCompat(card, CE_CONFIG_KEY_UNSAID, wantedSharedEntry, CE_CONFIG_CATEGORY, CONFIG_CARD_TITLE, wantedSharedNotes);
+      card = committed.card || card;
+    }
   }
   return card;
 }
@@ -6822,23 +6917,32 @@ function readUnsaidConfig() {
   // identical. This matters in long mobile adventures where Input, Context,
   // and Output all read the same config card every turn.
   const renderedUnsaidEntry = renderUnsaidSection(cfg);
-  const currentUnsaidEntry = extractConfigSection(CW_cardEntryText(card), CONFIG_SECTION_UNSAID);
-  if (String(currentUnsaidEntry || "").replace(/\s+$/, "") !== renderedUnsaidEntry.replace(/\s+$/, "")) {
-    card.entry = spliceConfigSection(CW_cardEntryText(card), CONFIG_SECTION_UNSAID, renderedUnsaidEntry);
-    card.value = card.entry;
+  const sharedEntryNow = CW_cardEntryText(card);
+  const currentUnsaidEntry = extractConfigSection(sharedEntryNow, CONFIG_SECTION_UNSAID);
+  const wantedSharedEntry = String(currentUnsaidEntry || "").replace(/\s+$/, "") !== renderedUnsaidEntry.replace(/\s+$/, "")
+    ? spliceConfigSection(sharedEntryNow, CONFIG_SECTION_UNSAID, renderedUnsaidEntry)
+    : sharedEntryNow;
+  const sharedNotesNow = String(card.description || card.notes || "");
+  const currentUnsaidDescription = extractConfigSection(sharedNotesNow, CONFIG_SECTION_UNSAID);
+  const wantedSharedNotes = String(currentUnsaidDescription || "").replace(/\s+$/, "") !== CONFIG_DEFAULT_UNSAID_NOTES_SECTION.replace(/\s+$/, "")
+    ? spliceConfigSection(sharedNotesNow, CONFIG_SECTION_UNSAID, CONFIG_DEFAULT_UNSAID_NOTES_SECTION)
+    : sharedNotesNow;
+  if (wantedSharedEntry !== sharedEntryNow || wantedSharedNotes !== sharedNotesNow ||
+      String(card.type || "") !== CE_CONFIG_CATEGORY || String(card.title || card.name || "") !== CONFIG_CARD_TITLE ||
+      CE_cardKeysCore(card) !== CE_CONFIG_KEY_UNSAID) {
+    CE_updateStoryCardCompat(card, CE_CONFIG_KEY_UNSAID, wantedSharedEntry, CE_CONFIG_CATEGORY, CONFIG_CARD_TITLE, wantedSharedNotes);
   }
-  const currentUnsaidDescription = extractConfigSection(card.description, CONFIG_SECTION_UNSAID);
-  if (String(currentUnsaidDescription || "").replace(/\s+$/, "") !== CONFIG_DEFAULT_UNSAID_NOTES_SECTION.replace(/\s+$/, "")) {
-    card.description = spliceConfigSection(card.description, CONFIG_SECTION_UNSAID, CONFIG_DEFAULT_UNSAID_NOTES_SECTION);
-    card.notes = card.description;
-  }
-  CE_commitCoreStoryCard(card, CE_CONFIG_KEY_UNSAID, CW_cardEntryText(card), CE_CONFIG_CATEGORY);
   if (codexCard) {
     const renderedCodexEntry = renderCodexSection(cfg);
-    if (CW_cardEntryText(codexCard).replace(/\s+$/, "") !== renderedCodexEntry.replace(/\s+$/, "")) { codexCard.entry = renderedCodexEntry; codexCard.value = renderedCodexEntry; }
-    codexCard.type = CE_CONFIG_CATEGORY; codexCard.title = CE_CONFIG_TITLE_CODEX; codexCard.name = CE_CONFIG_TITLE_CODEX; codexCard.keys = CE_CONFIG_KEY_CODEX;
-    if (String(codexCard.description || codexCard.notes || "") !== CONFIG_DEFAULT_CODEX_NOTES_SECTION) { codexCard.description = CONFIG_DEFAULT_CODEX_NOTES_SECTION; codexCard.notes = CONFIG_DEFAULT_CODEX_NOTES_SECTION; }
-    CE_commitCoreStoryCard(codexCard, CE_CONFIG_KEY_CODEX, CW_cardEntryText(codexCard), CE_CONFIG_CATEGORY);
+    const codexEntryNow = CW_cardEntryText(codexCard);
+    const wantedCodexEntry = codexEntryNow.replace(/\s+$/, "") !== renderedCodexEntry.replace(/\s+$/, "") ? renderedCodexEntry : codexEntryNow;
+    const codexNotesNow = String(codexCard.description || codexCard.notes || "");
+    const wantedCodexNotes = codexNotesNow !== CONFIG_DEFAULT_CODEX_NOTES_SECTION ? CONFIG_DEFAULT_CODEX_NOTES_SECTION : codexNotesNow;
+    if (wantedCodexEntry !== codexEntryNow || wantedCodexNotes !== codexNotesNow ||
+        String(codexCard.type || "") !== CE_CONFIG_CATEGORY || String(codexCard.title || codexCard.name || "") !== CE_CONFIG_TITLE_CODEX ||
+        CE_cardKeysCore(codexCard) !== CE_CONFIG_KEY_CODEX) {
+      CE_updateStoryCardCompat(codexCard, CE_CONFIG_KEY_CODEX, wantedCodexEntry, CE_CONFIG_CATEGORY, CE_CONFIG_TITLE_CODEX, wantedCodexNotes);
+    }
   }
 
   return cfg;
@@ -9249,7 +9353,7 @@ function codexScenarioDeclarationCandidates(source){
     name=codexScenarioCleanLabel(name);evidence=String(evidence||"").replace(/\s+/g," ").trim();
     if(!name||name.length<2||name.length>80||codexScenarioHeadingBlocked(name))return;
     // Structured declaration labels are already a stronger identity cue than
-    // capitalization heuristics. Preserve the full label (Daniel Cross, Cross
+    // capitalization heuristics. Preserve the full label (Daniel Reed, Reed
     // Receiver) instead of letting ordinary candidate normalization shorten it.
     var normalized=codexScenarioCleanLabel(name);if(!normalized||codexScenarioHeadingBlocked(normalized))return;
     try{if(isClearlyJunkCodexName(normalized)||!isSafeTrackedCodexName(normalized))return;}catch(_){}
@@ -9934,15 +10038,17 @@ function buildStatusReport(cfg) {
 function ensureCodexLogCard(type) {
   const title = codexLogTitle(type);
   const keys = title.toLowerCase();
-  let card = storyCards.find(c => c.title === title || c.keys === keys);
+  const wantedEntry = `Every ${type} card Codex has made, with its initial mention count and later automatic refresh history when applicable. Codex-made cards can refresh from newer story evidence; hand-edited entries are protected by default.`;
+  let card = storyCards.find(function(c){ return c && (String(c.title || c.name || "") === title || CE_cardKeysCore(c).toLowerCase() === keys); });
   if (!card) {
-    card = createOrFindCard(keys, " ", "Class");
+    card = createOrFindCard(keys, wantedEntry, "Class");
     if (!card) return null;
-    card.title = title;
-    card.keys = keys;
-    card.type = "Class";
-    card.entry = `Every ${type} card Codex has made, with its initial mention count and later automatic refresh history when applicable. Codex-made cards can refresh from newer story evidence; hand-edited entries are protected by default.`;
-    card.description = "";
+  }
+  var currentEntry = CE_cardEntryCore(card);
+  if (CE_cardKeysCore(card) !== keys || String(card.type || "") !== "Class" ||
+      String(card.title || card.name || "") !== title || currentEntry !== wantedEntry) {
+    var committed = CE_updateStoryCardCompat(card, keys, wantedEntry, "Class", title, String(card.description || card.notes || ""));
+    card = committed.card || card;
   }
   return card;
 }
@@ -9955,14 +10061,18 @@ function logCodexCard(name, type, mentionCount, refreshed) {
   // from the previous type log so diagnostics do not claim the same entity
   // is both a Character and a Location/Item/Faction.
   storyCards.forEach(other => {
-    if (!other || other === card || typeof other.title !== "string" ||
-        other.title.indexOf("UNSAID Codex Log — ") !== 0) return;
-    const lines = String(other.description || "").split("\n");
+    if (!other || other === card) return;
+    var otherIdentity = String(other.title || other.name || "");
+    var otherKeys = CE_cardKeysCore(other).toLowerCase();
+    if (otherIdentity.indexOf("UNSAID Codex Log — ") !== 0 && otherKeys.indexOf("unsaid codex log — ") !== 0) return;
+    const lines = String(other.description || other.notes || "").split("\n");
     const kept = lines.filter(line => {
       const loggedName = line.split(" — ")[0].trim();
       return loggedName.toLowerCase() !== String(name).toLowerCase();
     });
-    if (kept.length !== lines.length) other.description = kept.join("\n");
+    if (kept.length !== lines.length) {
+      CE_updateStoryCardCompat(other, CE_cardKeysCore(other), CE_cardEntryCore(other), String(other.type || "Class"), otherIdentity || undefined, kept.join("\n"));
+    }
   });
 
   const entries = card.description.split("\n").map(l => l.trim()).filter(Boolean);
@@ -9991,7 +10101,10 @@ function logCodexCard(name, type, mentionCount, refreshed) {
   }
 
   if (entries.length > 500) entries.splice(0, entries.length - 500);
-  card.description = entries.join("\n");
+  const nextLogNotes = entries.join("\n");
+  if (String(card.description || card.notes || "") !== nextLogNotes) {
+    CE_updateStoryCardCompat(card, CE_cardKeysCore(card), CE_cardEntryCore(card), String(card.type || "Class"), String(card.title || card.name || codexLogTitle(type)), nextLogNotes);
+  }
 }
 
 
@@ -10417,12 +10530,70 @@ function adaptiveMindDigest(mind, target, maxItems) {
   return digestItems.join("; ");
 }
 
+function loadMindFromManagedCardNotes(card) {
+  try {
+    if (!card) return null;
+    var raw = String(card.description || card.notes || "");
+    var managedMarker = (typeof CE_CARD_NOTES_START !== "undefined" && CE_CARD_NOTES_START)
+      ? CE_CARD_NOTES_START : "━━━━━━━━━━ 🌒 CROSSED ECHOES — SCRIPT STATE ━━━━━━━━━━";
+    var root = raw.indexOf(managedMarker);
+    if (root < 0) return null;
+    var start = raw.indexOf("🧠 UNSPOKEN TURNS / UNSAID", root);
+    if (start < 0) return null;
+    start += "🧠 UNSPOKEN TURNS / UNSAID".length;
+    var end = raw.indexOf("\n\n❤️ CROSSED WIRES", start);
+    if (end < 0) end = raw.length;
+    var body = raw.slice(start, end).trim();
+    if (!body || /^(?:Tracking ready|Tracking active|Tracking available)/i.test(body)) return null;
+
+    var mind = createMind(), found = false, m;
+    m = body.match(/^Core truth:\s*(.+)$/im);
+    if (m && m[1].trim()) { mind.core=m[1].trim(); found=true; }
+    m = body.match(/^Core stability:\s*(\d+)\s+turn/im);
+    if (m) mind.coreSetTurn = Math.max(0, Number(state.unsaid && state.unsaid.turn || 0) - Number(m[1] || 0));
+    m = body.match(/^Former core truth:\s*(.+)$/im);
+    if (m && m[1].trim()) { mind.coreHistory=[m[1].trim()]; found=true; }
+    m = body.match(/^Current feeling:\s*(.+)$/im);
+    if (m && m[1].trim()) { mind.feeling=m[1].trim(); mind.feelingHistory=[mind.feeling]; found=true; }
+    m = body.match(/^Current want:\s*(.+)$/im);
+    if (m && m[1].trim()) { mind.want=m[1].trim(); found=true; }
+    m = body.match(/^Last private thought:\s*(.+)$/im);
+    if (m && m[1].trim()) { mind.lastThoughtText=m[1].trim(); found=true; }
+    m = body.match(/^Identity tension:\s*(\d+)/im);
+    if (m) mind.tensionLevel=Math.max(0,Number(m[1]||0));
+    m = body.match(/^Private moments recorded:\s*(\d+)/im);
+    if (m) mind.revealCount=Math.max(0,Math.min(9999,Number(m[1]||0)));
+
+    ensureAdaptiveMindShape(mind);
+    var memoryBlock = body.match(/Recent private memories:\s*\n([\s\S]*?)(?=\n(?:Private relationship attitudes|Observable continuity|Private moments recorded|[A-Z][^\n]{0,60}:)|$)/i);
+    if (memoryBlock) {
+      memoryBlock[1].split(/\n/).slice(0,6).forEach(function(line){
+        var mm=String(line||"").match(/^\s*\d+\.\s*([a-z][a-z0-9_]{0,40})\s*:\s*(.+)$/i);
+        if(!mm)return;var key=mm[1].toLowerCase(),value=mm[2].replace(/\s+/g," " ).trim().slice(0,ADAPTIVE_MIND_TEXT_LIMIT);
+        if(!value)return;mind.thoughtBank[key]=value;if(mind.thoughtOrder.indexOf(key)<0)mind.thoughtOrder.push(key);found=true;
+      });
+    }
+    var relationBlock = body.match(/Private relationship attitudes:\s*\n([\s\S]*?)(?=\n(?:Observable continuity|Private moments recorded|[A-Z][^\n]{0,60}:)|$)/i);
+    if (relationBlock) {
+      relationBlock[1].split(/\n/).slice(0,MAX_RELATIONS_PER_CHARACTER).forEach(function(line){
+        var rm=String(line||"").match(/^\s*[•*\-]\s*(.+?)\s+—\s+(.+)$/);
+        if(!rm)return;var other=rm[1].trim(),value=rm[2].trim();if(!other||!value)return;
+        mind.relations[other]=value;mind.relationHistory[other]=[value];if(mind.relationOrder.indexOf(other)<0)mind.relationOrder.push(other);found=true;
+      });
+    }
+    if (found && mind.lastThoughtText && !mind.revealCount) mind.revealCount=1;
+    if (found) { mind.shellOnly=false; return mind; }
+  } catch (_) {}
+  return null;
+}
+
 function loadMindFromCard(card) {
-  if (!card || !card.description) return null;
-  const idx = card.description.indexOf(MIND_NOTES_MARKER);
-  if (idx === -1) return null;
-  const body = card.description.slice(idx + MIND_NOTES_MARKER.length).trim();
-  if (!body) return null;
+  if (!card || !(card.description || card.notes)) return null;
+  const rawNotes = String(card.description || card.notes || "");
+  const idx = rawNotes.indexOf(MIND_NOTES_MARKER);
+  if (idx === -1) return loadMindFromManagedCardNotes(card);
+  const body = rawNotes.slice(idx + MIND_NOTES_MARKER.length).trim();
+  if (!body) return loadMindFromManagedCardNotes(card);
 
   try {
     const parsed = JSON.parse(body);
@@ -12010,7 +12181,7 @@ function CW_playerNames() {
     if (!key) return;
     names.push(key);
     // First-name aliases are useful in Character-card relationship fields such
-    // as "Married to Kyle" when the platform reports "Kyle Walker". Only add
+    // as "Married to Alex" when the platform reports "Alex Morgan". Only add
     // a non-trivial first token; full names remain authoritative.
     const bits = key.split(/\s+/).filter(Boolean);
     if (bits.length >= 2 && bits[0].length >= 3) names.push(bits[0]);
@@ -12098,7 +12269,7 @@ function CW_configCard() {
     if (title === CW_CONFIG_TITLE.toLowerCase() || title === "crossed wires config") return (CW_RUNTIME_CONFIG_CARD = c);
     if (type === "crossed wires config") return (CW_RUNTIME_CONFIG_CARD = c); // v2/v3 migration
     if (keys.includes("__crossed_wires_config__") || CE_isRequiredConfigCard(c, CW_CONFIG_KEYS) || keys.includes("__cw_config_bootstrap_8__")) return (CW_RUNTIME_CONFIG_CARD = c);
-    if (notes.includes(CW_CONFIG_MARKER) || /^\s*Crossed Wires Settings/i.test(entry)) return (CW_RUNTIME_CONFIG_CARD = c);
+    if (notes.includes(CW_CONFIG_MARKER) || /^\s*Crossed Wires Settings\b/i.test(entry)) return (CW_RUNTIME_CONFIG_CARD = c);
   }
   return (CW_RUNTIME_CONFIG_CARD = null);
 }
@@ -12325,27 +12496,8 @@ function CW_writeConfigCard(card, cfg) {
   if (index < 0) return;
   const entry = CW_defaultConfigEntryFrom(cfg || CW_configFromEntry(card.entry));
   const notes = CW_configNotes();
-  try {
-    if (typeof updateStoryCard === "function") {
-      updateStoryCard(index, CW_CONFIG_KEYS, entry, CE_CONFIG_CATEGORY);
-    }
-  } catch (e) {
-    try {
-      if (typeof updateStoryCard === "function") updateStoryCard(index, CW_CONFIG_KEYS, entry, CE_CONFIG_CATEGORY);
-    } catch (fallbackError) {
-      if (typeof log === "function") log("Crossed Wires: config card API update fallback: " + fallbackError);
-    }
-  }
-  // Current AI Dungeon exposes title/name and notes/description in newer builds.
-  // Keep mutable-field fallbacks for sandboxes that only honor the older update call.
-  const current = storyCards[index] || card;
-  current.keys = CW_CONFIG_KEYS;
-  current.entry = entry;
-  current.type = CE_CONFIG_CATEGORY;
-  current.title = CW_CONFIG_TITLE;
-  current.name = CW_CONFIG_TITLE;
-  current.description = notes;
-  current.notes = notes;
+  const committed = CE_updateStoryCardCompat(card, CW_CONFIG_KEYS, entry, CE_CONFIG_CATEGORY, CW_CONFIG_TITLE, notes);
+  const current = committed.card || storyCards[index] || card;
   CW_RUNTIME_CONFIG_CARD = current;
   CW_RUNTIME_CONFIG_CACHE = null;
   CW_RUNTIME_CONFIG_ENTRY = null;
@@ -12381,20 +12533,8 @@ function CW_ensureConfigCard() {
   if (!card) return null;
 
   const index = storyCards.indexOf(card);
-  if (index >= 0) {
-    try {
-      if (typeof updateStoryCard === "function") updateStoryCard(index, CW_CONFIG_KEYS, entry, CE_CONFIG_CATEGORY);
-    } catch (e) {
-      try { if (typeof updateStoryCard === "function") updateStoryCard(index, CW_CONFIG_KEYS, entry, CE_CONFIG_CATEGORY); } catch (_) {}
-    }
-  }
-  card.keys = CW_CONFIG_KEYS;
-  card.entry = entry;
-  card.type = CE_CONFIG_CATEGORY;
-  card.title = CW_CONFIG_TITLE;
-  card.name = CW_CONFIG_TITLE;
-  card.description = notes;
-  card.notes = notes;
+  const committed = CE_updateStoryCardCompat(card, CW_CONFIG_KEYS, entry, CE_CONFIG_CATEGORY, CW_CONFIG_TITLE, notes);
+  card = committed.card || (index >= 0 ? storyCards[index] : null) || card;
   if (state.crossedWires) state.crossedWires.configCardVersion = 8;
   CW_RUNTIME_CONFIG_CARD = card;
   CW_RUNTIME_CONFIG_CACHE = null;
@@ -16492,12 +16632,14 @@ const ECHO_VEIL = (() => {
     const titleChanged = String(card.title || card.name || "") !== CONFIG_CARD.title;
     const typeChanged = String(card.type || "") !== CONFIG_CARD.type;
     const notesChanged = String(card.description || card.notes || "") !== notes;
-    if ((changed || keyChanged || helpChanged || titleChanged || typeChanged || notesChanged) && typeof updateStoryCard === "function") {
-      try { updateStoryCard(index, CONFIG_CARD.keys, wantedEntry, CONFIG_CARD.type); RUNTIME_CARD_INDEX_CACHE = null; } catch (_) {
-        try { updateStoryCard(index, CONFIG_CARD.keys, wantedEntry, CONFIG_CARD.type); RUNTIME_CARD_INDEX_CACHE = null; } catch (__) {}
-      }
+    var committed = null;
+    if (changed || keyChanged || helpChanged || titleChanged || typeChanged || notesChanged) {
+      committed = CE_updateStoryCardCompat(card, CONFIG_CARD.keys, wantedEntry, CONFIG_CARD.type, CONFIG_CARD.title, notes);
+      RUNTIME_CARD_INDEX_CACHE = null;
     }
-    const current = storyCards[index] || card;
+    const current = (committed && committed.card) || storyCards[index] || card;
+    // Even when no write was needed, normalize mirror fields exposed by some
+    // host versions without forcing an unnecessary Story Card update.
     current.keys = CONFIG_CARD.keys;
     current.entry = wantedEntry;
     current.type = CONFIG_CARD.type;
@@ -21131,13 +21273,20 @@ function CE_unsaidCardSection(name) {
     if(!m) return "Tracking ready. No durable private state has been recorded yet.";
     if(typeof ensureAdaptiveMindShape==="function")ensureAdaptiveMindShape(m);
     var lines=[],hasPrivate=!!(m.core||m.feeling||m.want||m.lastThoughtText||(m.thoughtOrder&&m.thoughtOrder.length)||(m.relationOrder&&m.relationOrder.length));
-    if(m.core) lines.push("Core truth: "+CE_noteClip(m.core,240));
+    if(m.core) {
+      lines.push("Core truth: "+CE_noteClip(m.core,240));
+      if(typeof m.coreSetTurn==="number") { var stable=Math.max(0,Number(state.unsaid&&state.unsaid.turn||0)-Number(m.coreSetTurn)); lines.push("Core stability: "+stable+" turn"+(stable===1?"":"s")); }
+    }
+    if(Array.isArray(m.coreHistory)&&m.coreHistory.length) lines.push("Former core truth: "+CE_noteClip(m.coreHistory[m.coreHistory.length-1],220));
     if(m.feeling) lines.push("Current feeling: "+CE_noteClip(m.feeling,150));
     if(m.want) lines.push("Current want: "+CE_noteClip(m.want,180));
     if(m.lastThoughtText) lines.push("Last private thought: "+CE_noteClip(m.lastThoughtText,240));
     if(Number(m.tensionLevel||0)>0) lines.push("Identity tension: "+Math.round(Number(m.tensionLevel||0))+" / "+(typeof TENSION_THRESHOLD!=="undefined"?TENSION_THRESHOLD:"threshold"));
     var order=Array.isArray(m.thoughtOrder)?m.thoughtOrder.slice(-3):[];
     if(order.length&&m.thoughtBank){var memory=order.map(function(k){return k+": "+CE_noteClip(m.thoughtBank[k],120);}).filter(Boolean);if(memory.length){lines.push("Recent private memories:");memory.forEach(function(x,i){lines.push("  "+(i+1)+". "+x);});}}
+    var relOrder=Array.isArray(m.relationOrder)?m.relationOrder.slice(-3):[];
+    if(relOrder.length&&m.relations){var rels=relOrder.map(function(other){var value=CE_noteClip(m.relations[other],120);return value?other+" — "+value:null;}).filter(Boolean);if(rels.length){lines.push("Private relationship attitudes:");rels.forEach(function(x){lines.push("  • "+x);});}}
+    if(Number(m.revealCount||0)>0) lines.push("Private moments recorded: "+Math.round(Number(m.revealCount||0)));
     var obs=Array.isArray(m.observations)?m.observations.slice(-3):[];
     if(obs.length){
       if(!hasPrivate)lines.push("No durable private thought has been inferred from these actions.");
@@ -21290,7 +21439,7 @@ function CE_syncEntityCard(name){try{
   var displayName=String(CE_cardIdentityName(card)||name).trim()||name;
   if(kind==="character"&&CE_isPlayerIdentity(displayName))return false;
   var base=CE_publicStoryCardNotes(card),managed=CE_renderManagedEntityNotes(displayName,card,kind),next=(base?base+"\n\n":"")+CE_CARD_NOTES_START+"\n"+managed;
-  if(String(card.description||card.notes||"")!==next){card.description=next;card.notes=next;if(typeof CE_noteExpectedEntityNotes==="function")CE_noteExpectedEntityNotes(card,displayName,next);}return true;
+  if(String(card.description||card.notes||"")!==next){var committed=CE_updateStoryCardCompat(card,CE_cardKeysCore(card),CE_cardEntryCore(card),String(card.type||kind),displayName,next);var live=committed.card||card;if(typeof CE_noteExpectedEntityNotes==="function")CE_noteExpectedEntityNotes(live,displayName,next);}return true;
 }catch(_){return false;}}
 function CE_syncCrossedWiresCardSection(name){
   try{
@@ -21302,7 +21451,7 @@ function CE_syncCrossedWiresCardSection(name){
     // one stale Crossed Wires paragraph.
     if(raw.indexOf(CE_CARD_NOTES_START)>=0&&/❤️ CROSSED WIRES\n/.test(raw)){
       var next=raw.replace(/❤️ CROSSED WIRES\n[\s\S]*?(?=\n\n🌘 ECHO VEIL)/,nextSection);
-      if(next!==raw){card.description=next;card.notes=next;if(typeof CE_noteExpectedEntityNotes==="function")CE_noteExpectedEntityNotes(card,playerDisplay,next);}return true;
+      if(next!==raw){var committed=CE_updateStoryCardCompat(card,CE_cardKeysCore(card),CE_cardEntryCore(card),String(card.type||"Character"),playerDisplay,next);var live=committed.card||card;if(typeof CE_noteExpectedEntityNotes==="function")CE_noteExpectedEntityNotes(live,playerDisplay,next);}return true;
     }
     return CE_syncEntityCard(display);
   }catch(_){return false;}
@@ -21545,7 +21694,7 @@ function UN_configCard() {
         c.title === "THREADBOUND — Integration" ||
         c.title === "UNIFIED NARRATIVE — Integration" ||
         CE_isRequiredConfigCard(c, CE_CONFIG_KEY_INTEGRATION) ||
-        /^\s*CROSSED ECHOES INTEGRATION/i.test(entry);
+        /^\s*CROSSED ECHOES INTEGRATION\b/i.test(entry);
     }) || null;
   } catch (e) { return null; }
 }
@@ -21744,18 +21893,17 @@ function UN_ensureConfigCard() {
       card = UN_configCard();
     }
     if (card) {
-      if (card.title !== CE_CONFIG_TITLE_INTEGRATION) {
-        card.title = CE_CONFIG_TITLE_INTEGRATION;
-        card.name = CE_CONFIG_TITLE_INTEGRATION;
-      }
-      card.type = CE_CONFIG_CATEGORY;
       // The inert sentinel is part of the documented persistent core fields and
       // cannot naturally trigger in story prose, so it survives isolated hooks
-      // without spending model context.
-      card.keys = CE_CONFIG_KEY_INTEGRATION;
-      if (!card.entry || card.entry.length > 1900 || !/^CROSSED ECHOES INTEGRATION/m.test(card.entry)) card.entry = UN_renderConfig(cfg);
-      if (!card.description || card.description.indexOf("CROSSED ECHOES — THE UNSPOKEN VEIL — INTEGRATION OPTIONS") < 0) card.description = UN_configNotes();
-      CE_commitCoreStoryCard(card, CE_CONFIG_KEY_INTEGRATION, card.entry, CE_CONFIG_CATEGORY);
+      // without spending model context. Commit all presentation metadata in the
+      // same replacement-safe operation instead of preparing a stale object.
+      var wantedEntry = (!card.entry || card.entry.length > 1900 || !/^CROSSED ECHOES INTEGRATION/m.test(card.entry)) ? UN_renderConfig(cfg) : String(card.entry);
+      var wantedNotes = (!card.description || card.description.indexOf("CROSSED ECHOES — THE UNSPOKEN VEIL — INTEGRATION OPTIONS") < 0) ? UN_configNotes() : String(card.description);
+      if (CE_cardKeysCore(card) !== CE_CONFIG_KEY_INTEGRATION || String(card.type || "") !== CE_CONFIG_CATEGORY ||
+          String(card.title || card.name || "") !== CE_CONFIG_TITLE_INTEGRATION || String(card.entry || "") !== wantedEntry ||
+          String(card.description || card.notes || "") !== wantedNotes) {
+        CE_updateStoryCardCompat(card, CE_CONFIG_KEY_INTEGRATION, wantedEntry, CE_CONFIG_CATEGORY, CE_CONFIG_TITLE_INTEGRATION, wantedNotes);
+      }
     }
   } catch (e) { UN_error("config",e); }
 }
@@ -21791,7 +21939,7 @@ function CE_repairSharedConfigNotesPollution(card) {
   // wrong numeric addStoryCard result. Rebuild the intended two guide sections.
   var twistCfg=Object.assign({}, CP_DEFAULTS, (state && state.contingencyConfig) || {});
   var rebuilt=renderTwistNotes(twistCfg, (state && state.contingency) || null).replace(/\s+$/, "") + "\n\n" + CONFIG_DEFAULT_UNSAID_NOTES_SECTION;
-  try { card.description=rebuilt; card.notes=rebuilt; } catch (_) {}
+  try { CE_updateStoryCardCompat(card, CE_cardKeysCore(card), CE_cardEntryCore(card), String(card.type || CE_CONFIG_CATEGORY), CE_CONFIG_TITLE_UNSAID, rebuilt); } catch (_) {}
   return true;
 }
 function CE_bootstrapRequiredConfigCards(phase) {

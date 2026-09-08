@@ -306,14 +306,17 @@ var unsaidModifier = (text) => {
 
     if (/^\/unsaid\s+status\s*$/i.test(commandText)) {
       const report = buildStatusReport(cfg);
-      let card = storyCards.find(c => c.title === "UNSAID — Status");
-      if (!card) card = createOrFindCard("unsaid status", " ", "Class");
+      const statusKey = "__crossed_echoes_unsaid_status__";
+      let card = storyCards.find(c => c && (c.title === "UNSAID — Status" || (typeof CE_hasCardKey === "function" && CE_hasCardKey(c, statusKey))));
+      if (!card) card = createOrFindCard(statusKey, " ", "Class");
       if (card) {
-        card.title = "UNSAID — Status";
-        card.keys = "unsaid status";
-        card.type = "Class";
-        card.entry = " ";
-        card.description = "Regenerated fresh each time you type \"/unsaid status\" as an action. Not sent to the AI.\n\n" + report;
+        const statusNotes = "Regenerated fresh each time you type \"/unsaid status\" as an action. Diagnostic only; not sent to the AI.\n\n" + report;
+        if (typeof CE_updateStoryCardCompat === "function") {
+          const committed = CE_updateStoryCardCompat(card, statusKey, " ", "Class", "UNSAID — Status", statusNotes);
+          card = committed.card || card;
+        } else {
+          card.title = "UNSAID — Status"; card.keys = statusKey; card.type = "Class"; card.entry = " "; card.description = statusNotes;
+        }
         const mindCount = Object.keys((state.unsaid && state.unsaid.minds) || {}).length;
         const trackedCount = Object.keys((state.unsaid && state.unsaid.codex && state.unsaid.codex.mentionCounts) || {}).length;
         pushMessage(`📋 UNSAID status updated — ${mindCount} mind(s), ${trackedCount} Codex candidate(s). Full details are in the "UNSAID — Status" card.`);
@@ -327,14 +330,17 @@ var unsaidModifier = (text) => {
       const report = typeof utRuntimeHealthReport === "function"
         ? utRuntimeHealthReport()
         : "Runtime health data is unavailable in this build.";
-      let card = storyCards.find(c => c.title === "UNSPOKEN TURNS — Runtime Health");
-      if (!card) card = createOrFindCard("unspoken runtime health", " ", "Class");
+      const healthKey = "__crossed_echoes_runtime_health__";
+      let card = storyCards.find(c => c && (c.title === "UNSPOKEN TURNS — Runtime Health" || (typeof CE_hasCardKey === "function" && CE_hasCardKey(c, healthKey))));
+      if (!card) card = createOrFindCard(healthKey, " ", "Class");
       if (card) {
-        card.title = "UNSPOKEN TURNS — Runtime Health";
-        card.keys = "unspoken runtime health";
-        card.type = "Class";
-        card.entry = " ";
-        card.description = "Regenerated fresh each time you type \"/unsaid health\". Diagnostic only; not sent to the AI.\n\n" + report;
+        const healthNotes = "Regenerated fresh each time you type \"/unsaid health\". Diagnostic only; not sent to the AI.\n\n" + report;
+        if (typeof CE_updateStoryCardCompat === "function") {
+          const committed = CE_updateStoryCardCompat(card, healthKey, " ", "Class", "UNSPOKEN TURNS — Runtime Health", healthNotes);
+          card = committed.card || card;
+        } else {
+          card.title = "UNSPOKEN TURNS — Runtime Health"; card.keys = healthKey; card.type = "Class"; card.entry = " "; card.description = healthNotes;
+        }
         pushMessage("🩺 Runtime diagnostics written — check the \"UNSPOKEN TURNS — Runtime Health\" card.");
       } else {
         pushMessage("🩺 Couldn't write the runtime-health card this turn — try again in a moment.");
