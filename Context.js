@@ -825,6 +825,7 @@ var modifier = (text) => {
   try {
     if (typeof UN_resetHookCaches === "function") UN_resetHookCaches("context");
     if (typeof CEFH_prepareContext === "function") CEFH_prepareContext(originalText);
+    if (typeof CE_captureAuthoritativeEntityLocks === "function") CE_captureAuthoritativeEntityLocks(originalText);
 
     // Manual UNSAID/Codex generations own the whole model call. They are
     // administrative workers, not story turns, so skip the other directors.

@@ -208,7 +208,7 @@ Optimized Context is supported. CROSSED ECHOES preserves the host's existing Con
 
 ## 🔬 Live-play audited large-adventure hardening
 
-An earlier private-fixture audit replayed this engine against a real **374-Story-Card NEXT CLASS adventure** rather than relying only on synthetic fixtures. That audit exposed several issues that are now fixed in the engine itself. Because the private 374-card export is not bundled, the final 2026-09-07 re-audit does **not** count that historical 22/22 result as freshly rerun.
+A real large-adventure regression exposed several failures that synthetic tests had missed: stale Story Card canon could outrank newer creator canon, full player names could collapse to short aliases, plural/slash-separated knowledge boundaries could be lost, and managed Notes writes could fail without a useful warning. Those failures are now covered by scenario-agnostic engine tests rather than production special cases.
 
 **Authoritative CODEX recovery** can now notice important named entities declared in AI Instructions / Plot Essentials even when ordinary prose discovery never produced a card. Recovery is incremental and bounded so creating missing lore cannot starve TWISTS, ECHO VEIL or UNSAID on the same turn.
 
@@ -216,13 +216,13 @@ An earlier private-fixture audit replayed this engine against a real **374-Story
 
 **UNSAID active-NPC shells** give an in-scene NPC a conservative mind container from public canon and relationship evidence before any private thought is known. Empty private fields stay empty; the shell is continuity infrastructure, not invented psychology.
 
-**Current-relevant TWISTS priority scanning** guarantees a tiny bounded check for a mystery card directly related to the active NPC before optional background lore scanning yields to runtime pressure. A current Callum mystery therefore cannot wait dozens of turns merely because the archive is large.
+**Current-relevant TWISTS priority scanning** guarantees a tiny bounded check for a mystery card directly related to the active NPC before optional background lore scanning yields to runtime pressure. A current character mystery therefore cannot wait dozens of turns merely because the archive is large.
 
 **ECHO false-positive hardening** distinguishes actual injuries/mysteries from ordinary phrases such as “a straight shot for fifty metres” or navigational questions such as “where are we going?”. Author's Note fragments and control prose are also excluded from durable Echo threads.
 
 **Dialogue-only player agency** is stricter. If the player only speaks, the model may resolve external reactions, but it cannot silently convert that line into an intentional teleport, attack, grab, blast or other voluntary power choice.
 
-The private 374-card fixture is not distributed with the package. The release report records the audit result without embedding the user's story data.
+No user scenario or private Story Card export is distributed with this package. Real-world failures are represented by generic regression fixtures instead.
 
 ---
 
@@ -282,6 +282,10 @@ Use `/unsaid status` or `/unsaid health`. CODEX distinguishes between an entity 
 
 Check the public Character Story Cards first. High-stakes relationships require stronger identity support when names are ambiguous, but unclear source lore can still create unclear evidence. Correct the public canon and allow the relationship layer to rebuild from that evidence.
 
+### Managed Notes do not persist
+
+CROSSED ECHOES now verifies entity-Notes persistence independently from config-card persistence. If the host accepts an in-memory Notes update but the change disappears on the next isolated hook, the script raises a dedicated warning instead of reporting the system healthy. AI Dungeon's documented scripting API exposes the core Story Card fields but does not document a separate Notes update helper, so live-host behavior may vary by platform version/settings.
+
 ---
 
 ## 🧪 Testing philosophy
@@ -290,7 +294,7 @@ I test CROSSED ECHOES against isolated AI Dungeon-style hooks, long-running stat
 
 The target is not a large test number. The target is for the script to visibly do what it claims in normal play while still knowing when **not** to invent something.
 
-The current release passes the 185-test core suite, dedicated deep-system and twist suites, full-system/adversarial/host-contract checks, NEXT CLASS real-play and supplied-scenario regressions, 30/30 cross-genre matrices in both Context modes, 60-turn general simulations, 48-turn fluidity simulations, high-concept temporal/multiversal simulations, 312-card relationship-foundation stress, and the 5,000-card correctness ceiling. Exact details and measured timings are in `TEST_REPORT.txt`.
+The current release passes the 185-test core suite, dedicated deep-system and twist suites, generic Notes/canon semantics, Notes-write-loss detection, full-system/adversarial/host-contract checks, 30/30 cross-genre matrices in both Context modes, 60-turn general simulations, 48-turn fluidity simulations, high-concept temporal/multiversal simulations, 312-card relationship-foundation stress, and the 5,000-card correctness ceiling. Exact details and measured timings are in `TEST_REPORT.txt`.
 
 Technical verification is kept with the release for anyone who wants to inspect it, but the public documentation stays focused on using the script rather than exposing internal fixtures or private scenario material.
 

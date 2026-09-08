@@ -40,6 +40,24 @@ function CE_platformCharacterNames() {
   return out;
 }
 
+// Context consumers must not assume that the newest/most authoritative creator
+// instructions live at the tail. AI Dungeon normally places AI Instructions and
+// Plot Essentials near the front, while recent story/history lives near the end.
+// A bounded front+tail view therefore preserves both without scanning an entire
+// huge prompt or letting later script-appended diagnostics hide creator canon.
+function CE_authoritativeContextWindow(text, cap) {
+  var source = String(text || ""), limit = Math.max(1000, Number(cap) || 24000);
+  if (source.length <= limit) return source;
+  var head = Math.max(600, Math.floor(limit * 0.58));
+  var tail = Math.max(400, limit - head);
+  return source.slice(0, head) + "\n…\n" + source.slice(-tail);
+}
+function CE_authoritativeContextHead(text, cap) {
+  var source = String(text || ""), limit = Math.max(1000, Number(cap) || 18000);
+  return source.length <= limit ? source : source.slice(0, limit);
+}
+
+
 
 // Story Card persistence compatibility.
 // AI Dungeon's documented scripting contract guarantees only id/keys/entry/type
@@ -301,9 +319,74 @@ function CE_noteExpectedStoryCardWrite(keys,name) {
     w.pending.push(rec); if(w.pending.length>12)w.pending=w.pending.slice(-12);
   }catch(_){}
 }
+
+function CE_notesFingerprint(value) {
+  var s=String(value||""), h=2166136261>>>0;
+  for(var i=0;i<s.length;i++){ h^=s.charCodeAt(i); h=(h+((h<<1)+(h<<4)+(h<<7)+(h<<8)+(h<<24)))>>>0; }
+  return String(h>>>0)+":"+s.length;
+}
+function CE_entityNotesWatchState() {
+  if(typeof state==="undefined"||!state)return null;
+  if(!state.crossedEchoesEntityNotesWatch||typeof state.crossedEchoesEntityNotesWatch!=="object")state.crossedEchoesEntityNotesWatch={pending:[],failures:0,lastWarnAction:-999999,lastReason:""};
+  if(!Array.isArray(state.crossedEchoesEntityNotesWatch.pending))state.crossedEchoesEntityNotesWatch.pending=[];
+  return state.crossedEchoesEntityNotesWatch;
+}
+function CE_noteExpectedEntityNotes(card,name,notes) {
+  try{
+    if(!card)return;
+    var w=CE_entityNotesWatchState();if(!w)return;
+    var now=(typeof info!=="undefined"&&info&&Number.isFinite(Number(info.actionCount)))?Number(info.actionCount):0;
+    var phase=(typeof UT_ACTIVE_RUNTIME_PHASE!=="undefined"&&UT_ACTIVE_RUNTIME_PHASE&&UT_ACTIVE_RUNTIME_PHASE.name)||"unknown";
+    var rec={id:card.id!=null?String(card.id):"",key:CE_requestedStoryCardPrimaryKey(CE_cardKeysCore(card)),name:String(name||CE_cardIdentityName(card)||"").trim(),hash:CE_notesFingerprint(notes),action:now,phase:phase};
+    w.pending=w.pending.filter(function(x){
+      if(!x)return false;
+      if(rec.id&&x.id)return String(x.id)!==rec.id;
+      return String(x.key||"").toLowerCase()!==String(rec.key||"").toLowerCase()||String(x.name||"").toLowerCase()!==String(rec.name||"").toLowerCase();
+    });
+    w.pending.push(rec);if(w.pending.length>16)w.pending=w.pending.slice(-16);
+  }catch(_){}
+}
+function CE_findExpectedNotesCard(rec) {
+  try{
+    if(!rec||typeof storyCards==="undefined"||!Array.isArray(storyCards))return null;
+    if(rec.id){var byId=storyCards.find(function(c){return c&&c.id!=null&&String(c.id)===String(rec.id);});if(byId)return byId;}
+    var key=String(rec.key||"").toLowerCase(),name=String(rec.name||"").toLowerCase();
+    return storyCards.find(function(c){
+      if(!c)return false;
+      if(key&&CE_hasCardKey(c,key))return true;
+      var cn=String(CE_cardIdentityName(c)||"").trim().toLowerCase();
+      return !!(name&&cn===name);
+    })||null;
+  }catch(_){return null;}
+}
+function CE_verifyExpectedEntityNotes(currentPhase) {
+  try{
+    var w=CE_entityNotesWatchState();if(!w||!w.pending.length)return 0;
+    var now=(typeof info!=="undefined"&&info&&Number.isFinite(Number(info.actionCount)))?Number(info.actionCount):0;
+    var phase=String(currentPhase||""),keep=[],failed=[];
+    w.pending.forEach(function(rec){
+      if(!rec)return;
+      if(Number(rec.action)===now&&String(rec.phase||"")===phase){keep.push(rec);return;}
+      var card=CE_findExpectedNotesCard(rec),actual=card?String(card.description||card.notes||""):"";
+      if(card&&CE_notesFingerprint(actual)===String(rec.hash||""))return;
+      failed.push(rec);
+    });
+    w.pending=keep;
+    if(!failed.length)return 0;
+    w.failures=Number(w.failures||0)+failed.length;
+    w.lastReason="Story Card Notes write disappeared between isolated hooks";
+    if(now-Number(w.lastWarnAction||-999999)>=2){
+      w.lastWarnAction=now;
+      if(typeof pushMessage==="function")pushMessage("⚠️ CROSSED ECHOES detected that script-managed Story Card Notes did not persist between AI Dungeon hooks. The story engine is still running, but the visible Notes dashboard is stale. If your AI Dungeon setup requires it, enable Gameplay → Memory System → Memory Bank and retry; otherwise check whether scripted Story Card metadata writes are being preserved.");
+    }
+    return failed.length;
+  }catch(_){return 0;}
+}
+
 function CE_verifyExpectedStoryCardWrites(currentPhase) {
   try {
-    var w=CE_storyCardWriteWatchState(); if(!w||!w.pending.length)return 0;
+    var noteFailures=typeof CE_verifyExpectedEntityNotes==="function"?CE_verifyExpectedEntityNotes(currentPhase):0;
+    var w=CE_storyCardWriteWatchState(); if(!w||!w.pending.length)return noteFailures;
     var now=(typeof info!=="undefined"&&info&&Number.isFinite(Number(info.actionCount)))?Number(info.actionCount):0;
     var phase=String(currentPhase||""); var keep=[],failed=[];
     w.pending.forEach(function(rec){
@@ -324,7 +407,7 @@ function CE_verifyExpectedStoryCardWrites(currentPhase) {
       w.lastWarnAction=now;
       if(typeof pushMessage==="function") pushMessage("⚠️ CROSSED ECHOES detected that a Story Card write did not persist between AI Dungeon hooks. Automatic CODEX/card writes are temporarily backing off instead of pretending they succeeded. Check that scripts and the adventure Memory system permit scripted Story Card writes.");
     }
-    return failed.length;
+    return failed.length+noteFailures;
   }catch(_){return 0;}
 }
 
@@ -2501,7 +2584,7 @@ var Library = (() => {
           const aliases = rec && Array.isArray(rec.aliases) ? rec.aliases : storyCardAliasValues(card);
           // Short/common aliases are only accepted when they uniquely identify
           // this Story Card in the shared index. This lets live text saying
-          // "Callum" activate "Callum Reed" without a generic trigger such as
+          // a short alias such as "Ari" activate "Ari Mercer" without a generic trigger such as
           // "family" or "doctor" waking unrelated lore.
           for (let ai = 0; ai < aliases.length && ai < 10; ai++) {
             const alias = String(aliases[ai] || "").trim();
@@ -2586,7 +2669,7 @@ var Library = (() => {
 
   // Fuzzy variant for player-typed input (the /plant command) — matches on
   // name similarity across any category, same reasoning as /twist above,
-  // so "/plant Sera" recognizes an existing "Sera Walker" thread instead of
+  // so "/plant Ari" recognizes an existing "Ari Mercer" thread instead of
   // planting a confusing duplicate just because the typed name is shorter.
   function findThreadFuzzy(c, entity) {
     return c.threads.find(t => isSameCardEntity(t.entity, entity));
@@ -3391,7 +3474,7 @@ var Library = (() => {
         const wanted=String(title||"").trim(),wk=CE_sharedCardNorm(wanted);if(!wanted)return;
         let used=0;
         // Process the canonical entity card plus at most two explicitly related
-        // current cards (e.g. "Callum Reed — Knowledge Discrepancy"). This makes
+        // current cards (e.g. "Ari Mercer — Knowledge Discrepancy"). This makes
         // live mysteries responsive immediately instead of waiting ~50 turns for
         // an 8-card rotating background scan, while keeping work bounded.
         for(let ri=0;ri<sharedRows.length&&used<3;ri++){
@@ -6664,8 +6747,8 @@ function readUnsaidConfig() {
     }
   } catch (e) {}
   if (adoptionHotText) {
-    // Relevance must be alias-aware. A scene will naturally say "Callum" far
-    // more often than the full Story Card title "Callum Reed"; the old exact
+    // Relevance must be alias-aware. A scene will naturally say "Ari" far
+    // more often than the full Story Card title "Ari Mercer"; the old exact
     // title substring gate could therefore leave the central NPC out of UNSAID
     // while adopting unrelated registry leftovers. Reuse the shared card
     // aliases and a cheap word-boundary substring check instead of rebuilding
@@ -9111,7 +9194,7 @@ function findCodexCandidates(threshold, excludeNames, maxAttempts, maxCount) {
 // and feed them into CODEX as *declared canon*, not as an on-screen appearance.
 // This repairs resumed scenarios without lowering ordinary prose thresholds.
 var CODEX_SCENARIO_HEADING_DENY = new Set([
-  "AI INSTRUCTIONS","PLOT ESSENTIALS","WORLD LORE","RECENT STORY","PLAYER","STYLE","CORE","FAMILY","PACING","FUTURE","FUTURE THREATS","CURRENT INVESTIGATION","KNOWLEDGE BOUNDARIES","TIMELINE CLEANUP","AGE CONTENT","AGE / CONTENT","UNIVERSITY","ERA","CURRENT PEER FOUNDATION","EZRA'S POWERS","EZRA / CURRENT POWER EVIDENCE","CURRENT POWER EVIDENCE","CALLUM","MEGAN"
+  "AI INSTRUCTIONS","PLOT ESSENTIALS","WORLD LORE","RECENT STORY","PLAYER","STYLE","CORE","FAMILY","PACING","FUTURE","FUTURE THREATS","CURRENT INVESTIGATION","KNOWLEDGE BOUNDARIES","TIMELINE CLEANUP","AGE CONTENT","AGE / CONTENT","UNIVERSITY","ERA","CURRENT PEER FOUNDATION","CURRENT POWER EVIDENCE","POWERS","RELATIONSHIPS"
 ]);
 function codexScenarioCleanLabel(raw){
   var v=String(raw||"").replace(/^[\s*#>\-–—]+|[\s:*#>\-–—]+$/g,"").replace(/\s+/g," ").trim();
@@ -9121,7 +9204,10 @@ function codexScenarioCleanLabel(raw){
 function codexScenarioHeadingBlocked(name){
   var key=codexScenarioCleanLabel(name).toUpperCase();
   if(!key||CODEX_SCENARIO_HEADING_DENY.has(key))return true;
-  if(/^(?:LEGACY|NEXT CLASS|CROSSED ECHOES|CROSSED WIRES|UNSAID|UNSPOKEN TURNS|ECHO VEIL|TWISTS AND TURNS|CODEX|WORLD ENGINE)(?:\b|\s|:)/i.test(key))return true;
+  if(/^(?:CROSSED ECHOES|CROSSED WIRES|UNSAID|UNSPOKEN TURNS|ECHO VEIL|TWISTS AND TURNS|CODEX|WORLD ENGINE)(?:\b|\s|:)/i.test(key))return true;
+  // Generic scenario titles commonly use an all-caps "TITLE: SUBTITLE" header.
+  // Treat that structural form as a heading, not as a world entity.
+  if(/^[A-Z0-9][A-Z0-9 '&()\/-]{1,50}:\s*[A-Z0-9][A-Z0-9 '&()\/-]{1,80}$/.test(key))return true;
   if(/\b(?:INSTRUCTIONS?|RULES?|SETTINGS?|CONFIG|CONFIGURATION|NOTES?|STATUS|HISTORY|BACKGROUND|APPEARANCE|PERSONALITY|RELATIONSHIPS?|PROGRAM|ROLE|LIMITS?|STRENGTH|BOUNDARY|DEVELOPMENT)\b/i.test(key))return true;
   return false;
 }
@@ -12725,15 +12811,33 @@ function CW_foundationForPair(from, to) {
   return cw.foundations[CW_foundationKey(from, to)] || null;
 }
 
+function CW_liveRoleRecord(from, to) {
+  const cw = state && state.crossedWires;
+  if (!cw || !cw.roles) return null;
+  const rec = cw.roles[CW_roleKey(from, to)];
+  return rec && String(rec.source || "") === "live_canon" ? rec : null;
+}
+
 function CW_getRole(from, to) {
   const rec = state.crossedWires.roles[CW_roleKey(from, to)];
   const dynamicRole = rec && CW_ROLE_CODES.includes(rec.role) ? rec.role : "unknown";
   const foundation = CW_foundationForPair(from, to);
   const foundationRole = foundation && CW_ROLE_CODES.includes(foundation.role) ? foundation.role : "unknown";
-  // Explicit family status must never be overwritten by an incidental romance
-  // or colleague tag. An explicit ex-state may supersede a current romantic
-  // foundation, while other dynamic roles only win when they are more specific.
+  // Exact family canon is a hard identity relationship and cannot be erased by
+  // an incidental current-scene label. Likewise, a Story Card that explicitly
+  // establishes marriage/commitment/exclusivity is not downgraded merely because
+  // current creator text also calls the people friends.
   if (CW_isFamilyRole(foundationRole)) return foundationRole;
+  const ff = foundation && foundation.flags ? foundation.flags : {};
+  const protectedCommitment = !!(ff.married || ff.committed || ff.exclusive);
+  if (protectedCommitment && dynamicRole !== "ex" && dynamicRole !== "romantic") return foundationRole;
+
+  // Current creator canon is newer than an older low-stakes Story Card
+  // foundation. The live-canon seeder is deliberately conservative about when
+  // it creates this record, so once present it should not lose to role priority
+  // alone (e.g. current "friend" vs stale "roommate").
+  if (rec && String(rec.source || "") === "live_canon" && dynamicRole !== "unknown") return dynamicRole;
+
   if (dynamicRole === "ex" && foundationRole === "romantic") return "ex";
   if (CW_rolePriority(dynamicRole) > CW_rolePriority(foundationRole)) return dynamicRole;
   return foundationRole !== "unknown" ? foundationRole : dynamicRole;
@@ -13304,22 +13408,22 @@ function CW_rebuildRoles() {
     if (!rec || !CW_ROLE_CODES.includes(String(rec.role || ""))) continue;
     const key = String(rec.fromKey || "") + "->" + String(rec.toKey || "");
     if (!rec.fromKey || !rec.toKey) continue;
-    roles[key] = { role: rec.role, turn: Number(rec.turn) || 0 };
+    roles[key] = { role: rec.role, turn: Number(rec.turn) || 0, source: String(rec.source || "") };
   }
   cw.roles = roles;
 }
 
-function CW_recordRole(fromKey, toKey, role, turn) {
+function CW_recordRole(fromKey, toKey, role, turn, source) {
   const cw = state.crossedWires;
   cw.roleHistory = Array.isArray(cw.roleHistory) ? cw.roleHistory : [];
   cw.roleHistory = cw.roleHistory.filter(function (r) {
     return !(r && r.fromKey === fromKey && r.toKey === toKey && Number(r.turn || 0) === Number(turn || 0));
   });
-  cw.roleHistory.push({ fromKey: fromKey, toKey: toKey, role: role, turn: Number(turn) || 0 });
+  cw.roleHistory.push({ fromKey: fromKey, toKey: toKey, role: role, turn: Number(turn) || 0, source: String(source || "") });
   if (cw.roleHistory.length > 5000) cw.roleHistory.splice(0, cw.roleHistory.length - 5000);
 }
 
-function CW_setRole(from, to, role, turn) {
+function CW_setRole(from, to, role, turn, source) {
   const cfg = CW_config();
   if (!cfg.roleAwareness) return false;
   const fromName = CW_resolveNpcName(from);
@@ -13332,8 +13436,8 @@ function CW_setRole(from, to, role, turn) {
   if (toName !== "YOU") CW_registerNpc(toName, turn);
   const fk = CW_key(CW_resolveNpcName(fromName));
   const tk = toName === "YOU" ? "you" : CW_key(CW_resolveNpcName(toName));
-  CW_recordRole(fk, tk, r, turn);
-  if (toName !== "YOU" && CW_ROLE_INVERSE[r]) CW_recordRole(tk, fk, CW_ROLE_INVERSE[r], turn);
+  CW_recordRole(fk, tk, r, turn, source);
+  if (toName !== "YOU" && CW_ROLE_INVERSE[r]) CW_recordRole(tk, fk, CW_ROLE_INVERSE[r], turn, source);
   CW_rebuildRoles();
   return true;
 }
@@ -13718,7 +13822,7 @@ function CW_repairEvidenceReady(from, to, repairKind, turn) {
   return Object.keys(evidenceTurns).length >= 2 && strongEvidence;
 }
 
-function CW_addEvent(from, to, kind, severity, note, turn) {
+function CW_addEvent(from, to, kind, severity, note, turn, source) {
   const cfg = CW_config();
   const cw = state.crossedWires;
   const fromClean = CW_resolveNpcName(from);
@@ -13767,7 +13871,7 @@ function CW_addEvent(from, to, kind, severity, note, turn) {
   });
   if (duplicate) return false;
 
-  cw.ledger.push({ turn: turn, from: fromClean, to: toClean, kind: eventKind, severity: sev, note: cleanNote });
+  cw.ledger.push({ turn: turn, from: fromClean, to: toClean, kind: eventKind, severity: sev, note: cleanNote, source: String(source || "") });
   if (cw.ledger.length > cfg.maxLedgerEvents) {
     const removed = cw.ledger.splice(0, cw.ledger.length - cfg.maxLedgerEvents);
     CW_archiveEvents(removed);
@@ -15042,8 +15146,8 @@ function CW_prepareOutputTurn(turn) {
   // Replace model-derived evidence from that turn instead of stacking mutually
   // incompatible versions of the same story beat.
   const cw = state.crossedWires;
-  cw.ledger = cw.ledger.filter(function (e) { return e.turn !== turn; });
-  cw.roleHistory = (cw.roleHistory || []).filter(function (r) { return Number((r && r.turn) || 0) !== Number(turn); });
+  cw.ledger = cw.ledger.filter(function (e) { return Number(e&&e.turn||0) !== Number(turn) || String(e&&e.source||"") === "live_canon"; });
+  cw.roleHistory = (cw.roleHistory || []).filter(function (r) { return Number((r && r.turn) || 0) !== Number(turn) || String(r&&r.source||"") === "live_canon"; });
   CW_rebuildRoles();
   cw.twist.history = (cw.twist.history || []).filter(function (t) { return Number((t && t.turn) || 0) !== Number(turn); });
   CW_rebuildTwistIndexes();
@@ -15638,7 +15742,7 @@ function CW_liveCanonSeedKey(kind,from,to,evidence){
 function CW_addLiveCanonEvent(from,to,kind,severity,evidence,turn){
   const key=CW_liveCanonSeedKey(kind,from,to,evidence);
   if(CW_liveCanonSeedSeen(key))return false;
-  const ok=CW_addEvent(from,to,kind,severity,"Current canon: "+String(evidence||"").replace(/\s+/g," ").trim().slice(0,130),turn);
+  const ok=CW_addEvent(from,to,kind,severity,"Current canon: "+String(evidence||"").replace(/\s+/g," ").trim().slice(0,130),turn,"live_canon");
   if(ok)CW_markLiveCanonSeed(key,turn);
   return ok;
 }
@@ -15656,7 +15760,9 @@ function CW_contextNamedNpc(line,sectionName){
 }
 function CW_seedLiveRelationshipCanon(text,turn){
   const cfg=CW_config(); if(!cfg.enabled)return 0;
-  const src=String(text||"").slice(-18000),lines=src.replace(/\r/g,"").split(/\n+/).map(x=>x.trim()).filter(Boolean);
+  const rawSource=(typeof CEFH_RUNTIME!=="undefined"&&CEFH_RUNTIME&&CEFH_RUNTIME.authoritativeContext)?CEFH_RUNTIME.authoritativeContext:String(text||"");
+  const src=typeof CE_authoritativeContextWindow==="function"?CE_authoritativeContextWindow(rawSource,24000):String(rawSource||"").slice(-24000);
+  const lines=src.replace(/\r/g,"").split(/\n+/).map(x=>x.trim()).filter(Boolean);
   let section="",added=0;
   const player=CW_contextPlayerName();
   for(const line of lines){
@@ -15673,12 +15779,14 @@ function CW_seedLiveRelationshipCanon(text,turn){
     // Explicit present friendship canon may legitimately advance a provisional
     // acquaintance/roommate link to friend. Do not infer 'best friend'.
     if(new RegExp("\\b"+String(npc).split(/\s+/)[0].replace(/[.*+?^${}()|[\]\\]/g,"\\$&")+"\\b[^\\n]{0,80}\\b(?:is|=|—|-)\\s*(?:[^\\n]{0,30})?\\bfriend(?:/co-investigator)?\\b","i").test(line)||/\bfriend\/co-investigator\b/i.test(line)){
-      if(CW_getRole(npc,target)==="unknown"){CW_setRole(npc,target,"friend",turn);CW_markLiveCanonSeed("role|"+CW_key(npc)+"|you|friend",turn);}
+      const currentRole=CW_getRole(npc,target);
+      if(["unknown","acquaintance","roommate","classmate","coworker","colleague","teammate"].includes(currentRole)){CW_setRole(npc,target,"friend",turn,"live_canon");CW_markLiveCanonSeed("role|"+CW_key(npc)+"|you|friend",turn);}
     }
 
     // A mutual/consensual kiss is observable relationship evidence, but never
     // proof of commitment or continuing consent. Record only a small romance signal.
-    if(/\b(?:shared|share)\b[^\n]{0,50}\b(?:mutual|brief|consensual)?\s*kissa?\b/i.test(line)||/\b(?:kissed|kisses|kiss)\b/i.test(line)&&/\b(?:you|ezra|mutual|shared)\b/i.test(line)){
+    const explicitPlayerMention=/\b(?:you|your|mutual|shared)\b/i.test(line)||(player&&String(player).toUpperCase()!=="YOU"&&CW_wordPresent(line,player));
+    if((/\b(?:shared|share)\b[^\n]{0,50}\b(?:mutual|brief|consensual)?\s*kiss\b/i.test(line)||/\b(?:kissed|kisses|kiss)\b/i.test(line))&&explicitPlayerMention){
       if(cfg.enableRomance)added+=CW_addLiveCanonEvent(npc,target,"flirtation",1,line,turn)?1:0;
     }
 
@@ -17324,6 +17432,53 @@ const ECHO_VEIL = (() => {
     });
   }
 
+
+  // Creator-owned AI Instructions / Plot Essentials are not "recent story".
+  // Keep a bounded sample from BOTH ends so a large archive cannot evict hard
+  // rules placed near the front. Ordinary narrative analysis continues using
+  // splitClauses(), which intentionally keeps only the newest 18 clauses.
+  function splitClausesAuthoritative(text) {
+    const src = String(text || "").replace(/\r\n?/g, "\n");
+    const out = [];
+    let start = 0, quote = null;
+    const isWord = ch => !!ch && /[A-Za-zÀ-ÖØ-öø-ÿ0-9_]/.test(ch);
+    const push = end => {
+      const piece = src.slice(start, end).trim();
+      if (piece.length >= 4) out.push(piece.length <= 420 ? piece : piece.slice(0, 420));
+      start = end;
+    };
+    for (let i = 0; i < src.length; i++) {
+      const ch = src[i], prev = i ? src[i - 1] : "", next = i + 1 < src.length ? src[i + 1] : "";
+      if (!quote) {
+        if ((ch === "'" || ch === "’") && isWord(prev) && isWord(next)) continue;
+        if (ch === '"' || ch === "“" || ch === "‘" || ((ch === "'" || ch === "’") && !isWord(prev) && isWord(next))) {
+          quote = ch === "“" ? "”" : ch === "‘" ? "’" : ch;
+          continue;
+        }
+      } else if (ch === quote || (quote === "'" && ch === "’")) { quote = null; continue; }
+      if (quote) continue;
+      if (ch === "\n") { push(i); start = i + 1; continue; }
+      if (ch !== "." && ch !== "!" && ch !== "?") continue;
+      let j = i;
+      while (j + 1 < src.length && /[.!?]/.test(src[j + 1])) j++;
+      const before = src.slice(Math.max(start, i - 20), i + 1);
+      const after = src.slice(j + 1);
+      const nextNon = (after.match(/^\s*([\s\S])/) || [])[1] || "";
+      if (ch === ".") {
+        if (/\d/.test(prev) && /\d/.test(next)) { i = j; continue; }
+        const wm = before.match(/([A-Za-z.]+)\.$/);
+        const token = wm ? wm[1].toLowerCase().replace(/\.$/, "") : "";
+        if (ABBREV_WORDS.has(token) || /^(?:[A-Z]\.){1,5}$/.test(before.trim().split(/\s+/).pop() || "")) { i = j; continue; }
+      }
+      if (!after.length || (/^\s+/.test(after) && (!nextNon || /[A-ZÀ-ÖØ-Þ0-9“"'‘(\[]/.test(nextNon)))) {
+        push(j + 1); start = j + 1; i = j;
+      }
+    }
+    if (start < src.length) push(src.length);
+    if (out.length <= 72) return out;
+    return out.slice(0, 48).concat(out.slice(-24));
+  }
+
   // Read only identities already established by UNSPOKEN/CODEX. These helpers
   // deliberately do not copy private thoughts or relationship inferences into
   // ECHO VEIL; they share entity identity/type only. This closes the delay
@@ -17464,7 +17619,29 @@ const ECHO_VEIL = (() => {
       let raw = worldRec.keysRaw != null ? worldRec.keysRaw : (Array.isArray(card.keys) ? card.keys.join(",") : String(card.keys || ""));
       const keys = worldRec.keyParts ? worldRec.keyParts.slice(0,12) : raw.split(",").map(x => x.trim()).filter(Boolean).slice(0, 12);
       if (!keys.length) continue;
-      const primary = keys[0], pl = primary.toLowerCase();
+      const keyByNorm={}; keys.forEach(function(k){keyByNorm[String(k||"").trim().toLowerCase()]=String(k||"").trim();});
+      const directName=String((card&&((card.title||card.name)))||"").trim();
+      let primary=keys[0];
+      const directHit=directName&&keyByNorm[directName.toLowerCase()];
+      // Fast/common path: a multiword card title that is also an actual trigger
+      // is a stronger canonical identity than whichever alias happens to be first.
+      if(directHit&&(/\s/.test(directName)||keys.length===1)) primary=directName;
+      else {
+        let candidate=directHit?directName:"";
+        // Parse Name: only when the title is absent/ambiguous/short. This keeps
+        // 5k-character libraries fast while still resolving cards whose first
+        // trigger is a nickname such as "Rowan" and Name is "Rowan Hale".
+        if(!candidate||!(/\s/.test(candidate))){
+          const entryRaw=String(worldRec.entry != null ? worldRec.entry : (card.entry || ""));
+          const nm=/^\s*Name\s*:\s*([^\n\r]{1,120})/im.exec(entryRaw.slice(0,700));
+          if(nm){
+            const declared=String(nm[1]||"").replace(/^['"“”‘’]+|['"“”‘’]+$/g,"").trim();
+            if(declared&&keyByNorm[declared.toLowerCase()]&&declared.length>=String(candidate||"").length)candidate=declared;
+          }
+        }
+        if(candidate)primary=candidate;
+      }
+      const pl = primary.toLowerCase();
       const entry = safeEvidence(worldRec.entry != null ? worldRec.entry : (card.entry || ""), 320);
 
       if (isAgent) {
@@ -17643,7 +17820,12 @@ const ECHO_VEIL = (() => {
     const key = String(name || "").trim().toLowerCase();
     if (!key) return false;
     const hints = playerIdentityHints();
-    return hints.local.has(key) || hints.controlled.has(key);
+    if (hints.local.has(key) || hints.controlled.has(key)) return true;
+    try {
+      const aliases=characterAliasMap(), canonical=aliases&&aliases[key]?String(aliases[key]).trim().toLowerCase():"";
+      if(canonical && (hints.local.has(canonical) || hints.controlled.has(canonical))) return true;
+    } catch (_) {}
+    return false;
   }
 
   function canonicalEntityName(name) {
@@ -17654,7 +17836,11 @@ const ECHO_VEIL = (() => {
     if (playerHints.local.has(raw.toLowerCase())) return "PLAYER";
 
     const aliasMap = characterAliasMap();
-    if (aliasMap[raw.toLowerCase()]) return aliasMap[raw.toLowerCase()];
+    if (aliasMap[raw.toLowerCase()]) {
+      const resolved=aliasMap[raw.toLowerCase()];
+      if (playerHints.local.has(String(resolved).toLowerCase())) return "PLAYER";
+      return resolved;
+    }
     const idx=refreshStoryCardIndex();
     if (idx.ambiguousAliases && idx.ambiguousAliases[raw.toLowerCase()]) return raw;
 
@@ -17711,7 +17897,7 @@ const ECHO_VEIL = (() => {
       // semantic first-sight detection and persisted aliases cannot reintroduce
       // a bogus You/She/Her NPC through a different evidence route.
       if (/^(?:i|me|my|mine|myself|you|your|yours|yourself|yourselves|he|him|his|himself|she|her|hers|herself|they|them|their|theirs|themself|themselves|we|us|our|ours|ourselves|it|its|itself)$/i.test(String(canon).trim())) return;
-      const controlled = playerHints.controlled.has(String(canon).toLowerCase()) || playerHints.controlled.has(String(name).toLowerCase());
+      const controlled = isPlayerControlledName(canon) || isPlayerControlledName(name);
       candidates.push({ name: canon, text: source.slice(start, end), start, end, confidence, source: sourceKind, kind: controlled ? "player-character" : (kind || "person"), controlled });
     };
 
@@ -17892,7 +18078,7 @@ const ECHO_VEIL = (() => {
       const mention = allMentions.find(x=>String(x.name).toLowerCase()===key);
       const scope = mention ? narrativeScopeAt(text,mention.start) : {nonCurrent:false,imagined:false};
       if (!scope.nonCurrent && !scope.imagined) {
-        s.scene.cast[key] = { name:e.name, turn, sceneId:s.scene.sceneId, controlled:e.kind === "player-character" };
+        s.scene.cast[key] = { name:e.name, turn, sceneId:s.scene.sceneId, controlled:e.kind === "player-character" || isPlayerControlledName(e.name) };
       }
     }
     const castEntries=Object.entries(s.scene.cast||{}).sort((a,b)=>(b[1].turn||0)-(a[1].turn||0));
@@ -18219,6 +18405,25 @@ const ECHO_VEIL = (() => {
     }
     return "";
   }
+  function knowledgeGapOwnersBefore(clause,index,origin) {
+    const t=String(clause||""), start=Math.max(0,index-170), before=t.slice(start,index), mentions=extractEntityMentions(before);
+    if(mentions.length>1){
+      const first=mentions[0], last=mentions[mentions.length-1];
+      const baseStart=first.start;
+      let connective=before.slice(baseStart,last.end);
+      const spans=mentions.slice().sort((a,b)=>b.start-a.start);
+      spans.forEach(function(m){
+        const a=Math.max(0,m.start-baseStart), b=Math.max(a,m.end-baseStart);
+        connective=connective.slice(0,a)+connective.slice(b);
+      });
+      connective=connective.replace(/\b(?:and|both|all|currently|still|also|each|respectively)\b/ig,"").replace(/[\s/,;&+]+/g,"").trim();
+      if(!connective){
+        return Array.from(new Set(mentions.map(function(m){return canonicalEntityName(m.name);}).filter(Boolean))).slice(0,6);
+      }
+    }
+    const one=knowledgeGapOwnerBefore(clause,index,origin);
+    return one?[one]:[];
+  }
 
   function addKnowledgeGap(owner, summary, source, confidence) {
     if (!CFG.enableKnowledge || !CFG.enableKnowledgeFirewall) return null;
@@ -18257,24 +18462,25 @@ const ECHO_VEIL = (() => {
     return n;
   }
 
-  function scanKnowledgeGaps(text, origin) {
+  function scanKnowledgeGaps(text, origin, preserveAuthorityEdges) {
     if (!CFG.enableKnowledge || !CFG.enableKnowledgeFirewall) return;
     const src=String(text||"");
-    for (const clause of splitClauses(src)) {
+    const clauses=preserveAuthorityEdges ? splitClausesAuthoritative(src) : splitClauses(src);
+    for (const clause of clauses) {
       // "Mercer doesn't know / has no idea / is unaware / was never told ..."
       const patterns=[
-        /\b(?:doesn['’]?t|does not|didn['’]?t|did not|hasn['’]?t|has not|hadn['’]?t|had not|never|shouldn['’]?t|should not|mustn['’]?t|must not|can['’]?t|cannot)\s+(?:know|knew|learn|learned|realize|realise|realized|realised|discover|discovered|find out|found out|hear|heard)\b/i,
+        /\b(?:doesn['’]?t|does not|don['’]?t|do not|didn['’]?t|did not|hasn['’]?t|has not|hadn['’]?t|had not|never|shouldn['’]?t|should not|mustn['’]?t|must not|can['’]?t|cannot)\s+(?:know|knew|learn|learned|realize|realise|realized|realised|discover|discovered|find out|found out|hear|heard)\b/i,
         /\b(?:has|have|had)\s+no\s+idea\b/i,
         /\b(?:is|are|was|were|remains?|remained)\s+(?:completely\s+|totally\s+|still\s+)?(?:unaware|oblivious)\b/i,
         /\b(?:wasn['’]?t|was not|weren['’]?t|were not|hasn['’]?t been|has not been|hadn['’]?t been|had not been|never (?:was|were))\s+(?:told|informed|briefed|warned)\b/i
       ];
       for (const re of patterns) {
         const m=re.exec(clause); if(!m) continue;
-        const owner=knowledgeGapOwnerBefore(clause,m.index,origin);
-        if(!owner) continue;
+        const owners=knowledgeGapOwnersBefore(clause,m.index,origin);
+        if(!owners.length) continue;
         const rest=clause.slice(m.index+m[0].length).replace(/^\s*(?:that|about|of|on|regarding|whether)?\s*/i,"");
         const content=rest || clause;
-        addKnowledgeGap(owner,content,origin,origin==="player"?0.99:origin==="context"?0.98:0.93);
+        owners.forEach(function(owner){addKnowledgeGap(owner,content,origin,origin==="player"?0.99:origin==="context"?0.98:0.93);});
         break;
       }
       // "Unknown/unbeknownst to Mercer, Leo has the key."
@@ -18286,6 +18492,31 @@ const ECHO_VEIL = (() => {
         if(owner) addKnowledgeGap(owner,front[2],origin,origin==="player"?0.99:0.96);
       }
     }
+  }
+
+  function scanExplicitContextKnowledgeUpdates(text) {
+    if(!CFG.enableKnowledge||!CFG.enableKnowledgeFirewall)return 0;
+    let changed=0;
+    for(const clause of splitClausesAuthoritative(String(text||""))){
+      const patterns=[
+        /\b(?:now|currently)\s+(?:explicitly\s+)?knows?\b/i,
+        /\b(?:has|have)\s+(?:now\s+)?(?:been\s+)?(?:told|informed|briefed)\b/i,
+        /\b(?:now|currently)\s+(?:understands?|realizes?|realises?|learned|learnt)\b/i,
+        /\bknows?\s+because\b/i
+      ];
+      let hit=null;
+      for(const re of patterns){const m=re.exec(clause);if(m){hit=m;break;}}
+      if(!hit)continue;
+      const owners=knowledgeGapOwnersBefore(clause,hit.index,"context");
+      if(!owners.length)continue;
+      const content=normalizeKnowledgeGapSummary(clause.slice(hit.index+hit[0].length)||clause);
+      if(!content)continue;
+      owners.forEach(function(owner){
+        changed+=clearKnowledgeGapsFor(owner,content,"current-context");
+        try{addBelief(owner,content,0.97,"current-context",{truthStatus:"reported",mode:"explicit",allowGapClear:true});}catch(_){}
+      });
+    }
+    return changed;
   }
 
   function scanKnowledgeCardNotes() {
@@ -18304,7 +18535,7 @@ const ECHO_VEIL = (() => {
       // Shorthand fields let creators keep the private Notes tidy without
       // repeating the character name on every line.
       for(const line of String(notes).split(/\r?\n/)){
-        const m=/^\s*(?:does\s+not\s+know|doesn['’]?t\s+know|unaware\s+of|unknown\s+to\s+character|restricted\s+knowledge|knowledge\s+boundary|must\s+not\s+know)\s*[:=]\s*(.+?)\s*$/i.exec(line);
+        const m=/^\s*(?:does\s+not\s+know|doesn['’]?t\s+know|do\s+not\s+know|don['’]?t\s+know|unaware\s+of|unknown\s+to\s+character|restricted\s+knowledge|knowledge\s+boundary|must\s+not\s+know)\s*[:=]\s*(.+?)\s*$/i.exec(line);
         if(m) addKnowledgeGap(title,m[1],"story-card-notes",0.995);
       }
     }
@@ -20618,7 +20849,10 @@ const ECHO_VEIL = (() => {
     // Scan only for explicit ignorance language; no positive beliefs are inferred
     // from omniscient context here.
     if (CFG.enableKnowledge && CFG.enableKnowledgeFirewall) {
-      scanKnowledgeGaps(String(text||""),"context");
+      const rawAuthority=(typeof CEFH_RUNTIME!=="undefined"&&CEFH_RUNTIME&&CEFH_RUNTIME.authoritativeContext)?CEFH_RUNTIME.authoritativeContext:String(text||"");
+      const authority=typeof CE_authoritativeContextHead==="function"?CE_authoritativeContextHead(rawAuthority,20000):String(rawAuthority||"").slice(0,20000);
+      scanKnowledgeGaps(authority,"context",true);
+      scanExplicitContextKnowledgeUpdates(authority);
       scanKnowledgeCardNotes();
     }
     s.director.contextTurn=nowTurn();
@@ -20827,6 +21061,66 @@ function CE_noteClip(value, max) {
   if(cut>=Math.floor(room*.55)) head=head.slice(0,cut);
   return head.replace(/[,:;\-–—]+$/g,"").trimEnd()+"…";
 }
+function CE_liveCanonNotesState(){
+  try{if(typeof state==="undefined"||!state)return null;if(!state.crossedEchoesLiveCanonNotes||typeof state.crossedEchoesLiveCanonNotes!=="object")state.crossedEchoesLiveCanonNotes={turn:-1,byEntity:{},signature:""};if(!state.crossedEchoesLiveCanonNotes.byEntity||typeof state.crossedEchoesLiveCanonNotes.byEntity!=="object")state.crossedEchoesLiveCanonNotes.byEntity={};return state.crossedEchoesLiveCanonNotes;}catch(_){return null;}
+}
+function CE_lineMentionsKnownEntities(line,cap){
+  try{
+    var idx=CE_sharedStoryCardIndex(),norm=CE_sharedCardNorm(line),tokens=norm.split(/\s+/).filter(function(t){return t.length>=3;}),seenRec={},cands=[];
+    for(var i=0;i<tokens.length&&cands.length<80;i++){
+      var rows=idx.byToken[tokens[i]]||[];
+      for(var j=0;j<rows.length&&cands.length<80;j++){var r=rows[j];if(!r||seenRec[r.index])continue;seenRec[r.index]=1;cands.push(r);}
+    }
+    var out=[],seen={};
+    function present(alias){
+      var a=String(alias||"").trim();if(!a)return false;
+      var esc=a.replace(/[.*+?^${}()|[\]\\]/g,"\\$&");
+      try{return new RegExp("(^|[^A-Za-z0-9_])"+esc+"([^A-Za-z0-9_]|$)","i").test(String(line||""));}catch(_){return false;}
+    }
+    cands.sort(function(a,b){return String(b.identity||"").length-String(a.identity||"").length;}).forEach(function(r){
+      if(out.length>=(cap||6)||!r)return;
+      if(!/^(?:character|npc|person|cast|companion)$/i.test(String(r.typeNorm||"")))return;
+      var matched=(r.aliases||[]).some(present);if(!matched)return;
+      var n=String(r.identity||"").trim();if(!n&&r.keyParts&&r.keyParts.length)n=String(r.keyParts[0]||"").trim();
+      var k=n.toLowerCase();if(n&&!seen[k]){seen[k]=1;out.push(n);}
+    });
+    return out;
+  }catch(_){return [];}
+}
+function CE_captureAuthoritativeEntityLocks(text){
+  try{
+    var box=CE_liveCanonNotesState();if(!box)return;
+    var source=typeof CE_authoritativeContextHead==="function"?CE_authoritativeContextHead(text,18000):String(text||"").slice(0,18000);
+    var sig=CE_notesFingerprint(source),turn=(typeof info!=="undefined"&&info&&Number.isFinite(Number(info.actionCount)))?Number(info.actionCount):0;
+    if(box.signature===sig&&Number(box.turn)===turn)return;
+    var by={},lines=String(source||"").replace(/\r/g,"").split(/\n+/).map(function(x){return x.trim();}).filter(Boolean);
+    var strong=/\b(?:now|currently|explicitly|has been told|have been told|does not|doesn't|do not|don't|did not|not yet|has not|have not|unresolved|unknown|unverified|unconfirmed|boundary|declined|refused|not looking for|does not want|doesn't want|friend|co-investigator|married|relationship|kiss|theory|not fact|not canon|not automatically|not entered|has entered|entered yet)\b/i;
+    lines.forEach(function(line){
+      if(line.length<12||line.length>520||!strong.test(line))return;
+      var words=line.split(/\s+/);if(words.length<=6&&line===line.toUpperCase()&&!/[.!?]/.test(line))return;
+      CE_lineMentionsKnownEntities(line,6).forEach(function(name){
+        if(typeof CE_isPlayerIdentity==="function"&&CE_isPlayerIdentity(name))return;
+        var k=String(name).toLowerCase();if(!by[k])by[k]={name:name,lines:[]};
+        if(!by[k].lines.some(function(x){return x.toLowerCase()===line.toLowerCase();}))by[k].lines.push(CE_noteClip(line,360));
+        if(by[k].lines.length>4)by[k].lines=by[k].lines.slice(-4);
+      });
+    });
+    box.turn=turn;box.signature=sig;box.byEntity=by;
+  }catch(_){}
+}
+function CE_currentCanonNotesForEntity(name){
+  try{var box=CE_liveCanonNotesState(),wanted=String(name||"").toLowerCase(),row=box&&box.byEntity&&box.byEntity[wanted];return row&&Array.isArray(row.lines)?row.lines.slice(0,4):[];}catch(_){return [];}
+}
+function CE_liveCanonTwistResolution(thread,name){
+  try{
+    var live=CE_currentCanonNotesForEntity(name),t=[thread&&thread.title,thread&&thread.summary,thread&&thread.seedEvidence].concat(thread&&thread.evidence||[]).join(" ");
+    if(!live.length||!/\b(?:does not know|doesn't know|has not been told|hasn't been told|forbidden knowledge|secret from)\b/i.test(t))return "";
+    var positive=live.find(function(x){return /\b(?:now knows?|currently knows?|has been told|have been told|became explicit|learned|learnt)\b/i.test(x);});
+    if(!positive)return "";
+    return "Partly resolved by newer current canon: do not re-reveal the superseded knowledge gap. Keep only independently unresolved questions. Newer lock: "+CE_noteClip(positive,220);
+  }catch(_){return "";}
+}
+
 function CE_sameName(a, b) {
   try { if (typeof isSameCardEntity === "function") return isSameCardEntity(a, b); } catch (_) {}
   return String(a || "").trim().toLowerCase() === String(b || "").trim().toLowerCase();
@@ -20862,11 +21156,12 @@ function CE_crossedCardSection(name) {
       var p=pairs[i];if(!p)continue;if(!CE_sameName(p.from,name)&&!CE_sameName(p.to,name))continue;
       var fk=typeof CW_key==="function"?CW_key(p.from):String(p.from||"").toLowerCase(),tk=(String(p.to||"").toUpperCase()==="YOU")?"you":(typeof CW_key==="function"?CW_key(p.to):String(p.to||"").toLowerCase()),foundation=foundations[fk+"->"+tk]||null,events=eventMap[fk+"=>"+tk]||[];
       var hasEvents=events.some(function(e){return e&&Number(e.turn||0)<=turn;});
-      if(foundation&&!hasEvents){
+      var liveRole=(typeof CW_liveRoleRecord==="function")?CW_liveRoleRecord(p.from,p.to):null;
+      if(foundation&&!hasEvents&&!liveRole){
         recent.push({from:foundation.from,to:foundation.to,foundation:foundation,eventCount:0,flags:Object.assign({},foundation.flags||{}),lastChanged:-1,_foundationRole:foundation.role,_foundationOnly:true});
         continue;
       }
-      var link=typeof CW_computeLink==="function"?CW_computeLink(p.from,p.to,turn):null;if(!link||link.mature===false)continue;recent.push(link);
+      var link=typeof CW_computeLink==="function"?CW_computeLink(p.from,p.to,turn):null;var explicitCurrent=events.some(function(e){return e&&String(e.source||"")==="live_canon";})||!!liveRole;if(!link||(link.mature===false&&!explicitCurrent))continue;recent.push(link);
     }
     var roleOf=function(link){return link&&link._foundationRole?link._foundationRole:(typeof CW_getRole==="function"?CW_getRole(link.from,link.to):"unknown");};
     var score=function(link){var role=roleOf(link),s=0;if(CE_sameName(link.from,name))s+=180;if(String(link.to||"").toUpperCase()==="YOU")s+=900;if(link.foundation&&link.foundation.flags&&link.foundation.flags.married)s+=700;if(typeof CW_rolePriority==="function")s+=Number(CW_rolePriority(role)||0)*3;if(link.foundation)s+=120;s+=Math.max(-100,Number(link.lastChanged||-1));return s;};
@@ -20877,7 +21172,15 @@ function CE_crossedCardSection(name) {
       var link=kept[j],role=roleOf(link),prefix=link.from+" → "+link.to+(role&&role!=="unknown"&&typeof CW_roleDisplay==="function"?" ["+CW_roleDisplay(role)+"]":"");
       if(link.foundation){
         var label=(link.flags&&link.flags.married)?"established marriage":(role==="ex"?"established former relationship":(typeof CW_isFamilyRole==="function"&&CW_isFamilyRole(role)?(typeof CW_foundationRoleLabel==="function"?CW_foundationRoleLabel(role):"established family bond"):"established "+(typeof CW_roleDisplay==="function"?CW_roleDisplay(role):role)+" relationship"));
-        lines.push(CE_noteClip(prefix+": "+label+". Foundation: explicit current Story Card relationship canon; later events may deepen, strain, repair or end it without resetting its history.",390));continue;
+        var liveRec=(typeof CW_liveRoleRecord==="function")?CW_liveRoleRecord(link.from,link.to):null;
+        var foundationRole=String(link.foundation.role||"unknown");
+        var liveOverride=!!(liveRec&&String(liveRec.role||"unknown")!==foundationRole&&role===String(liveRec.role||""));
+        if(liveOverride){
+          lines.push(CE_noteClip(prefix+": "+label+". Foundation: newer explicit live creator canon supersedes the older Story Card "+(typeof CW_roleDisplay==="function"?CW_roleDisplay(foundationRole):foundationRole)+" foundation; the older foundation is retained only as relationship history.",430));
+        }else{
+          lines.push(CE_noteClip(prefix+": "+label+". Foundation: explicit current Story Card relationship canon; later events may deepen, strain, repair or end it without resetting its history.",390));
+        }
+        continue;
       }
       var label=typeof CW_roleAwareLabel==="function"?CW_roleAwareLabel(link):"developing relationship",pressure=typeof CW_pressureText==="function"?CW_pressureText(link.scores||{}):"tracked",extra=link.unresolved?"; unresolved: "+link.unresolved:"";lines.push(CE_noteClip(prefix+": "+label+"; "+pressure+"; trajectory "+(link.trajectory||"forming")+extra,360));
     }
@@ -20952,6 +21255,7 @@ function CE_twistsCardSection(name){
       var quality=typeof Library.twistEvidenceQualityText==="function"?Library.twistEvidenceQualityText(t):"still developing";
       out.push((i+1)+". "+labelFor(t)+" — "+phase+" around "+String(t.entity||name)+".");
       out.push("   Evidence quality: This thread is "+quality+".");
+      var liveResolution=CE_liveCanonTwistResolution(t,name);if(liveResolution)out.push("   Current-canon status: "+liveResolution);
       var es=evidenceSummary(t);
       if(es.length) out.push("   Evidence so far: "+es.join(" Then, "));
       out.push("   Open question: "+openQuestion(t));
@@ -20963,7 +21267,7 @@ function CE_twistsCardSection(name){
 }
 function CE_bridgeCardSection(name){try{var u=state.unifiedNarrative||{},lines=[],f=typeof UN_crossSystemFocus==="function"?UN_crossSystemFocus():u.focus;if(f&&f.entity&&CE_sameName(f.entity,name))lines.push("Convergent focus: active ("+(Array.isArray(f.sources)?f.sources.join(" + "):"multi-system")+").");var typed=typeof UN_entityFocus==="function"?UN_entityFocus():u.entityFocus;if(typed&&typed.entity&&CE_sameName(typed.entity,name))lines.push("Typed shared focus: "+(typed.kind||"entity")+" ("+(typed.sources||[]).join(" + ")+"). Priority only; this does not add facts.");var intent=typeof UN_playerIntentSnapshot==="function"?UN_playerIntentSnapshot():u.playerIntent;if(intent&&intent.target&&CE_sameName(intent.target,name))lines.push("Player intent: "+intent.mode+" targets this entity. Scheduling priority only; success and canon still come from the story.");var pair=typeof UN_pairFocus==="function"?UN_pairFocus():u.pairFocus;if(pair&&pair.from&&(CE_sameName(pair.from,name)||CE_sameName(pair.to,name)))lines.push("Convergent pair: "+pair.from+" ↔ "+pair.to+" ("+(pair.sources||[]).join(" + ")+").");var pace=typeof UN_pacingSnapshot==="function"?UN_pacingSnapshot():u.pacing;if(pace&&((f&&f.entity&&CE_sameName(f.entity,name))||(typed&&typed.entity&&CE_sameName(typed.entity,name))))lines.push("Shared pacing: "+pace.mode+" ("+pace.intensity+"/10).");var callback=typeof UN_longArcCallback==="function"?UN_longArcCallback():null;if(callback){var involved=(callback.names||[]).concat(callback.locations||[],callback.items||[],callback.factions||[]).some(function(n){return CE_sameName(n,name);});if(involved)lines.push("Long-arc callback salience: "+CE_noteClip(callback.summary,150)+". Reminder only; do not replay or invent the old event.");}var recent=(u.aftermath||[]).filter(function(a){return a&&((a.names||[]).some(function(n){return CE_sameName(n,name);})||CE_sameName(a.entity,name)||CE_sameName(a.from,name)||CE_sameName(a.to,name));}).slice(-2);if(recent.length){lines.push("Recent cross-system aftermath:");recent.forEach(function(a,i){lines.push("  "+(i+1)+". "+CE_noteClip(a.evidence||a.summary||a.kind,150));});}return lines.length?lines.join("\n"):"Coordinator: no special cross-system focus currently attached to this entity.";}catch(_){return "Coordinator available.";}}
 function CE_codexCardSection(name,card){try{var codex=state.unsaid&&state.unsaid.codex;if(!codex)return "Codex: card is available for evidence-backed refreshes.";var meta=null;if(typeof codexManagedCardKey==="function"){var mk=codexManagedCardKey(name,card);meta=codex.cardMeta&&codex.cardMeta[mk];}var lines=[];if(meta){lines.push("Managed by Codex: yes"+(meta.manualEditProtected?" — manual Entry edit protected":""));lines.push("Last generated/refresh turn: "+(meta.lastRefreshTurn!=null?meta.lastRefreshTurn:meta.lastGeneratedTurn));if(Number(meta.updateCount||0)>0)lines.push("Automatic refreshes: "+meta.updateCount);}else lines.push("Managed by Codex: no (manual card or not yet adopted).");var evidence=typeof codexEvidenceSentences==="function"?codexEvidenceSentences(name,"").slice(-2):[];if(evidence&&evidence.length){lines.push("Recent evidence:");evidence.forEach(function(x,i){lines.push("  "+(i+1)+". "+CE_noteClip(x,190));});}return lines.join("\n");}catch(_){return "Codex status unavailable this turn.";}}
-function CE_renderManagedEntityNotes(name,card,kind){var common=["Auto-managed diagnostics. This section is NOT treated as public story evidence.","Public canon belongs in Entry; retrieval names belong in Triggers."];if(kind==="character")return common.concat(["","🧠 UNSPOKEN TURNS / UNSAID",CE_unsaidCardSection(name),"","❤️ CROSSED WIRES",CE_crossedCardSection(name),"","🌘 ECHO VEIL",CE_echoCardSection(name),"","🌀 TWISTS AND TURNS",CE_twistsCardSection(name),"","🔗 CROSSED ECHOES",CE_bridgeCardSection(name),"","📚 CODEX",CE_codexCardSection(name,card)]).join("\n");return common.concat(["","🌘 ECHO VEIL",CE_echoCardSection(name),"","🌀 TWISTS AND TURNS",CE_twistsCardSection(name),"","🔗 CROSSED ECHOES",CE_bridgeCardSection(name),"","📚 CODEX",CE_codexCardSection(name,card)]).join("\n");}
+function CE_renderManagedEntityNotes(name,card,kind){var common=["Auto-managed diagnostics. This section is NOT treated as public story evidence.","Public canon belongs in Entry; retrieval names belong in Triggers."],locks=CE_currentCanonNotesForEntity(name);if(locks.length)common=common.concat(["","📌 CURRENT CREATOR CANON — newer than stale card text when they conflict"].concat(locks));if(kind==="character")return common.concat(["","🧠 UNSPOKEN TURNS / UNSAID",CE_unsaidCardSection(name),"","❤️ CROSSED WIRES",CE_crossedCardSection(name),"","🌘 ECHO VEIL",CE_echoCardSection(name),"","🌀 TWISTS AND TURNS",CE_twistsCardSection(name),"","🔗 CROSSED ECHOES",CE_bridgeCardSection(name),"","📚 CODEX",CE_codexCardSection(name,card)]).join("\n");return common.concat(["","🌘 ECHO VEIL",CE_echoCardSection(name),"","🌀 TWISTS AND TURNS",CE_twistsCardSection(name),"","🔗 CROSSED ECHOES",CE_bridgeCardSection(name),"","📚 CODEX",CE_codexCardSection(name,card)]).join("\n");}
 function CE_findWritableEntityCard(name){
   try{
     if(!name||typeof storyCards==="undefined"||!Array.isArray(storyCards))return null;
@@ -20973,24 +21277,32 @@ function CE_findWritableEntityCard(name){
     return card&&!(typeof isOwnCard==="function"&&isOwnCard(CE_cardIdentityName(card)))?card:null;
   }catch(_){return null;}
 }
+function CE_isPlayerIdentity(name){
+  try{if(typeof CW_isPlayerName==="function"&&CW_isPlayerName(name))return true;}catch(_){}
+  var key=String(name||"").trim().toLowerCase();if(!key)return false;
+  try{if(typeof CE_platformCharacterNames==="function"&&CE_platformCharacterNames().some(function(n){return String(n||"").trim().toLowerCase()===key;}))return true;}catch(_){}
+  return false;
+}
 function CE_syncEntityCard(name){try{
   var card=CE_findWritableEntityCard(name);if(!card)return false;
   var kind=typeof codexKindFromExistingCard==="function"?codexKindFromExistingCard(card,name):String(card.type||"").toLowerCase();
   if(!["character","location","item","faction"].includes(kind)){var raw=String(card.type||"").toLowerCase();if(/character|npc|person/.test(raw))kind="character";else if(/location|place/.test(raw))kind="location";else if(/item|object/.test(raw))kind="item";else if(/faction|group|organization|organisation/.test(raw))kind="faction";else return false;}
   var displayName=String(CE_cardIdentityName(card)||name).trim()||name;
+  if(kind==="character"&&CE_isPlayerIdentity(displayName))return false;
   var base=CE_publicStoryCardNotes(card),managed=CE_renderManagedEntityNotes(displayName,card,kind),next=(base?base+"\n\n":"")+CE_CARD_NOTES_START+"\n"+managed;
-  if(String(card.description||card.notes||"")!==next){card.description=next;card.notes=next;}return true;
+  if(String(card.description||card.notes||"")!==next){card.description=next;card.notes=next;if(typeof CE_noteExpectedEntityNotes==="function")CE_noteExpectedEntityNotes(card,displayName,next);}return true;
 }catch(_){return false;}}
 function CE_syncCrossedWiresCardSection(name){
   try{
     var card=CE_findWritableEntityCard(name);if(!card||!/^(?:character|npc)$/i.test(String(card.type||"")))return false;
+    var playerDisplay=String(CE_cardIdentityName(card)||name).trim()||name;if(CE_isPlayerIdentity(playerDisplay))return false;
     var raw=String(card.description||card.notes||""),display=String(CE_cardIdentityName(card)||name).trim()||name,nextSection="❤️ CROSSED WIRES\n"+CE_crossedCardSection(display);
     // Fast path for existing managed Character cards. Relationship migrations
     // should not recompute ECHO/TWISTS/UNSAID/CODEX diagnostics just to replace
     // one stale Crossed Wires paragraph.
     if(raw.indexOf(CE_CARD_NOTES_START)>=0&&/❤️ CROSSED WIRES\n/.test(raw)){
       var next=raw.replace(/❤️ CROSSED WIRES\n[\s\S]*?(?=\n\n🌘 ECHO VEIL)/,nextSection);
-      if(next!==raw){card.description=next;card.notes=next;}return true;
+      if(next!==raw){card.description=next;card.notes=next;if(typeof CE_noteExpectedEntityNotes==="function")CE_noteExpectedEntityNotes(card,playerDisplay,next);}return true;
     }
     return CE_syncEntityCard(display);
   }catch(_){return false;}
@@ -23089,7 +23401,7 @@ function CECS_lines(text){ return CECS_text(text).replace(/\r/g,"").split(/\n+/)
 function CECS_storyCards(){ try{return (typeof storyCards!=="undefined"&&Array.isArray(storyCards))?storyCards:[];}catch(_){return [];} }
 function CECS_cardText(card){ if(!card)return""; return [card.title,card.keys,card.value,card.entry,card.description].filter(Boolean).join("\n"); }
 function CECS_cardCanonText(card){ if(!card)return""; return [card.title,card.keys,card.value,card.entry].filter(Boolean).join("\n"); }
-function CECS_recent(text,chars){ return CECS_text(text).slice(-Math.max(500,chars||7000)); }
+function CECS_recent(text,chars){ var n=Math.max(500,chars||7000); return typeof CE_authoritativeContextWindow==="function"?CE_authoritativeContextWindow(CECS_text(text),n):CECS_text(text).slice(-n); }
 function CECS_containsAny(text,words){ var n=CECS_norm(text); return (words||[]).some(function(w){return n.indexOf(CECS_norm(w))>=0;}); }
 function CECS_matchesAny(text,patterns){ return (patterns||[]).some(function(rx){ try{return rx.test(text);}catch(_){return false;} }); }
 function CECS_nameFromCard(card){ if(!card)return""; var t=CECS_text(card.title).trim(); if(t)return t; var m=CECS_text(card.value).match(/\bName\s*:\s*([^\n]+)/i); return m?m[1].trim():""; }
@@ -25436,6 +25748,8 @@ var CEFH_RUNTIME = {
   lastVisibleOutput: "",
   repairsThisHook: 0,
   capturedPolicies: 0
+,
+  authoritativeContext:""
 };
 
 function CEFH_now() {
@@ -25776,8 +26090,8 @@ function CEFH_dialogueSpeakerForPhrase(text,index){
     }
   }catch(_){}
   // Conservative fallback: require a named speech attribution close to the
-  // first-person phrase. Support both "Megan says, 'I...'" and
-  // "I...,' Megan says" without assigning an unattributed quote globally.
+  // first-person phrase. Support both "Dana says, 'I...'" and
+  // "I...,' Dana says" without assigning an unattributed quote globally.
   var src=String(text||""), names=CEFH_knownNpcNames(), best="",bestDistance=99999;
   var lo=Math.max(0,index-160), hi=Math.min(src.length,index+190), window=src.slice(lo,hi), local=index-lo;
   names.forEach(function(n){
@@ -26001,6 +26315,7 @@ function CEFH_prepareInput(rawText){
 
 function CEFH_prepareContext(text){
   CEFH_RUNTIME.phase="context";var s=CEFH_state();CEFH_RUNTIME.contextHash=CEFH_hash(text);
+  CEFH_RUNTIME.authoritativeContext=typeof CE_authoritativeContextWindow==="function"?CE_authoritativeContextWindow(text,26000):String(text||"");
   if(s) s.retry.contextRetryTurn = Number(s.retry.lastOutputTurn)>=CEFH_now() ? CEFH_now() : -1;
   CEFH_captureRelationshipPolicies(text,"live-context",CEFH_RUNTIME.contextHash);
   try{CEDS_syncRelationshipContracts();}catch(_){}

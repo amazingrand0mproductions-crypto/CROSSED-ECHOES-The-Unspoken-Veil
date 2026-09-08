@@ -1,6 +1,5 @@
-var inputRuntimeToken = typeof utBeginRuntimePhase === "function" ? utBeginRuntimePhase("input") : null;
-
 state.message = "";
+var inputRuntimeToken = typeof utBeginRuntimePhase === "function" ? utBeginRuntimePhase("input") : null;
 
 try {
   if (typeof CE_bootstrapRequiredConfigCards === "function") CE_bootstrapRequiredConfigCards("input");
