@@ -2,7 +2,11 @@ state.message = "";
 var inputRuntimeToken = typeof utBeginRuntimePhase === "function" ? utBeginRuntimePhase("input") : null;
 
 try {
-  if (typeof CE_bootstrapRequiredConfigCards === "function") CE_bootstrapRequiredConfigCards("input");
+  if (typeof CE_runTurnFeature === "function") {
+    CE_runTurnFeature("codex", "input", function(){
+      if (typeof CE_bootstrapRequiredConfigCards === "function") CE_bootstrapRequiredConfigCards("input");
+    }, null, typeof CE_bootstrapRequiredConfigCards === "function");
+  } else if (typeof CE_bootstrapRequiredConfigCards === "function") CE_bootstrapRequiredConfigCards("input");
 } catch (e) {
   if (typeof log === "function") log("CROSSED ECHOES config bootstrap/Input error: " + (e && e.message));
 }
@@ -296,7 +300,10 @@ var unsaidModifier = (text) => {
     // Commands are control input, not story evidence. Ordinary Say/Do/Story
     // input still contributes mention tracking, but "/card Mirelle" should
     // not itself make Mirelle look more established.
-    if (!isUnsaidCommand) trackMentions(text, false);
+    if (!isUnsaidCommand) {
+      if (typeof CE_runTurnFeature === "function") CE_runTurnFeature("codex", "input", function(){ trackMentions(text, false); }, null, typeof trackMentions === "function");
+      else trackMentions(text, false);
+    }
 
     const cfg = readUnsaidConfig();
     // Control-task mode is single-flight. Every new player input starts clean;
@@ -544,8 +551,11 @@ var unsaidModifier = (text) => {
 var modifier = (text) => {
   var originalText = text;
   try {
-    if (typeof UN_resetHookCaches === "function") UN_resetHookCaches("input");
-    if (typeof CEFH_prepareInput === "function") CEFH_prepareInput(originalText);
+    if (typeof CE_runTurnFeature === "function") CE_runTurnFeature("coordinator", "input", function(){ if (typeof UN_resetHookCaches === "function") UN_resetHookCaches("input"); }, null, typeof UN_resetHookCaches === "function");
+    else if (typeof UN_resetHookCaches === "function") UN_resetHookCaches("input");
+    if (typeof CE_runTurnFeature === "function") {
+      CE_runTurnFeature("full_hardening", "input", function(){ if (typeof CEFH_prepareInput === "function") CEFH_prepareInput(originalText); }, null, typeof CEFH_prepareInput === "function");
+    } else if (typeof CEFH_prepareInput === "function") CEFH_prepareInput(originalText);
 
     var coordinatorCommand = ownedControlCommand(originalText);
     if (coordinatorCommand && /^\/(?:crossedechoes(?:status)?|cestatus|ce|threadbound(?:status)?|tbstatus|unified(?:status)?|world(?:engine)?)\b/i.test(coordinatorCommand)) {
@@ -567,6 +577,7 @@ var modifier = (text) => {
           pushMessage("🌒 Unknown CROSSED ECHOES coordinator option. Use /crossedechoes for status, /world for WORLD ENGINE status, or /crossedechoes help for commands.");
         }
       } catch (_) {}
+      if (typeof CE_markActivationControlTurn === "function") CE_markActivationControlTurn(coordinatorCommand || "coordinator command");
       return { text: null, stop: true };
     }
 
@@ -574,26 +585,52 @@ var modifier = (text) => {
     // so ECHO/UNSAID do not learn from a synthetic zero-width command action.
     var cwCommand = null;
     try { cwCommand = typeof CW_readCommand === "function" ? CW_readCommand(originalText) : null; } catch (_) {}
-    if (cwCommand) return { text: CW_onInput(originalText) };
+    if (cwCommand) {
+      if (typeof CE_markActivationControlTurn === "function") CE_markActivationControlTurn("/wire control");
+      return { text: CW_onInput(originalText) };
+    }
 
     // UNSPOKEN/TWISTS slash commands get first refusal. Local commands stop
     // immediately; model-backed /peek, /card, /twist and /plant intentionally
     // skip the other engines' Input analyzers so command scaffolding is never
     // mistaken for story evidence.
     var owned = ownedControlCommand(originalText);
-    var afterTwists = twistsModifier(originalText);
-    if (afterTwists && afterTwists.stop) return afterTwists;
-    var afterUnsaid = unsaidModifier(afterTwists.text);
-    if (afterUnsaid && afterUnsaid.stop) return afterUnsaid;
-    if (owned) return afterUnsaid;
+    var afterTwists = typeof CE_runTurnFeature === "function"
+      ? CE_runTurnFeature("twists", "input", function(){ return twistsModifier(originalText); }, { text: originalText }, typeof twistsModifier === "function")
+      : twistsModifier(originalText);
+    if (afterTwists && afterTwists.stop) {
+      if (typeof CE_markActivationControlTurn === "function") CE_markActivationControlTurn(owned || "TWISTS control");
+      return afterTwists;
+    }
+    var twistText = afterTwists && typeof afterTwists.text !== "undefined" ? afterTwists.text : originalText;
+    var afterUnsaid = typeof CE_runTurnFeature === "function"
+      ? CE_runTurnFeature("unsaid", "input", function(){ return unsaidModifier(twistText); }, { text: twistText }, typeof unsaidModifier === "function")
+      : unsaidModifier(twistText);
+    if (afterUnsaid && afterUnsaid.stop) {
+      if (typeof CE_markActivationControlTurn === "function") CE_markActivationControlTurn(owned || "local control");
+      return afterUnsaid;
+    }
+    if (owned) {
+      if (typeof CE_markActivationControlTurn === "function") CE_markActivationControlTurn(owned);
+      return afterUnsaid;
+    }
 
     var visible = afterUnsaid && typeof afterUnsaid.text !== "undefined" ? afterUnsaid.text : originalText;
-    if (typeof UN_capturePlayerIntent === "function") UN_capturePlayerIntent(originalText);
-    if (typeof CW_onInput === "function") visible = CW_onInput(visible);
-    if (typeof ECHO_VEIL !== "undefined" && ECHO_VEIL.input) visible = ECHO_VEIL.input(visible);
-    if (typeof CEW_onInput === "function") CEW_onInput(visible);
-    if (typeof CECS_onInput === "function") CECS_onInput(originalText);
-    if (typeof UN_profileConsensus === "function") UN_profileConsensus();
+    if (typeof CE_runTurnFeature === "function") {
+      CE_runTurnFeature("coordinator", "input", function(){ if (typeof UN_capturePlayerIntent === "function") UN_capturePlayerIntent(originalText); }, null, typeof UN_capturePlayerIntent === "function");
+      visible = CE_runTurnFeature("crossed_wires", "input", function(){ return typeof CW_onInput === "function" ? CW_onInput(visible) : visible; }, visible, typeof CW_onInput === "function");
+      visible = CE_runTurnFeature("echo_veil", "input", function(){ return (typeof ECHO_VEIL !== "undefined" && ECHO_VEIL.input) ? ECHO_VEIL.input(visible) : visible; }, visible, typeof ECHO_VEIL !== "undefined" && !!ECHO_VEIL.input);
+      CE_runTurnFeature("world_engine", "input", function(){ if (typeof CEW_onInput === "function") CEW_onInput(visible); }, null, typeof CEW_onInput === "function");
+      CE_runTurnFeature("canon_sentinel", "input", function(){ if (typeof CECS_onInput === "function") CECS_onInput(originalText); }, null, typeof CECS_onInput === "function");
+      CE_runTurnFeature("coordinator", "input", function(){ if (typeof UN_profileConsensus === "function") UN_profileConsensus(); }, null, typeof UN_profileConsensus === "function");
+    } else {
+      if (typeof UN_capturePlayerIntent === "function") UN_capturePlayerIntent(originalText);
+      if (typeof CW_onInput === "function") visible = CW_onInput(visible);
+      if (typeof ECHO_VEIL !== "undefined" && ECHO_VEIL.input) visible = ECHO_VEIL.input(visible);
+      if (typeof CEW_onInput === "function") CEW_onInput(visible);
+      if (typeof CECS_onInput === "function") CECS_onInput(originalText);
+      if (typeof UN_profileConsensus === "function") UN_profileConsensus();
+    }
     return { text: visible };
   } catch (e) {
     if (typeof utRecordRuntimeError === "function") utRecordRuntimeError("Input/unified", e);

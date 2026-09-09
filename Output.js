@@ -1,7 +1,8 @@
 var outputRuntimeToken = typeof utBeginRuntimePhase === "function" ? utBeginRuntimePhase("output") : null;
 
 try {
-  if (typeof CE_bootstrapRequiredConfigCards === "function") CE_bootstrapRequiredConfigCards("output");
+  if (typeof CE_runTurnFeature === "function") CE_runTurnFeature("codex", "output", function(){ if (typeof CE_bootstrapRequiredConfigCards === "function") CE_bootstrapRequiredConfigCards("output"); }, null, typeof CE_bootstrapRequiredConfigCards === "function");
+  else if (typeof CE_bootstrapRequiredConfigCards === "function") CE_bootstrapRequiredConfigCards("output");
   initUnsaid();
 } catch (e) {
   if (typeof log === "function") log("UNSAID init/Output error: " + (e && e.message));
@@ -1071,7 +1072,8 @@ var unsaidModifier = (text) => {
     state.unsaid.codex.pendingForced = false;
     state.unsaid.codex.pendingRefreshNames = [];
 
-    trackMentions(text, true);
+    if (typeof CE_runTurnFeature === "function") CE_runTurnFeature("codex", "output", function(){ trackMentions(text, true); }, null, typeof trackMentions === "function");
+    else trackMentions(text, true);
 
     // CODEX RECALL GUARANTEE: deterministic first-card creation runs on the
     // authoritative visible Output pass, not only inside Context scheduling.
@@ -1414,37 +1416,50 @@ var unsaidModifier = (text) => {
 var modifier = (text) => {
   var originalText = text;
   try {
-    if (typeof UN_resetHookCaches === "function") UN_resetHookCaches("output");
-    if (typeof CEFH_prepareOutput === "function") CEFH_prepareOutput(originalText);
+    if (typeof CE_runTurnFeature === "function") CE_runTurnFeature("coordinator", "output", function(){ if (typeof UN_resetHookCaches === "function") UN_resetHookCaches("output"); }, null, typeof UN_resetHookCaches === "function");
+    else if (typeof UN_resetHookCaches === "function") UN_resetHookCaches("output");
+    var runFeature = function(name, fn, fallback, available) {
+      if (typeof CE_runTurnFeature === "function") return CE_runTurnFeature(name, "output", fn, fallback, available);
+      if (available === false || typeof fn !== "function") return fallback;
+      try { var v=fn(); return typeof v === "undefined" ? fallback : v; } catch (_) { return fallback; }
+    };
+
+    runFeature("full_hardening", function(){ if (typeof CEFH_prepareOutput === "function") CEFH_prepareOutput(originalText); }, null, typeof CEFH_prepareOutput === "function");
 
     // /wire commands are local admin turns; only Crossed Wires should consume
-    // their generated placeholder response.
+    // their generated placeholder response. Administrative turns intentionally
+    // do not count as complete narrative activation cycles.
     if (state.crossedWires && state.crossedWires.command) {
-      return { text: CW_onOutput(originalText) };
+      return { text: runFeature("crossed_wires", function(){ return typeof CW_onOutput === "function" ? CW_onOutput(originalText) : originalText; }, originalText, typeof CW_onOutput === "function") };
     }
 
-    if (typeof UN_beforeOutput === "function") UN_beforeOutput();
+    runFeature("coordinator", function(){ if (typeof UN_beforeOutput === "function") UN_beforeOutput(); }, null, typeof UN_beforeOutput === "function");
 
-    // Parse each private protocol before the next engine sanitizes its own tags.
-    // Order is intentional: plot confirmation -> UNSAID/Codex -> relationship
-    // tags -> ECHO's visible-world update. ECHO therefore receives clean prose.
-    var afterTwists = twistsModifier(originalText);
-    var afterUnsaid = unsaidModifier(afterTwists.text);
-    var visible = afterUnsaid && typeof afterUnsaid.text !== "undefined" ? afterUnsaid.text : afterTwists.text;
-    if (typeof CW_onOutput === "function") visible = CW_onOutput(visible);
-    if (typeof CEFH_repairPlayerAgency === "function") visible = CEFH_repairPlayerAgency(visible);
+    // Each parser gets an isolated failure boundary. One broken specialist can
+    // no longer abort every subsystem that follows it on the same Output turn.
+    var afterTwists = runFeature("twists", function(){ return twistsModifier(originalText); }, {text:originalText}, typeof twistsModifier === "function");
+    var twistText = afterTwists && typeof afterTwists.text !== "undefined" ? afterTwists.text : originalText;
+    var afterUnsaid = runFeature("unsaid", function(){ return unsaidModifier(twistText); }, {text:twistText}, typeof unsaidModifier === "function");
+    var visible = afterUnsaid && typeof afterUnsaid.text !== "undefined" ? afterUnsaid.text : twistText;
+
+    visible = runFeature("crossed_wires", function(){ return typeof CW_onOutput === "function" ? CW_onOutput(visible) : visible; }, visible, typeof CW_onOutput === "function");
+    visible = runFeature("full_hardening", function(){ return typeof CEFH_repairPlayerAgency === "function" ? CEFH_repairPlayerAgency(visible) : visible; }, visible, typeof CEFH_repairPlayerAgency === "function");
+
     // Salvage only explicit, visible NPC behaviour when the private UNSAID
     // protocol is absent. This never infers or writes hidden feelings/motives.
-    if (typeof observeUnsaidVisibleBehavior === "function") observeUnsaidVisibleBehavior(visible);
-    if (typeof ECHO_VEIL !== "undefined" && ECHO_VEIL.output) visible = ECHO_VEIL.output(visible);
-    if (typeof CE_stripVisibleScriptArtifacts === "function") visible = CE_stripVisibleScriptArtifacts(visible);
-    if (typeof CEW_onOutput === "function") CEW_onOutput(visible);
-    if (typeof CECS_auditOutput === "function") CECS_auditOutput(visible);
-    if (typeof CECS_onOutput === "function") CECS_onOutput(visible);
-    if (typeof UN_afterOutput === "function") UN_afterOutput(visible);
-    if (typeof CEFH_finishOutput === "function") CEFH_finishOutput(visible);
-    if (typeof CE_bridgeEchoThreadsToTwists === "function") CE_bridgeEchoThreadsToTwists();
-    if (typeof CE_syncStoryCardPresentation === "function") CE_syncStoryCardPresentation();
+    runFeature("unsaid", function(){ if (typeof observeUnsaidVisibleBehavior === "function") observeUnsaidVisibleBehavior(visible); }, null, typeof observeUnsaidVisibleBehavior === "function");
+
+    visible = runFeature("echo_veil", function(){ return (typeof ECHO_VEIL !== "undefined" && ECHO_VEIL.output) ? ECHO_VEIL.output(visible) : visible; }, visible, typeof ECHO_VEIL !== "undefined" && !!ECHO_VEIL.output);
+    visible = runFeature("coordinator", function(){ return typeof CE_stripVisibleScriptArtifacts === "function" ? CE_stripVisibleScriptArtifacts(visible) : visible; }, visible, typeof CE_stripVisibleScriptArtifacts === "function");
+
+    runFeature("world_engine", function(){ if (typeof CEW_onOutput === "function") CEW_onOutput(visible); }, null, typeof CEW_onOutput === "function");
+    runFeature("canon_sentinel", function(){ if (typeof CECS_auditOutput === "function") CECS_auditOutput(visible); }, null, typeof CECS_auditOutput === "function");
+    runFeature("canon_sentinel", function(){ if (typeof CECS_onOutput === "function") CECS_onOutput(visible); }, null, typeof CECS_onOutput === "function");
+    runFeature("coordinator", function(){ if (typeof UN_afterOutput === "function") UN_afterOutput(visible); }, null, typeof UN_afterOutput === "function");
+    runFeature("full_hardening", function(){ if (typeof CEFH_finishOutput === "function") CEFH_finishOutput(visible); }, null, typeof CEFH_finishOutput === "function");
+    runFeature("coordinator", function(){ if (typeof CE_bridgeEchoThreadsToTwists === "function") CE_bridgeEchoThreadsToTwists(); }, null, typeof CE_bridgeEchoThreadsToTwists === "function");
+    runFeature("storycard_presentation", function(){ if (typeof CE_syncStoryCardPresentation === "function") CE_syncStoryCardPresentation(); }, null, typeof CE_syncStoryCardPresentation === "function");
+    if (typeof CE_activationCompleteOutputTurn === "function") CE_activationCompleteOutputTurn();
     return { text: visible };
   } catch (e) {
     if (typeof utRecordRuntimeError === "function") utRecordRuntimeError("Output/unified", e);

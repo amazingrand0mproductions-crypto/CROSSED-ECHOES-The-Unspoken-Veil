@@ -2,7 +2,9 @@
 var contextRuntimeToken = typeof utBeginRuntimePhase === "function" ? utBeginRuntimePhase("context") : null;
 
 try {
-  if (typeof CE_bootstrapRequiredConfigCards === "function") CE_bootstrapRequiredConfigCards("context");
+  if (typeof CE_runTurnFeature === "function") {
+    CE_runTurnFeature("codex", "context", function(){ if (typeof CE_bootstrapRequiredConfigCards === "function") CE_bootstrapRequiredConfigCards("context"); }, null, typeof CE_bootstrapRequiredConfigCards === "function");
+  } else if (typeof CE_bootstrapRequiredConfigCards === "function") CE_bootstrapRequiredConfigCards("context");
   initUnsaid();
   // High-authority scenario declarations are a first-class CODEX input. Do
   // this before the heavier twist/world/context directors so a large 300–500
@@ -12,13 +14,17 @@ try {
     if (typeof readUnsaidConfig === "function" && typeof trackScenarioContextDeclarations === "function") {
       const earlyCodexCfg = readUnsaidConfig();
       if (earlyCodexCfg && earlyCodexCfg.codexEnabled !== false) {
-        const declared = trackScenarioContextDeclarations(text, earlyCodexCfg);
-        if (declared && declared.length && typeof createCodexScenarioScaffoldCards === "function") {
-          const made = createCodexScenarioScaffoldCards(earlyCodexCfg, text, 1);
-          if (made && made.length && typeof pushMessage === "function") {
-            pushMessage("📇 CODEX recovered " + made.length + " scenario-declared Story Card" + (made.length === 1 ? "" : "s") + " from authoritative context.");
+        const codexWork = function(){
+          const declared = trackScenarioContextDeclarations(text, earlyCodexCfg);
+          if (declared && declared.length && typeof createCodexScenarioScaffoldCards === "function") {
+            const made = createCodexScenarioScaffoldCards(earlyCodexCfg, text, 1);
+            if (made && made.length && typeof pushMessage === "function") {
+              pushMessage("📇 CODEX recovered " + made.length + " scenario-declared Story Card" + (made.length === 1 ? "" : "s") + " from authoritative context.");
+            }
           }
-        }
+        };
+        if (typeof CE_runTurnFeature === "function") CE_runTurnFeature("codex", "context", codexWork, null, true);
+        else codexWork();
       }
     }
   } catch (e) { if (typeof utRecordRuntimeError === "function") utRecordRuntimeError("Codex/early-scenario-bootstrap", e); }
@@ -236,7 +242,7 @@ var twistsModifier = (text) => {
     }
 
     let pacingTurn = false;
-    if (!hint) {
+    if (!hint && !(typeof UN_shouldSuppressPlotTwist === "function" && UN_shouldSuppressPlotTwist())) {
       const pacing = Library.effectivePacing(cfg, c);
       pacingTurn = (c.turn % pacing === 0);
       if (pacingTurn) {
@@ -823,83 +829,87 @@ var unsaidModifier = (text) => {
 var modifier = (text) => {
   var originalText = text;
   try {
-    if (typeof UN_resetHookCaches === "function") UN_resetHookCaches("context");
-    if (typeof CEFH_prepareContext === "function") CEFH_prepareContext(originalText);
-    if (typeof CE_captureAuthoritativeEntityLocks === "function") CE_captureAuthoritativeEntityLocks(originalText);
+    if (typeof CE_runTurnFeature === "function") CE_runTurnFeature("coordinator", "context", function(){ if (typeof UN_resetHookCaches === "function") UN_resetHookCaches("context"); }, null, typeof UN_resetHookCaches === "function");
+    else if (typeof UN_resetHookCaches === "function") UN_resetHookCaches("context");
+    var runFeature = function(name, fn, fallback, available) {
+      if (typeof CE_runTurnFeature === "function") return CE_runTurnFeature(name, "context", fn, fallback, available);
+      if (available === false || typeof fn !== "function") return fallback;
+      try { var v=fn(); return typeof v === "undefined" ? fallback : v; } catch (_) { return fallback; }
+    };
+
+    runFeature("full_hardening", function(){ if (typeof CEFH_prepareContext === "function") CEFH_prepareContext(originalText); }, null, typeof CEFH_prepareContext === "function");
+    runFeature("canon_sentinel", function(){ if (typeof CE_captureAuthoritativeEntityLocks === "function") CE_captureAuthoritativeEntityLocks(originalText); }, null, typeof CE_captureAuthoritativeEntityLocks === "function");
 
     // Manual UNSAID/Codex generations own the whole model call. They are
     // administrative workers, not story turns, so skip the other directors.
     var manualControl = !!(state.unsaid && (state.unsaid.controlRequest === "peek" || state.unsaid.controlRequest === "card"));
     if (manualControl) {
-      var manualTwists = twistsModifier(originalText);
-      return unsaidModifier(manualTwists.text);
+      var manualTwists = runFeature("twists", function(){ return twistsModifier(originalText); }, {text:originalText}, typeof twistsModifier === "function");
+      var manualText = manualTwists && typeof manualTwists.text !== "undefined" ? manualTwists.text : originalText;
+      return runFeature("unsaid", function(){ return unsaidModifier(manualText); }, {text:manualText}, typeof unsaidModifier === "function");
     }
 
-    // A previously armed /spark is explicit player intent and receives
-    // priority over an automatic plot beat. Normal turns give seeded plot
-    // threads first refusal, then relationship pressure, then UNSAID work.
-    var afterTwists = { text: originalText };
+    // Every enabled specialist observes every narrative Context turn. Director
+    // ownership only suppresses competing HEAVY guidance; it no longer skips a
+    // subsystem's evidence/state maintenance pass. A forced /spark therefore
+    // lets TWISTS scan/age safely while Crossed Wires owns the structured beat.
     if (typeof UN_crossedForcedPending === "function" && UN_crossedForcedPending()) {
-      if (typeof UN_setOwner === "function") UN_setOwner("crossed_forced", "player-forced relationship spark", true);
+      runFeature("coordinator", function(){ if (typeof UN_setOwner === "function") UN_setOwner("crossed_forced", "player-forced relationship spark", true); }, null, typeof UN_setOwner === "function");
       try { if (state.contingency) state.contingency.hintActive = false; } catch (_) {}
-    } else {
-      afterTwists = twistsModifier(originalText);
-      if (typeof UN_markOwnerFromTwists === "function") UN_markOwnerFromTwists();
     }
 
-    var working = afterTwists.text;
-    if (typeof ECHO_VEIL !== "undefined" && ECHO_VEIL.context) working = ECHO_VEIL.context(working);
-    if (typeof CW_onContext === "function") working = CW_onContext(working);
-    if (typeof UN_markOwnerFromCrossed === "function") UN_markOwnerFromCrossed();
+    var afterTwists = runFeature("twists", function(){ return twistsModifier(originalText); }, { text: originalText }, typeof twistsModifier === "function");
+    runFeature("coordinator", function(){ if (typeof UN_markOwnerFromTwists === "function") UN_markOwnerFromTwists(); }, null, typeof UN_markOwnerFromTwists === "function");
 
-    // WORLD ENGINE runs after the evidence/relationship layers have built their
-    // current state and before the compact fusion contract. It appends only a
-    // complete cache-safe suffix; if headroom is tight it yields wholesale.
-    if (typeof CEW_onContext === "function") {
-      var worldPacket = CEW_onContext(working);
-      if (worldPacket) {
-        var canonTailReserve = typeof CE_contextSafetyTailReserve === "function" ? CE_contextSafetyTailReserve() : 0;
-        if (typeof CE_appendCompleteContextSuffix === "function") {
-          var worldAppend = CE_appendCompleteContextSuffix(working, worldPacket, canonTailReserve);
-          if (worldAppend.appended) working = worldAppend.text;
-          else if (typeof utSkipRuntimeTask === "function") utSkipRuntimeTask("world-engine-canon-headroom");
-        } else working += worldPacket;
-      }
+    var working = afterTwists && typeof afterTwists.text !== "undefined" ? afterTwists.text : originalText;
+    working = runFeature("echo_veil", function(){ return (typeof ECHO_VEIL !== "undefined" && ECHO_VEIL.context) ? ECHO_VEIL.context(working) : working; }, working, typeof ECHO_VEIL !== "undefined" && !!ECHO_VEIL.context);
+    working = runFeature("crossed_wires", function(){ return typeof CW_onContext === "function" ? CW_onContext(working) : working; }, working, typeof CW_onContext === "function");
+    runFeature("coordinator", function(){ if (typeof UN_markOwnerFromCrossed === "function") UN_markOwnerFromCrossed(); }, null, typeof UN_markOwnerFromCrossed === "function");
+
+    // WORLD ENGINE runs after evidence/relationship maintenance and before the
+    // fusion packet. It can yield its packet for headroom, but the engine itself
+    // is still called every narrative turn.
+    var worldPacket = runFeature("world_engine", function(){ return typeof CEW_onContext === "function" ? CEW_onContext(working) : ""; }, "", typeof CEW_onContext === "function");
+    if (worldPacket) {
+      var canonTailReserve = typeof CE_contextSafetyTailReserve === "function" ? CE_contextSafetyTailReserve() : 0;
+      if (typeof CE_appendCompleteContextSuffix === "function") {
+        var worldAppend = CE_appendCompleteContextSuffix(working, worldPacket, canonTailReserve);
+        if (worldAppend.appended) working = worldAppend.text;
+        else if (typeof utSkipRuntimeTask === "function") utSkipRuntimeTask("world-engine-canon-headroom");
+      } else working += worldPacket;
     }
 
-    if (typeof UN_contextPacket === "function") {
-      var bridgePacket = UN_contextPacket(working);
-      if (bridgePacket) {
-        var canonTailReserve2 = typeof CE_contextSafetyTailReserve === "function" ? CE_contextSafetyTailReserve() : 0;
-        if (typeof CE_appendCompleteContextSuffix === "function") {
-          var bridgeAppend = CE_appendCompleteContextSuffix(working, bridgePacket, canonTailReserve2);
-          if (bridgeAppend.appended) working = bridgeAppend.text;
-          else if (typeof utSkipRuntimeTask === "function") utSkipRuntimeTask("fusion-canon-headroom");
-        } else working += bridgePacket;
-      }
+    var bridgePacket = runFeature("coordinator", function(){ return typeof UN_contextPacket === "function" ? UN_contextPacket(working) : ""; }, "", typeof UN_contextPacket === "function");
+    if (bridgePacket) {
+      var canonTailReserve2 = typeof CE_contextSafetyTailReserve === "function" ? CE_contextSafetyTailReserve() : 0;
+      if (typeof CE_appendCompleteContextSuffix === "function") {
+        var bridgeAppend = CE_appendCompleteContextSuffix(working, bridgePacket, canonTailReserve2);
+        if (bridgeAppend.appended) working = bridgeAppend.text;
+        else if (typeof utSkipRuntimeTask === "function") utSkipRuntimeTask("fusion-canon-headroom");
+      } else working += bridgePacket;
     }
-    var finalResult = unsaidModifier(working);
-    if (finalResult && typeof finalResult.text !== "undefined" && typeof CE_appendManagedContextHints === "function") {
-      finalResult.text = CE_appendManagedContextHints(finalResult.text);
-    }
+
+    var finalResult = runFeature("unsaid", function(){ return unsaidModifier(working); }, {text:working}, typeof unsaidModifier === "function");
+    if (!finalResult || typeof finalResult.text === "undefined") finalResult={text:working};
+    finalResult.text = runFeature("coordinator", function(){ return typeof CE_appendManagedContextHints === "function" ? CE_appendManagedContextHints(finalResult.text) : finalResult.text; }, finalResult.text, typeof CE_appendManagedContextHints === "function");
+
     // Canon Sentinel is deliberately LAST. Every established director keeps its
     // reserved budget first; Sentinel uses only true remaining headroom and can
-    // shrink/yield without starving ECHO, Crossed Wires, WORLD ENGINE or UNSAID.
-    if (finalResult && typeof finalResult.text !== "undefined" && typeof CECS_onContext === "function") {
-      var canonPacket = CECS_onContext(originalText);
-      if (canonPacket) {
-        var canonBudget = canonPacket.length + 4;
-        try {
-          if (typeof info !== "undefined" && info && Number.isFinite(Number(info.maxChars))) {
-            canonBudget = Math.max(0, Math.floor(Number(info.maxChars)) - String(finalResult.text || "").length);
-          }
-        } catch (_) {}
-        if (typeof CECS_fitPacketToBudget === "function") canonPacket = CECS_fitPacketToBudget(canonPacket, canonBudget);
-        if (canonPacket) finalResult.text += canonPacket;
-        else if (typeof utSkipRuntimeTask === "function") utSkipRuntimeTask("canon-sentinel-no-final-headroom");
-      }
+    // shrink/yield without starving the other specialists.
+    var canonPacket = runFeature("canon_sentinel", function(){ return typeof CECS_onContext === "function" ? CECS_onContext(originalText) : ""; }, "", typeof CECS_onContext === "function");
+    if (canonPacket) {
+      var canonBudget = canonPacket.length + 4;
+      try {
+        if (typeof info !== "undefined" && info && Number.isFinite(Number(info.maxChars))) {
+          canonBudget = Math.max(0, Math.floor(Number(info.maxChars)) - String(finalResult.text || "").length);
+        }
+      } catch (_) {}
+      if (typeof CECS_fitPacketToBudget === "function") canonPacket = CECS_fitPacketToBudget(canonPacket, canonBudget);
+      if (canonPacket) finalResult.text += canonPacket;
+      else if (typeof utSkipRuntimeTask === "function") utSkipRuntimeTask("canon-sentinel-no-final-headroom");
     }
-    if (finalResult && typeof finalResult.text !== "undefined" && typeof CEFH_maintenance === "function") CEFH_maintenance("context-final", finalResult.text);
+
+    runFeature("full_hardening", function(){ if (typeof CEFH_maintenance === "function") CEFH_maintenance("context-final", finalResult.text); }, null, typeof CEFH_maintenance === "function");
     return finalResult;
   } catch (e) {
     if (typeof utRecordRuntimeError === "function") utRecordRuntimeError("Context/unified", e);

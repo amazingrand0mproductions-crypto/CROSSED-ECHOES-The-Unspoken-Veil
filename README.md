@@ -28,7 +28,11 @@ Family, romance, friendship, rivalry, resentment, loyalty, fear, professional ti
 
 Family is now directional and first-class rather than one generic `family` bucket. Supported kinship includes parent/child, grandparent/grandchild, great-grandparent/great-grandchild, aunt-or-uncle/niece-or-nephew, great-aunt-or-uncle/great-niece-or-nephew, cousins, twins, half/step/foster/adoptive siblings, adoptive/foster/step parents and children, guardian/ward, godparent/godchild, several in-law directions, ancestor/descendant and chosen family. Directional inverses are created only from explicit canon. All of these remain in the **family relationship class**, structurally separate from romance.
 
-Crossed Wires can bootstrap those bonds from Story Card fields such as `Relationships:`, `Relationship Status:`, `Family:`, `Kinship:`, `Parents:`, `Children:`, `Siblings:`, `Grandparents:`, `Aunts/Uncles:`, `Nieces/Nephews:`, `Cousins:`, `Guardian:` and similar explicit family fields. Current explicit relationship-status cards may supersede older historical stages; cards that only say *potential*, *possible*, *unknown* or *early attraction* cannot promote a romance by themselves.
+Crossed Wires can bootstrap those bonds from Story Card fields such as `Relationships:`, `Relationship Status:`, `Family:`, `Kinship:`, `Parents:`, `Children:`, `Siblings:`, `Grandparents:`, `Aunts/Uncles:`, `Nieces/Nephews:`, `Cousins:`, `Friends:`, `Roommates:`, `Mentors:`, `Students:`, `Colleagues:`, `Teammates:`, `Doctor:`, `Patient:`, `Handler:`, `Asset:`, `Captain:`, `Crew:` and other explicit relationship fields. Compact imports such as `Family: Mara Stone (mother), Theo Stone (brother)` are split into exact directional bonds rather than flattened into one generic family label. Current explicit relationship-status cards may supersede older historical stages; cards that only say *potential*, *possible*, *unknown* or *early attraction* cannot promote a romance by themselves.
+
+Character Story Card **Notes now carry the complete validated relationship ledger** for that NPC. There is no five-counterpart display cap. If two people legitimately have more than one active bond—such as friend + roommate, sibling + colleague or parent + mentor—the compatible roles are retained together while one primary role remains available for existing behaviour logic. `best friend` subsumes plain `friend`, and an established `ex` state supersedes obsolete `romantic` status rather than displaying contradictory stages forever.
+
+New explicit NPC↔NPC relationships can also be admitted from live prose when the wording is unambiguous and both characters are already known. Role-only bonds materialize in the relationship graph immediately, inverse roles are repaired where appropriate, and both affected Character Notes are refreshed. Negated or uncertain wording is not allowed to manufacture a bond.
 
 The player remains protected. CROSSED WIRES can remember how an NPC behaves toward **YOU**, but it does not invent the player's feelings, consent or decisions.
 
@@ -195,6 +199,17 @@ CROSSED ECHOES follows a few rules that are intentionally hard to bypass:
 
 ---
 
+
+## 🔄 Per-turn activation architecture
+
+CROSSED ECHOES now treats **participation** and **narrative ownership** as separate things. On every normal narrative turn, each enabled core subsystem is given its relevant Input, Context and Output maintenance pass, even when another subsystem owns the one expensive director beat. This keeps long-term state current without letting every engine inject competing guidance at once.
+
+The protected per-turn pipeline covers **TWISTS AND TURNS, UNSPOKEN TURNS, CODEX, CROSSED WIRES, ECHO VEIL, WORLD ENGINE, CANON SENTINEL, the full-system hardening kernel, the unified coordinator and Story Card presentation**. Major calls are fault-isolated: one subsystem throwing does not abort the systems that follow it on the same hook.
+
+A bounded activation ledger keeps only recent turns and powers the runtime diagnostics. `/crossedechoes doctor` and `/unsaid health` can therefore report which feature actually missed a hook or threw an isolated error. Administrative command turns are excluded from narrative-health expectations.
+
+Optimized Context does **not** deactivate specialists. It may defer expensive guidance or Story Card presentation work, but evidence observation, relationship maintenance, world state, continuity and subsystem heartbeats still advance on the turn.
+
 ## ⚡ Long adventures and large Story Card libraries
 
 CROSSED ECHOES uses bounded caches, capped histories, active-first Story Card sampling, streaming fingerprints and an adaptive runtime governor to keep work under control as an Adventure grows.
@@ -286,7 +301,7 @@ Check the public Character Story Cards first. High-stakes relationships require 
 
 CROSSED ECHOES now writes Story Card metadata through a replacement-safe compatibility layer. Current AI Dungeon builds can replace `storyCards[index]` when `updateStoryCard(...)` runs, so writing `description`/Notes to the old object afterwards can silently target a detached reference. The script now passes title + Notes through the extended Story Card update path when available, reacquires the live card from `storyCards[index]`, and only then applies compatibility fallbacks. Older hosts that only accept the core update arguments remain supported.
 
-Entity Notes are also verified independently from config-card persistence. Modern `🌒 CROSSED ECHOES — SCRIPT STATE` Character Notes are now a bounded recovery layer as well as a dashboard: if the private UNSAID state is lost or malformed, supported continuity such as private attitudes, core stability and recent private-memory snippets can be reconstructed conservatively from the managed Notes instead of resetting the NPC to a blank state. Creator-written Notes remain preserved above the managed block.
+Entity Notes are also verified independently from config-card persistence. Modern `🌒 CROSSED ECHOES — SCRIPT STATE` Character Notes are now a bounded recovery layer as well as a dashboard: if the private UNSAID state is lost or malformed, supported continuity such as private attitudes, core stability and recent private-memory snippets can be reconstructed conservatively from the managed Notes instead of resetting the NPC to a blank state. The CROSSED WIRES section writes every validated counterpart and every compatible active role rather than only the most recent few bonds. Creator-written Notes remain preserved above the managed block.
 
 If a managed Notes write still disappears on the next isolated hook, CROSSED ECHOES raises a warning instead of pretending the dashboard is healthy. If that happens in AI Dungeon, make sure Scripts are enabled and Gameplay → Memory System → Memory Bank is enabled before retrying.
 
@@ -298,7 +313,7 @@ I test CROSSED ECHOES against isolated AI Dungeon-style hooks, long-running stat
 
 The target is not a large test number. The target is for the script to visibly do what it claims in normal play while still knowing when **not** to invent something.
 
-The current release passes the 185-test core suite, the stricter 185-test JSON/replacement round-trip suite, dedicated deep-system and twist suites, live Story Card metadata persistence, generic Notes/canon semantics, Notes-write-loss detection, the ultimate persistence/recovery regressions, source-hygiene checks, full-system/adversarial/host-contract checks, 30/30 cross-genre matrices in both Context modes, 60-turn general simulations, 48-turn fluidity simulations, high-concept temporal/multiversal simulations, 312-card relationship-foundation stress, and the 5,000-card correctness ceiling. Exact details and measured timings are in `TEST_REPORT.txt`.
+The current release passes the 185-test core suite, the stricter 185-test JSON/replacement round-trip suite, the dedicated **18/18 complete relationship + persisted Notes regression**, deep-system and twist suites, live Story Card metadata persistence, generic Notes/canon semantics, Notes-write-loss detection, the ultimate persistence/recovery regressions, source-hygiene checks, full-system/adversarial/host-contract checks, 30/30 cross-genre matrices in both Context modes, 60-turn general simulations, 48-turn fluidity simulations, high-concept temporal/multiversal simulations, 312-card relationship-foundation stress, 5,000 randomized property iterations / 82,000 checks, 1,000 malformed-state recoveries, and the 5,000-card correctness ceiling. Exact details and measured timings are in `TEST_REPORT.txt`.
 
 Technical verification is kept with the release for anyone who wants to inspect it, but the public documentation stays focused on using the script rather than exposing internal fixtures or private scenario material.
 
