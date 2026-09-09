@@ -48,11 +48,21 @@ var ownedControlCommand = (raw) => {
     if (typeof Library !== "undefined" && Library.extractCommand) return Library.extractCommand(raw);
   } catch (e) {}
   const t = String(raw || "").replace(/\r/g, "").trim();
-  const owned = "(?:crossedechoesstatus|crossedechoes|cestatus|ce|threadboundstatus|threadbound|tbstatus|unifiedstatus|unified|worldengine|world|unsaid|pe(?:e|a)k|card|alias|unalias|twistcategories|twisttypes|twistlog|twisthelp|twist|plant|mature|scenario|synergy|link|intensity|threads|rescan|twists|wiremerge|wireforget|wireprofile|wirestatus|wiretwists|wirehelp|wirerole|wireage|wires|wire|spark)";
+  const owned = "(?:help|status|crossedechoesstatus|crossedechoes|cestatus|ce|threadboundstatus|threadbound|tbstatus|unifiedstatus|unified|worldengine|world|unsaid|pe(?:e|a)k|card|alias|unalias|twistcategories|twisttypes|twistlog|twisthelp|twist|plant|mature|scenario|synergy|link|intensity|threads|rescan|twists|wiremerge|wireforget|wireprofile|wirestatus|wiretwists|wirehelp|wirerole|wireage|wires|wire|spark)";
   const direct = new RegExp(`^[!/:]${owned}\\b`, "i");
   const normalize = value => {
     let v = String(value || "").trim();
     if (/^[!:]/.test(v)) v = "/" + v.slice(1);
+    if (/^\/help\s*$/i.test(v)) v = "/crossedechoes help";
+    else if (/^\/status\s*$/i.test(v)) v = "/crossedechoes";
+    else if (/^\/status\s+(?:unsaid|codex)\s*$/i.test(v)) v = "/unsaid status";
+    else if (/^\/status\s+(?:wire|wires|crossed\s+wires)\s*$/i.test(v)) v = "/wire status";
+    else if (/^\/status\s+(?:world|worldengine|world\s+engine)\s*$/i.test(v)) v = "/world status";
+    else if (/^\/status\s+(?:twist|twists)\s*$/i.test(v)) v = "/threads";
+    else if (/^\/help\s+(?:unsaid|codex)\s*$/i.test(v)) v = "/unsaid";
+    else if (/^\/help\s+(?:wire|wires|crossed\s+wires)\s*$/i.test(v)) v = "/wire help";
+    else if (/^\/help\s+(?:world|worldengine|world\s+engine)\s*$/i.test(v)) v = "/world";
+    else if (/^\/help\s+(?:twist|twists)\s*$/i.test(v)) v = "/twists";
     return v;
   };
   if (direct.test(t)) return normalize(t);
@@ -62,6 +72,8 @@ var ownedControlCommand = (raw) => {
 
 var crossedEchoesCommandHelp = () => [
   "🌒 CROSSED ECHOES COMMANDS",
+  "/help — this command overview",
+  "/status — coordinator status; /status unsaid, /status wire, /status world also work",
   "/crossedechoes — coordinator status",
   "/crossedechoes help — command overview",
   "/wire help — Crossed Wires commands",

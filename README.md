@@ -224,7 +224,7 @@ Blank Character Notes are no longer treated as proof that presentation has alrea
 
 The persistence watcher verifies what survives on the next isolated hook. If a Notes write disappears, that Character is requeued automatically instead of being marked complete. Large libraries use bounded migration chunks so self-repair does not turn a thousands-of-Characters first turn into an unbounded scan.
 
-Creator canon from current AI Instructions/Plot Essentials-style context can also outrank stale older Story Card wording in the managed diagnostic block without rewriting the public Entry. This is especially important for updated knowledge boundaries, relationship status, consent/boundaries and other current facts that may have changed since the Character card was authored.
+Creator canon visible to scripts through current Context, Plot Essentials, Story Cards and recent story can also outrank stale older Story Card wording in the managed diagnostic block without rewriting the public Entry. AI Instructions themselves are higher-level model instructions and are not assumed to be directly readable by the JavaScript runtime. This is especially important for updated knowledge boundaries, relationship status, consent/boundaries and other current facts that may have changed since the Character card was authored.
 
 ## ⚡ Long adventures and large Story Card libraries
 
@@ -241,7 +241,7 @@ Optimized Context is supported. CROSSED ECHOES preserves the host's existing Con
 
 A real large-adventure regression exposed several failures that synthetic tests had missed: stale Story Card canon could outrank newer creator canon, full player names could collapse to short aliases, plural/slash-separated knowledge boundaries could be lost, and managed Notes writes could fail without a useful warning. Those failures are now covered by scenario-agnostic engine tests rather than production special cases.
 
-**Authoritative CODEX recovery** can now notice important named entities declared in AI Instructions / Plot Essentials even when ordinary prose discovery never produced a card. Recovery is incremental and bounded so creating missing lore cannot starve TWISTS, ECHO VEIL or UNSAID on the same turn.
+**Authoritative CODEX recovery** can notice important named entities declared in script-visible authoritative Context / Plot Essentials / recent-story text even when ordinary Output discovery never produced a card. AI Instructions are not assumed to be directly readable by scripts. Recovery is incremental and bounded so creating missing lore cannot starve TWISTS, ECHO VEIL or UNSAID on the same turn.
 
 **Shared Story Card indexing** lets the largest systems reuse one per-hook card snapshot instead of repeatedly rebuilding their own 300+ card indexes. This materially reduces large-adventure Context cost without switching systems off.
 
@@ -256,6 +256,15 @@ A real large-adventure regression exposed several failures that synthetic tests 
 No user scenario or private Story Card export is distributed with this package. Real-world failures are represented by generic regression fixtures instead.
 
 ---
+
+
+## 🧭 Large-scenario command, agency and mystery recovery
+
+A 374-card university/superhero mystery replay exposed several live integration failures that are now covered by generic regressions. Slash commands entered through **Say** mode are normalized and intercepted instead of being narrated by the model (`/help`, `/status unsaid`, and the documented command families). Player-agency repair now removes invented player dialogue, movement and voluntary power activation cleanly without leaving broken quote fragments.
+
+CODEX can recover a strongly named operational project/program from existing authoritative Context when the reveal happened before the current script version was installed—for example, prose shaped like `every scan is tagged Project Meridian`. The same bounded recovery path handles formal room identifiers such as `Storage Room C-12`. This is generic grammar; no scenario names are hard-coded in production.
+
+CROSSED WIRES also accepts dash-separated creator summaries such as `Theo Reed — roommate; early friend`, promoting the newer primary role while retaining compatible established roles. Explicit under-18 player age always overrides an old `Player Is Adult` fallback config.
 
 ## 🛡️ Canon Sentinel — live-play reliability hardening
 
@@ -329,7 +338,7 @@ I test CROSSED ECHOES against isolated AI Dungeon-style hooks, long-running stat
 
 The target is not a large test number. The target is for the script to visibly do what it claims in normal play while still knowing when **not** to invent something.
 
-The current release passes the 185-test core suite, the stricter 185-test JSON/replacement round-trip suite, the dedicated **18/18 complete relationship + persisted Notes regression**, **9/9 per-turn activation/state heartbeat**, **8/8 live Notes bootstrap/self-repair regression**, **8/8 final-polish regression**, deep-system and twist suites, live Story Card metadata persistence, generic Notes/canon semantics, Notes-write-loss detection, the ultimate persistence/recovery regressions, source-hygiene checks, full-system/adversarial/host-contract checks, real large-adventure Notes replay, 30/30 cross-genre matrices, long WORLD/high-concept/fluidity simulations, 312-card relationship-foundation stress, 5,000 randomized property iterations / 82,000 checks, 1,000 malformed-state recoveries, and the 5,000-card correctness ceiling. Exact details and measured timings are in `TEST_REPORT.txt`.
+The current release passes the 185-test core suite, the stricter 185-test JSON/replacement round-trip suite, the dedicated **18/18 complete relationship + persisted Notes regression**, **9/9 per-turn activation/state heartbeat**, **9/9 live Notes bootstrap/self-repair regression**, **8/8 final-polish regression**, deep-system and twist suites, live Story Card metadata persistence, generic Notes/canon semantics, Notes-write-loss detection, the ultimate persistence/recovery regressions, source-hygiene checks, full-system/adversarial/host-contract checks, real large-adventure Notes replay, 30/30 cross-genre matrices, long WORLD/high-concept/fluidity simulations, 312-card relationship-foundation stress, 5,000 randomized property iterations / 82,000 checks, 1,000 malformed-state recoveries, and the 5,000-card correctness ceiling. Exact details and measured timings are in `TEST_REPORT.txt`.
 
 Technical verification is kept with the release for anyone who wants to inspect it, but the public documentation stays focused on using the script rather than exposing internal fixtures or private scenario material.
 

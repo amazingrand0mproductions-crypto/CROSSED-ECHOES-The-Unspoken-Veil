@@ -41,9 +41,10 @@ function CE_platformCharacterNames() {
 }
 
 // Context consumers must not assume that the newest/most authoritative creator
-// instructions live at the tail. AI Dungeon normally places AI Instructions and
-// Plot Essentials near the front, while recent story/history lives near the end.
-// A bounded front+tail view therefore preserves both without scanning an entire
+// creator context lives at the tail. AI Dungeon sends AI Instructions separately
+// as a system prompt, so scripts cannot rely on reading them here. Plot Essentials
+// and other context-visible creator canon are normally near the front, while recent
+// story/history lives near the end. A bounded front+tail view preserves both without scanning an entire
 // huge prompt or letting later script-appended diagnostics hide creator canon.
 function CE_authoritativeContextWindow(text, cap) {
   var source = String(text || ""), limit = Math.max(1000, Number(cap) || 24000);
@@ -2488,7 +2489,7 @@ var Library = (() => {
     // immediately normalized to `/`; every visible help/config uses slash only.
     const t = String(raw).replace(/\r/g, "").trim();
     if (!t) return null;
-    const owned = "(?:crossedechoesstatus|crossedechoes|cestatus|ce|threadboundstatus|threadbound|tbstatus|unifiedstatus|unified|worldengine|world|unsaid|pe(?:e|a)k|card|alias|unalias|twistcategories|twisttypes|twistlog|twisthelp|twist|plant|mature|scenario|synergy|link|intensity|threads|rescan|twists|wiremerge|wireforget|wireprofile|wirestatus|wiretwists|wirehelp|wirerole|wireage|wires|wire|spark)";
+    const owned = "(?:help|status|crossedechoesstatus|crossedechoes|cestatus|ce|threadboundstatus|threadbound|tbstatus|unifiedstatus|unified|worldengine|world|unsaid|pe(?:e|a)k|card|alias|unalias|twistcategories|twisttypes|twistlog|twisthelp|twist|plant|mature|scenario|synergy|link|intensity|threads|rescan|twists|wiremerge|wireforget|wireprofile|wirestatus|wiretwists|wirehelp|wirerole|wireage|wires|wire|spark)";
     const prefixedAtStart = new RegExp(`^[!/:]${owned}\\b`, "i");
     const prefixedAnywhere = new RegExp(`[!/:]${owned}\\b`, "i");
     const canonicalAtStart = new RegExp(`^/${owned}\\b`, "i");
@@ -2498,6 +2499,21 @@ var Library = (() => {
       command = command.replace(/["'”’]+\s*$/g, "").trim();
       command = command.replace(/[.!?]+\s*$/g, "").trim();
       if (/^[!:]/.test(command)) command = "/" + command.slice(1);
+      // Friendly top-level aliases. Players naturally try /help and /status
+      // even when a subsystem's canonical syntax is namespaced. Normalize
+      // them here so Say/Do/Story wrappers all fail closed instead of leaking
+      // administrative text into the story model.
+      if (/^\/help\s*$/i.test(command)) command = "/crossedechoes help";
+      else if (/^\/status\s*$/i.test(command)) command = "/crossedechoes";
+      else if (/^\/status\s+(?:unsaid|codex)\s*$/i.test(command)) command = "/unsaid status";
+      else if (/^\/status\s+(?:wire|wires|crossed\s+wires)\s*$/i.test(command)) command = "/wire status";
+      else if (/^\/status\s+(?:world|worldengine|world\s+engine)\s*$/i.test(command)) command = "/world status";
+      else if (/^\/status\s+(?:twist|twists)\s*$/i.test(command)) command = "/threads";
+      else if (/^\/help\s+(?:unsaid|codex)\s*$/i.test(command)) command = "/unsaid";
+      else if (/^\/help\s+(?:wire|wires|crossed\s+wires)\s*$/i.test(command)) command = "/wire help";
+      else if (/^\/help\s+(?:world|worldengine|world\s+engine)\s*$/i.test(command)) command = "/world";
+      else if (/^\/help\s+(?:twist|twists)\s*$/i.test(command)) command = "/twists";
+      else if (/^\/help\s+(?:crossedechoes|ce)\s*$/i.test(command)) command = "/crossedechoes help";
       return canonicalAtStart.test(command) ? command : null;
     };
 
@@ -7437,6 +7453,7 @@ function codexOperationalExplicitType(name, text) {
   if (!source) return null;
   const n = escapeForRegex(rawName);
   const q1 = `["“'‘]?`, q2 = `["”'’]?`;
+  const operationalProjectName = /^(?:Project|Program|Programme|Protocol|Initiative|Operation)\b/i.test(rawName);
   const rules = [
     {
       type: "location", score: 10, reason: "operational-location",
@@ -7450,7 +7467,12 @@ function codexOperationalExplicitType(name, text) {
       patterns: [
         new RegExp(`\\b(?:project|program|programme|protocol|initiative|operation)\\s+(?:designation|codename|code\\s+name|name|identifier)\\s*(?::|=|is|was|listed\\s+as|recorded\\s+as)\\s*${q1}${n}${q2}(?=\\s|[,.;:!?—-]|$)`, "i"),
         new RegExp(`\\b(?:project|program|programme|protocol|initiative|operation)\\s+(?:called|named|codenamed|designated)\\s+${q1}${n}${q2}(?=\\s|[,.;:!?—-]|$)`, "i")
-      ]
+      ].concat(operationalProjectName ? [
+        // Project identities are also commonly revealed as metadata tags.
+        // Requiring the candidate itself to carry a project/program/protocol
+        // prefix keeps this explicit without promoting arbitrary tagged nouns.
+        new RegExp(`\\b(?:tagged|labelled|labeled|marked|indexed|filed|classified|stored|catalogued|cataloged)\\b[^\\n.!?]{0,72}\\b(?:as\\s+)?${q1}${n}${q2}(?=\\s|[,.;:!?—-]|$)`, "i")
+      ] : [])
     },
     {
       type: "item", score: 10, reason: "operational-unit-class",
@@ -7957,6 +7979,7 @@ function collectCodexCandidates(source) {
     // whether it is a destination, project or manufactured class.
     /\b(?:delivery|drop|staging|rally|assembly|transfer|pickup|extraction)\s+(?:point|site|zone|location|destination)\b[^\n.!?]{0,96}\b(?:listed|logged|marked|designated|coded|named|called|shown|recorded)\s+(?:as\s+)?["“'‘]?([A-ZÀ-ÖØ-ÞĀ-ſΑ-ΫА-ЯЁ][A-Za-zÀ-ÖØ-öø-ÿĀ-ſΑ-ωΆ-ώА-ЯЁа-яё0-9'’.-]*(?:\s+[A-ZÀ-ÖØ-ÞĀ-ſΑ-ΫА-ЯЁ0-9][A-Za-zÀ-ÖØ-öø-ÿĀ-ſΑ-ωΆ-ώА-ЯЁа-яё0-9'’.-]*){0,3})["”'’]?/gi,
     /\b(?:project|program|programme|protocol|initiative|operation)\s+(?:designation|codename|code\s+name|name|identifier)\s*(?::|=|is|was|listed\s+as|recorded\s+as)\s*["“'‘]?([A-ZÀ-ÖØ-ÞĀ-ſΑ-ΫА-ЯЁ][A-Za-zÀ-ÖØ-öø-ÿĀ-ſΑ-ωΆ-ώА-ЯЁа-яё0-9'’.-]*(?:\s+[A-ZÀ-ÖØ-ÞĀ-ſΑ-ΫА-ЯЁ0-9][A-Za-zÀ-ÖØ-öø-ÿĀ-ſΑ-ωΆ-ώА-ЯЁа-яё0-9'’.-]*){0,3})["”'’]?/gi,
+    /\b(?:tagged|labelled|labeled|marked|indexed|filed|classified|stored|catalogued|cataloged)\b[^\n.!?]{0,72}\b(?:as\s+)?["“'‘]?((?:Project|Program|Programme|Protocol|Initiative|Operation)\s+[A-ZÀ-ÖØ-ÞĀ-ſΑ-ΫА-ЯЁ][A-Za-zÀ-ÖØ-öø-ÿĀ-ſΑ-ωΆ-ώА-ЯЁа-яё0-9'’.-]*(?:\s+[A-ZÀ-ÖØ-ÞĀ-ſΑ-ΫА-ЯЁ0-9][A-Za-zÀ-ÖØ-öø-ÿĀ-ſΑ-ωΆ-ώА-ЯЁа-яё0-9'’.-]*){0,2})["”'’]?/gi,
     /\b(?:units?|machines?|robots?|drones?|constructs?|models?|devices?|platforms?|chassis)\b[^\n]{0,120}\b(?:labeled|labelled|marked|designated|called|named|classified)\s+(?:as\s+)?["“'‘]?([A-ZÀ-ÖØ-ÞĀ-ſΑ-ΫА-ЯЁ][A-Za-zÀ-ÖØ-öø-ÿĀ-ſΑ-ωΆ-ώА-ЯЁа-яё0-9'’.-]*(?:\s+[A-ZÀ-ÖØ-ÞĀ-ſΑ-ΫА-ЯЁ0-9][A-Za-zÀ-ÖØ-öø-ÿĀ-ſΑ-ωΆ-ώА-ЯЁа-яё0-9'’.-]*){0,3})["”'’]?/gi
   ];
   quoted.forEach(function(re){ var m; while ((m = re.exec(text)) !== null) add(m[1]); });
@@ -8124,7 +8147,10 @@ function repairManagedCodexNonCharacterCard(name, source, strongType) {
     } else if (strong.type === "location") {
       entry = `Name: ${name}\nDescription: ${name} is established as a non-character location in the story.\nKnown Story Evidence: ${evidence}`;
     } else {
-      entry = `Name: ${name}\nType: Faction\nDescription: ${name} is established as a non-character brand, group, or organization in the story.\nKnown Story Evidence: ${evidence}`;
+      const operationalProject = /^(?:Project|Program|Programme|Protocol|Initiative|Operation)\b/i.test(String(name || ""));
+      entry = operationalProject
+        ? `Name: ${name}\nType: Project / Program\nDescription: ${name} is an explicitly named operational project/program in the story.\nKnown Story Evidence: ${evidence}`
+        : `Name: ${name}\nType: Faction\nDescription: ${name} is established as a non-character brand, group, or organization in the story.\nKnown Story Evidence: ${evidence}`;
     }
     var repairLimit = codexCardEntryLimit();
     if (entry.length > repairLimit) entry = entry.slice(0, repairLimit - 1).trimEnd() + "…";
@@ -9596,6 +9622,19 @@ function codexScenarioDeclarationCandidates(source){
     add(mm[1],"location",src.slice(start,end),90);
     if(mm[0]==="")lr.lastIndex++;
   }
+  // Operational project/program identities can also be revealed inline in
+  // recent story rather than as a structured scenario heading (for example
+  // "every scan is tagged Project Chimera"). Context is the only place a
+  // newly-installed script can recover a reveal that happened on a prior
+  // Output turn, so preserve the same strict tagged/labeled grammar used by
+  // the Output classifier. Requiring the explicit Project/Program/... prefix
+  // prevents arbitrary tagged nouns from becoming factions.
+  var pr=/\b(?:tagged|labelled|labeled|marked|indexed|filed|classified|stored|catalogued|cataloged)\b[^\n.!?]{0,72}\b(?:as\s+)?["“'‘]?((?:Project|Program|Programme|Protocol|Initiative|Operation)\s+[A-ZÀ-ÖØ-ÞĀ-ſΑ-ΫА-ЯЁ][A-Za-zÀ-ÖØ-öø-ÿĀ-ſΑ-ωΆ-ώА-ЯЁа-яё0-9'’-]*(?:\s+[A-ZÀ-ÖØ-ÞĀ-ſΑ-ΫА-ЯЁ0-9][A-Za-zÀ-ÖØ-öø-ÿĀ-ſΑ-ωΆ-ώА-ЯЁа-яё0-9'’-]*){0,2})["”'’]?(?=\s*[,.;:!?—-]|\s*$)/gi,pm;
+  while((pm=pr.exec(src))!==null){
+    var ps=Math.max(0,pm.index-150),pe=Math.min(src.length,pm.index+pm[0].length+180);
+    add(pm[1],"faction",src.slice(ps,pe),92);
+    if(pm[0]==="")pr.lastIndex++;
+  }
   Object.keys(seen).forEach(function(k){out.push(seen[k]);});
   out.sort(function(a,b){return b.priority-a.priority||a.name.localeCompare(b.name);});
   CODEX_RUNTIME_SCENARIO_DECLARATION_SIG=sig;
@@ -9765,13 +9804,16 @@ function buildCodexDirectScaffoldEntry(name, type, cfg, source) {
     if (owner && owner !== props) fields.push("Owner / Holder: " + owner);
     fields.push("Condition: Established named item; unsupported properties are intentionally omitted.");
   } else {
-    fields.push("Type: Faction");
+    const operationalProject = /^(?:Project|Program|Programme|Protocol|Initiative|Operation)\b/i.test(String(name || ""));
+    fields.push(operationalProject ? "Type: Project / Program" : "Type: Faction");
     fields.push("Description: " + joinEvidence(440));
     const purpose = codexPickScaffoldSentence(pool,/\b(?:goal|purpose|mission|agenda|campaign|seeks?|wants?|works to|formed to|created to|responsible for|controls?|opposes?|supports?)\b/i,-1);
-    const activity = codexPickScaffoldSentence(pool,/\b(?:currently|now|today|investigat|build|operate|attack|fund|buy|trace|campaign|recruit|control|develop|research)\b/i,-1);
+    const activity = codexPickScaffoldSentence(pool,/\b(?:currently|now|today|investigat|build|operate|attack|fund|buy|trace|campaign|recruit|control|develop|research|monitor|scan|model|track)\b/i,-1);
     if (purpose) fields.push("Purpose: " + purpose);
     if (activity && activity !== purpose) fields.push("Current Activity: " + activity);
-    fields.push("Significance: Named group or organization established by current story evidence.");
+    fields.push(operationalProject
+      ? "Significance: Explicitly named project/program established by current story evidence; purpose, ownership and truth remain limited to what the story proves."
+      : "Significance: Named group or organization established by current story evidence.");
   }
   const cap = codexCardEntryLimit(cfg);
   return codexFitScaffoldFields(fields,cap);
@@ -16085,6 +16127,14 @@ function CW_configIssues() {
     const n = parseInt(String(map["TWIST CHANCE"]).trim(), 10);
     if (!Number.isFinite(n) || n < 0 || n > 60) issues.push("Invalid twist chance: " + map["TWIST CHANCE"]);
   }
+  // `PLAYER IS ADULT` is only a fallback. An explicit under-18 player
+  // declaration wins; report the mismatch so old adult-oriented configs are
+  // understandable without weakening the hard age gate.
+  try {
+    const explicitAge = CW_playerExplicitAgeStatus();
+    const adultFallback = /^(?:on|yes|true|1|enabled|enable)$/i.test(String(map["PLAYER IS ADULT"] || ""));
+    if (explicitAge === "minor" && adultFallback) issues.push("Player Is Adult is ON, but the current player is explicitly under 18; adult fallback is safely ignored.");
+  } catch (_) {}
   return issues;
 }
 
@@ -16316,7 +16366,7 @@ function CW_seedLiveRelationshipCanon(text,turn){
 
     // Explicit present friendship canon may legitimately advance a provisional
     // acquaintance/roommate link to friend. Do not infer 'best friend'.
-    if(new RegExp("\\b"+String(npc).split(/\s+/)[0].replace(/[.*+?^${}()|[\]\\]/g,"\\$&")+"\\b[^\\n]{0,80}\\b(?:is|=|—|-)\\s*(?:[^\\n]{0,30})?\\bfriend(?:/co-investigator)?\\b","i").test(line)||/\bfriend\/co-investigator\b/i.test(line)){
+    if(new RegExp("\\b"+String(npc).split(/\s+/)[0].replace(/[.*+?^${}()|[\]\\]/g,"\\$&")+"\\b[^\\n]{0,80}(?:is\\s+|=|—|-)\\s*(?:[^\\n]{0,30})?\\bfriend(?:/co-investigator)?\\b","i").test(line)||/\bfriend\/co-investigator\b/i.test(line)){
       const currentRole=CW_getRole(npc,target);
       if(["unknown","acquaintance","roommate","classmate","coworker","colleague","teammate"].includes(currentRole)){CW_setRole(npc,target,"friend",turn,"live_canon");CW_markLiveCanonSeed("role|"+CW_key(npc)+"|you|friend",turn);}
     }
@@ -27129,40 +27179,77 @@ function CEFH_playerInputIsDialogueOnly(input){
   try{if(typeof history!=="undefined"&&Array.isArray(history)){for(var h=history.length-1;h>=0;h--){var row=history[h];if(!row||!row.text)continue;if(String(row.text)===raw)return /^say$/i.test(String(row.type||""));}}}catch(_){}
   return false;
 }
+function CEFH_powerUsePhrase(sentence){
+  var s=String(sentence||"");
+  var direct=/\byou\s+(?:teleport|displace|phase|rewind|channel|summon|activate|amplify|absorb|blast|fire|launch|levitate|fly|project|release|shape)\b/i.exec(s);
+  if(direct)return direct[0];
+  var usePower=/\byou\s+(?:use|reach\s+for|call\s+on|draw\s+on)\s+(?:your\s+)?(?:power|powers|ability|abilities|teleportation|energy|magic|gift)\b/i.exec(s);
+  if(usePower)return usePower[0];
+  var focusPower=/\byou\s+(?:focus|concentrate)[^.!?]{0,120}\b(?:power|ability|teleport|displac|spatial|temporal|energy|magic|field|force)\b/i.exec(s);
+  return focusPower?focusPower[0]:"";
+}
+function CEFH_inputAuthorizesPower(input, phrase){
+  var i=CEFH_norm(input),p=CEFH_norm(phrase);
+  if(!i||!p)return false;
+  var stems=["teleport","displac","phase","rewind","channel","summon","activate","amplif","absorb","blast","fire","launch","levitat","fly","project","release","shape","focus","concentrat","power","ability","spatial","temporal","energy","magic"];
+  for(var x=0;x<stems.length;x++)if(p.indexOf(stems[x])>=0&&i.indexOf(stems[x])>=0)return true;
+  return false;
+}
 function CEFH_agencySentenceViolation(sentence,input){
   var s=String(sentence||""),i=String(input||"");
   if(CEFH_transitionContradiction(s,i))return true;
-  // A Say turn authorizes dialogue, not a new deliberate physical/power action.
-  // Keep involuntary consequences, but stop the model from turning "Get it"
-  // or "I'm sorry" into an unchosen teleport/attack/power experiment.
+
+  // Voluntary power use always belongs to the player unless their actual input
+  // authorizes the same action/power family. This applies even on Continue or
+  // low-direction turns; the model may describe consequences of an established
+  // power event, but it may not choose to activate Ezra's power for him.
+  var powerPhrase=CEFH_powerUsePhrase(s);
+  if(powerPhrase&&!CEFH_inputAuthorizesPower(i,powerPhrase))return true;
+
+  // A Say turn authorizes dialogue only. Do not let a short spoken line become
+  // an unchosen physical action, movement, entry/exit, or power experiment.
   if(CEFH_playerInputIsDialogueOnly(i)){
-    var deliberate=/\byou\s+(?:reach(?:\s+out)?|focus|concentrate|close\s+your\s+eyes|raise\s+your\s+hand|extend\s+your\s+hand|grab|take|pull|push|shove|strike|hit|punch|kick|run|walk|step|move|follow|teleport|displace|activate|use|channel|summon|fire|blast|launch|fly|levitate|flex)\b/i;
-    if(deliberate.test(s)){
-      var action=CEFH_norm((deliberate.exec(s)||[""])[0]).replace(/^you\s+/,"");
-      var inn=CEFH_norm(i);if(action&&inn.indexOf(action)>=0)return false;
-      return true;
-    }
+    var deliberate=/\byou\s+(?:break\s+into\s+(?:a\s+)?run|start\s+(?:to\s+)?(?:run|walk|move|follow)|begin\s+(?:to\s+)?(?:run|walk|move|follow)|reach(?:\s+out)?|focus|concentrate|close\s+your\s+eyes|raise\s+your\s+hand|extend\s+your\s+hand|grab|take|pull|push|shove|strike|hit|punch|kick|run|sprint|jog|walk|step|move|follow|head|turn|enter|leave|open|teleport|displace|activate|use|channel|summon|fire|blast|launch|fly|levitate|flex)\b/i;
+    if(deliberate.test(s))return true;
   }
+
   // Never strip ordinary involuntary consequences (you stumble, you are hit,
   // pain flashes, etc.). Only target volunteered dialogue/decision/thought acts.
   var voluntary=/\byou\s+(?:decide|choose|resolve|promise|agree|refuse|plan|intend|want|think|realize|realise|remember|feel|say|tell|ask|whisper|shout|admit|confess)\b/i.exec(s);
   if(!voluntary)return false;
   var phrase=voluntary[0].replace(/^you\s+/i,"");
   if(phrase&&new RegExp("\\b"+phrase.replace(/[.*+?^${}()|[\]\\]/g,"\\$&")+"\\b","i").test(i))return false;
-  // Player input can explicitly contain quoted dialogue; avoid deleting a valid
-  // resolution when the model simply echoes/continues that exact choice.
   var core=CEFH_norm(s).replace(/^you\s+/,"").slice(0,80),inputNorm=CEFH_norm(i);
   if(core.length>12&&inputNorm.indexOf(core.slice(0,40))>=0)return false;
   return true;
 }
 
+function CEFH_sentenceChunks(text){
+  var src=String(text||""),out=[],start=0,i=0;
+  function isClose(ch){return /[\"”’'\)\]]/.test(ch||"");}
+  while(i<src.length){
+    if(/[.!?]/.test(src[i])){
+      var j=i+1;
+      while(j<src.length&&/[.!?]/.test(src[j]))j++;
+      while(j<src.length&&isClose(src[j]))j++;
+      if(j>=src.length||/\s/.test(src[j])){
+        out.push(src.slice(start,j));
+        start=j;
+      }
+      i=j;continue;
+    }
+    i++;
+  }
+  if(start<src.length)out.push(src.slice(start));
+  return out.length?out:[src];
+}
 function CEFH_repairPlayerAgency(text){
   var src=String(text||"");if(!src.trim())return src;var input=CEFH_lastPlayerInput();
-  var chunks=src.match(/[^.!?]+(?:[.!?]+|$)/g)||[src],kept=[],removed=[];
+  var chunks=CEFH_sentenceChunks(src),kept=[],removed=[];
   chunks.forEach(function(sentence){if(CEFH_agencySentenceViolation(sentence,input))removed.push(sentence);else kept.push(sentence);});
   if(!removed.length)return src;
   CEFH_recordRepair("player-agency","Removed "+removed.length+" invented voluntary player sentence(s)");
-  var out=kept.join(" ").replace(/\s{2,}/g," ").trim();return out||"\u200B";
+  var out=kept.join(" ").replace(/\s{2,}/g," ").replace(/\s+([,.!?])/g,"$1").trim();return out||"\u200B";
 }
 
 function CEFH_doctor(){
