@@ -84,7 +84,7 @@ function CE_cardIdentityName(card) {
   if (!m) m = entry.match(/(?:^|\n)\s*\[NAME\s*:\s*([^\]\n]{1,120})\]/i);
   if (m) return String(m[1] || "").replace(/^['"“”‘’]+|['"“”‘’]+$/g, "").trim();
   if (/config/i.test(String(card.type || ""))) return "";
-  const keys = CE_cardKeysCore(card).split(",").map(function(x){ return x.trim(); }).filter(Boolean);
+  const keys = CE_splitStoryCardKeys(CE_cardKeysCore(card));
   for (let i = 0; i < keys.length; i++) {
     if (/^__.*__$/.test(keys[i])) continue;
     if (/^(?:the|a|an|and|you|said|was|is)$/i.test(keys[i])) continue;
@@ -147,7 +147,7 @@ function CE_sharedStoryCardIndex() {
       const ak=CE_sharedCardNorm(a);addMap(byAlias,ak,rec);
       ak.split(" ").forEach(function(tok){if(tok.length>=3)addMap(byToken,tok,rec);});
     });
-    addMap(byExactKeys,String(keysRaw||"").trim().toLowerCase(),rec);
+    addMap(byExactKeys,CE_storyCardKeySignature(keysRaw),rec);
     if(/^(?:character|npc|person|cast|companion)$/i.test(typeNorm))characters.push(rec);
     if(/(?:location|place|city|town|village|region|country|kingdom|empire|planet|world|building|room|district|landmark|area|setting)/i.test(typeNorm))locations.push(rec);
     if(/(?:item|object|artifact|artefact|weapon|tool|vehicle|device|equipment|relic|key|book|document|armor|armour|clothing|resource|potion|ring|amulet|sword|gun|ship|car)/i.test(typeNorm))items.push(rec);
@@ -180,10 +180,17 @@ function CE_patchSharedStoryCardRecord(index, current) {
   } catch (_) { return false; }
 }
 
+function CE_splitStoryCardKeys(keys) {
+  const raw = Array.isArray(keys) ? keys.join(",") : String(keys || "");
+  return raw.split(/[,;|\n\r]+/).map(function(x){ return String(x || "").trim(); }).filter(Boolean);
+}
 function CE_hasCardKey(card, wanted) {
   const key = String(wanted || "").trim().toLowerCase();
   if (!key) return false;
-  return CE_cardKeysCore(card).toLowerCase().split(",").map(function(x){ return x.trim(); }).indexOf(key) >= 0;
+  return CE_splitStoryCardKeys(CE_cardKeysCore(card)).some(function(x){ return x.toLowerCase() === key; });
+}
+function CE_storyCardKeySignature(keys) {
+  return CE_splitStoryCardKeys(keys).map(function(x){ return x.toLowerCase(); }).join(",");
 }
 // Commit a Story Card through the host API, then ALWAYS reacquire the live
 // array element before touching metadata. Current AI Dungeon replaces
@@ -194,8 +201,9 @@ function CE_hasCardKey(card, wanted) {
 // arguments. Older hosts ignore extra JavaScript arguments, while stricter
 // wrappers may reject them; in that case we retry the documented 4-argument
 // form and still apply metadata to the reacquired live object as a fallback.
-function CE_updateStoryCardCompat(card, keys, entry, type, name, notes) {
+function CE_updateStoryCardCompat(card, keys, entry, type, name, notes, options) {
   var out = { ok:false, apiOk:false, card:card || null, index:-1, reason:"unavailable" };
+  options = options || {};
   if (!card) return out;
   const k = Array.isArray(keys) ? keys.join(",") : String(keys == null ? "" : keys);
   const e = String(entry == null ? "" : entry);
@@ -224,7 +232,29 @@ function CE_updateStoryCardCompat(card, keys, entry, type, name, notes) {
   const oldEntry = cachedRec ? String(cachedRec.entry || "") : CE_cardEntryCore(card);
   const oldType = cachedRec ? String(cachedRec.type || "") : String(card.type == null ? "" : card.type);
   const oldName = cachedRec ? String(cachedRec.identity || "") : String(card.title || card.name || "");
+  const nameFields = ["title","name"].filter(function(f){ return card[f] !== undefined; });
+  const noteFields = ["description","notes"].filter(function(f){ return card[f] !== undefined; });
+  const nameMetadataChanged = wantedName !== undefined && (nameFields.length === 0 || nameFields.some(function(f){ return String(card[f] == null ? "" : card[f]) !== wantedName; }));
+  const notesMetadataChanged = wantedNotes !== undefined && (noteFields.length === 0 || noteFields.some(function(f){ return String(card[f] == null ? "" : card[f]) !== wantedNotes; }));
   const coreIdentityChanged = oldKeys !== k || oldEntry !== e || oldType !== t || (wantedName !== undefined && oldName !== wantedName);
+  const metadataChanged = nameMetadataChanged || notesMetadataChanged;
+
+  // A large adventure may touch the same configuration/presentation card from
+  // more than one subsystem in a hook. Do not ask the host to replace a card
+  // when every requested field already matches. This is both faster and safer
+  // because replacement invalidates external object references.
+  if (index >= 0 && !options.forceHostWrite && !coreIdentityChanged && !metadataChanged) {
+    const currentUnchanged = (typeof storyCards !== "undefined" && Array.isArray(storyCards) && storyCards[index]) ? storyCards[index] : card;
+    var priorDegraded = "";
+    try { priorDegraded = String(currentUnchanged.__ceWriteDegradedReason || card.__ceWriteDegradedReason || ""); } catch (_) {}
+    out.ok = true;
+    out.apiOk = !priorDegraded;
+    out.skipped = true;
+    out.card = currentUnchanged;
+    out.reason = priorDegraded || "unchanged; host write skipped";
+    try { CE_patchSharedStoryCardRecord(index, currentUnchanged); } catch (_) {}
+    return out;
+  }
 
   if (index >= 0 && typeof updateStoryCard === "function") {
     try {
@@ -265,6 +295,21 @@ function CE_updateStoryCardCompat(card, keys, entry, type, name, notes) {
       if (wantedNotes !== undefined) { card.description = wantedNotes; card.notes = wantedNotes; }
     } catch (_) {}
   }
+
+  // Remember a same-hook compatibility mirror that the host did not actually
+  // accept. A later no-op must not upgrade that temporary mirror to "success";
+  // the marker is non-enumerable and therefore naturally disappears between
+  // isolated hooks/JSON round-trips unless the host truly persisted the fields.
+  try {
+    if (apiOk) {
+      try { delete current.__ceWriteDegradedReason; } catch (_) {}
+      if (current !== card) try { delete card.__ceWriteDegradedReason; } catch (_) {}
+    } else {
+      var degradedReason = String(apiReason || "Story Card host update was not accepted").slice(0,220);
+      try { Object.defineProperty(current,"__ceWriteDegradedReason",{value:degradedReason,writable:true,configurable:true,enumerable:false}); } catch (_) { try { current.__ceWriteDegradedReason=degradedReason; } catch(__){} }
+      if (current !== card) try { Object.defineProperty(card,"__ceWriteDegradedReason",{value:degradedReason,writable:true,configurable:true,enumerable:false}); } catch (_) {}
+    }
+  } catch (_) {}
 
   out.apiOk = apiOk;
   out.ok = apiOk || index >= 0;
@@ -314,7 +359,7 @@ function CE_missingRequiredConfigCount() {
 }
 function CE_isRequiredConfigWrite(keys) {
   var raw = Array.isArray(keys) ? keys.join(",") : String(keys || "");
-  var parts = raw.split(",").map(function(x){ return x.trim().toLowerCase(); });
+  var parts = CE_splitStoryCardKeys(raw).map(function(x){ return x.toLowerCase(); });
   return CE_RESERVED_CONFIG_KEYS.some(function(k){ return parts.indexOf(String(k).toLowerCase()) >= 0; });
 }
 function CE_cardWriteCapacityAllows(keys, options) {
@@ -327,7 +372,7 @@ function CE_cardWriteCapacityAllows(keys, options) {
 }
 function CE_requestedStoryCardPrimaryKey(keys) {
   var raw = Array.isArray(keys) ? keys.join(",") : String(keys || "");
-  var parts = raw.split(/[,;]/).map(function(x){ return x.trim(); }).filter(Boolean);
+  var parts = CE_splitStoryCardKeys(raw);
   return parts.length ? parts[0] : "";
 }
 function CE_addedStoryCardMatchesRequest(card, keys) {
@@ -369,12 +414,13 @@ function CE_tryAddStoryCard(keys, entry, type, name, notes, options) {
     out.reason = result === false ? "refused" : ((typeof result === "number") ? "identity-mismatch" : "unobserved");
     return out;
   }
-  // Extended metadata is best-effort only; durable identity lives in
-  // id/keys/entry/type. September 2026 hosts preserve script card metadata,
-  // but no subsystem is allowed to depend on that for cross-hook identity.
+  // Seal the observable new card through the same replacement-safe writer used
+  // for updates. Some hosts honor addStoryCard metadata arguments, others only
+  // persist the documented core fields; this second step makes both paths
+  // converge without depending on direct object mutation surviving a hook.
   try {
-    if (name) { card.title = String(name); card.name = String(name); }
-    if (notes != null) { card.description = String(notes); card.notes = String(notes); }
+    var sealed = CE_updateStoryCardCompat(card, keys, entry, type, name === undefined ? undefined : name, notes === undefined ? undefined : notes, { forceHostWrite:true });
+    if (sealed && sealed.card) { card = sealed.card; index = sealed.index >= 0 ? sealed.index : index; }
   } catch (_) {}
   out.ok = true; out.card = card; out.index = index; out.reason = "created";
   try { CE_invalidateSharedStoryCardIndex(); } catch (_) {}
@@ -406,7 +452,7 @@ function CE_storyCardWriteIdentityExists(rec) {
         var cn=typeof CE_cardIdentityName==="function"?CE_cardIdentityName(card):String(card.title||card.name||"");
         if(cn && typeof CE_sameName==="function" && CE_sameName(cn,expectedName)) return true;
         var keys=Array.isArray(card.keys)?card.keys.join(","):String(card.keys||"");
-        if(keys.split(/[,;]/).some(function(k){return String(k||"").trim().toLowerCase()===expectedName.toLowerCase();})) return true;
+        if(CE_splitStoryCardKeys(keys).some(function(k){return String(k||"").trim().toLowerCase()===expectedName.toLowerCase();})) return true;
       }
       return false;
     });
@@ -416,7 +462,7 @@ function CE_noteExpectedStoryCardWrite(keys,name) {
   try {
     var w=CE_storyCardWriteWatchState(); if(!w)return;
     var raw=Array.isArray(keys)?keys.join(","):String(keys||"");
-    var first=raw.split(/[,;]/).map(function(x){return x.trim();}).filter(Boolean)[0]||"";
+    var first=CE_splitStoryCardKeys(raw)[0]||"";
     var now=(typeof info!=="undefined"&&info&&Number.isFinite(Number(info.actionCount)))?Number(info.actionCount):0;
     var phase=(typeof UT_ACTIVE_RUNTIME_PHASE!=="undefined"&&UT_ACTIVE_RUNTIME_PHASE&&UT_ACTIVE_RUNTIME_PHASE.name)||"unknown";
     var rec={key:first,name:String(name||first||"").trim(),action:now,phase:phase};
@@ -576,7 +622,7 @@ function CE_scanRequiredConfigPresence() {
     if(titleKey && !out[titleKey]) { out[titleKey]=true; remaining--; }
     var raw=CE_cardKeysCore(card).toLowerCase();
     if(!raw)continue;
-    var parts=raw.split(",").map(function(x){return x.trim();});
+    var parts=CE_splitStoryCardKeys(raw);
     var typeOk=String(card.type||"").trim().toLowerCase()==="crossed echoes config";
     for(var p=0;p<parts.length;p++) {
       var key=parts[p];
@@ -901,6 +947,7 @@ function CE_activationState() {
   var a=state.crossedEchoesActivation;
   if (!a.turns || typeof a.turns !== "object") a.turns={};
   if (!a.totals || typeof a.totals !== "object") a.totals={};
+  a.schema=2;
   return a;
 }
 
@@ -919,14 +966,34 @@ function CE_markFeatureActivation(feature,phase,status,detail) {
   var name=String(feature||"unknown"), ph=String(phase||"unknown"), turn=CE_activationTurn();
   var rec=CE_activationTurnRecord(turn); if(!rec)return;
   if(!rec[ph]||typeof rec[ph]!=="object")rec[ph]={};
-  var row=rec[ph][name]||{attempts:0};
-  row.attempts=(Number(row.attempts)||0)+1;
-  row.status=String(status||"ran");
+  var row=rec[ph][name]||{attempts:0,okCount:0,errorCount:0,missingCount:0};
+  var next=String(status||"ok");
+  row.lastStatus=next;
   row.at=utClockNow();
-  if(detail)row.detail=String(detail).slice(0,160);else delete row.detail;
+  if(next==="attempted") row.attempts=(Number(row.attempts)||0)+1;
+  else if(next==="ok") row.okCount=(Number(row.okCount)||0)+1;
+  else if(next==="error") row.errorCount=(Number(row.errorCount)||0)+1;
+  else if(next==="missing") { row.missingCount=(Number(row.missingCount)||0)+1; row.attempts=(Number(row.attempts)||0)+1; }
+  if(detail)row.detail=String(detail).slice(0,160);
+  // Preserve the worst outcome seen anywhere in this feature/phase. Several
+  // systems intentionally have more than one small call in a hook; a later
+  // success must never erase an earlier isolated failure from /doctor.
+  if((Number(row.errorCount)||0)>0) row.status="error";
+  else if((Number(row.missingCount)||0)>0) row.status="missing";
+  else if((Number(row.okCount)||0)>0) row.status="ok";
+  else row.status=next;
   rec[ph][name]=row;
-  a.totals[name]=(Number(a.totals[name])||0)+1;
-  if(row.status==="error"||row.status==="missing")a.lastError={turn:turn,phase:ph,feature:name,status:row.status,detail:row.detail||""};
+
+  if(!a.totals[name]||typeof a.totals[name]!=="object") {
+    var legacy=Number(a.totals[name])||0;
+    a.totals[name]={attempts:legacy,ok:0,errors:0,missing:0};
+  }
+  var total=a.totals[name];
+  if(next==="attempted") total.attempts=(Number(total.attempts)||0)+1;
+  else if(next==="ok") total.ok=(Number(total.ok)||0)+1;
+  else if(next==="error") total.errors=(Number(total.errors)||0)+1;
+  else if(next==="missing") { total.missing=(Number(total.missing)||0)+1; total.attempts=(Number(total.attempts)||0)+1; }
+  if(next==="error"||next==="missing")a.lastError={turn:turn,phase:ph,feature:name,status:next,detail:row.detail||""};
 }
 
 function CE_runTurnFeature(feature,phase,fn,fallback,available) {
@@ -976,7 +1043,7 @@ function CE_activationHealth() {
     expected[ph].forEach(function(name){
       var row=rec[ph]&&rec[ph][name];
       if(!row)missing.push(ph+":"+name);
-      else if(row.status==="error"||row.status==="missing")errors.push(ph+":"+name+(row.detail?" — "+row.detail:""));
+      else if((Number(row.errorCount)||0)>0 || (Number(row.missingCount)||0)>0 || row.status==="error" || row.status==="missing")errors.push(ph+":"+name+(row.detail?" — "+row.detail:""));
     });
   });
   return {ok:missing.length===0&&errors.length===0,turn:turn,missing:missing,errors:errors,record:rec,summary:(missing.length||errors.length)?("missing="+missing.length+", errors="+errors.length):"all core features participated"};
@@ -4030,7 +4097,7 @@ var Library = (() => {
         if (String(CE_cardIdentityName(storyCards[i])).toLowerCase() === String(title).toLowerCase()) { card = storyCards[i]; break; }
       }
       if (!card && keys) {
-        const sentinels = String(Array.isArray(keys) ? keys.join(",") : keys).split(",").map(function(x){ return x.trim(); }).filter(function(x){ return /^__[^_].*__$/.test(x); });
+        const sentinels = CE_splitStoryCardKeys(keys).filter(function(x){ return /^__[^_].*__$/.test(x); });
         const reservedConfigWrite = CE_isRequiredConfigWrite(keys);
         if (sentinels.length) card = storyCards.find(function(c){
           return sentinels.some(function(k){
@@ -4061,10 +4128,15 @@ var Library = (() => {
     } catch (e) {}
   }
 
-  function removeCardByTitle(title) {
+  function removeCardByTitle(title, sentinelKey) {
     try {
+      const wanted = String(title || "").toLowerCase();
       for (let i = 0; i < storyCards.length; i++) {
-        if (storyCards[i] && String(CE_cardIdentityName(storyCards[i])).toLowerCase() === String(title).toLowerCase()) { removeStoryCard(i); return; }
+        const card = storyCards[i];
+        if (!card) continue;
+        const byName = String(CE_cardIdentityName(card)).toLowerCase() === wanted;
+        const bySentinel = sentinelKey && CE_hasCardKey(card, sentinelKey);
+        if (byName || bySentinel) { removeStoryCard(i); return; }
       }
     } catch (e) {}
   }
@@ -4078,7 +4150,8 @@ var Library = (() => {
     return !!cacheEfficient;
   }
 
-  const CP_ALWAYS_MATCH_KEYS = "the, a, and, you, said, was";
+  const CP_NUDGE_SENTINEL = "__crossed_echoes_twists_nudge__";
+  const CP_ALWAYS_MATCH_KEYS = CP_NUDGE_SENTINEL + ", the, a, and, you, said, was";
 
   function updateNudgeCard(cacheEfficient, hint, entities) {
     const title = "Twists and Turns — Nudge";
@@ -4088,10 +4161,10 @@ var Library = (() => {
     // time it activates. Yield this low-headroom delivery instead; Retry keeps
     // the managed hint stable and a later turn can surface the thread normally.
     if (cacheEfficient && typeof CE_CACHE_COMPATIBLE_CONTEXT !== "undefined" && CE_CACHE_COMPATIBLE_CONTEXT) {
-      removeCardByTitle(title);
+      removeCardByTitle(title, CP_NUDGE_SENTINEL);
       return;
     }
-    if (!cacheEfficient || !String(hint || "").trim()) { removeCardByTitle(title); return; }
+    if (!cacheEfficient || !String(hint || "").trim()) { removeCardByTitle(title, CP_NUDGE_SENTINEL); return; }
     const entry = hint;
     const concernNote = (entities && entities.length) ? ("\nConcerns: " + entities.join(", ")) : "";
     const notes = "LEGACY BACKUP NUDGE DELIVERY\n\n" +
@@ -5304,7 +5377,8 @@ var CARD_TEMPLATES = {
 // the card is redundancy, not an assumption that every optimized model drops
 // the Context result. This keeps behavior resilient without overstating an
 // undocumented/current platform detail.
-var UNSAID_BACKUP_MATCH_KEYS = "the, a, and, you, said, is";
+var UNSAID_BACKUP_SENTINEL = "__crossed_echoes_unsaid_backup__";
+var UNSAID_BACKUP_MATCH_KEYS = UNSAID_BACKUP_SENTINEL + ", the, a, and, you, said, is";
 
 function updateUnsaidBackupCard(cacheEfficient, instructionText) {
   const title = "UNSAID — Backup Delivery";
@@ -5312,7 +5386,7 @@ function updateUnsaidBackupCard(cacheEfficient, instructionText) {
   // context delivery path. Do not burn scarce Story Card budget on a moving
   // all-match backup card when that path is available. Remove legacy cards.
   if (!cacheEfficient || (typeof CE_CACHE_COMPATIBLE_CONTEXT!=="undefined" && CE_CACHE_COMPATIBLE_CONTEXT)) {
-    removeStoryCardByTitle(title);
+    removeStoryCardByTitle(title, UNSAID_BACKUP_SENTINEL);
     return;
   }
   const entry = instructionText || " ";
@@ -5321,16 +5395,8 @@ function updateUnsaidBackupCard(cacheEfficient, instructionText) {
     "UNSAID control instruction through a Story Card as a redundant delivery path. The normal Context " +
     "instruction is still returned as well. This card removes itself when that mode is no longer reported.";
   let card = storyCards.find(c => String(CE_cardIdentityName(c)).toLowerCase() === String(title).toLowerCase());
-  if (!card) {
-    card = createOrFindCard(UNSAID_BACKUP_MATCH_KEYS, entry, "Class");
-    if (card) { card.title = title; }
-  }
-  if (card) {
-    card.keys = UNSAID_BACKUP_MATCH_KEYS;
-    card.type = "Class";
-    card.entry = entry;
-    card.description = notes;
-  }
+  if (!card) card = createOrFindCard(UNSAID_BACKUP_MATCH_KEYS, entry, "Class", title);
+  if (card) CE_updateStoryCardCompat(card, UNSAID_BACKUP_MATCH_KEYS, entry, "Class", title, notes);
 }
 
 function checkCacheEfficientWarning() {
@@ -5680,8 +5746,8 @@ function storyCardAliasValues(card) {
     if (!clean || clean.length < 2 || clean.length > 80) return;
     if (!out.some(v => normalizeUnsaidIdentity(v) === normalizeUnsaidIdentity(clean))) out.push(clean);
   };
-  push(card.title);
-  String(card.keys || "").split(/[,;|\n]+/).forEach(push);
+  push(CE_cardIdentityName(card));
+  CE_splitStoryCardKeys(CE_cardKeysCore(card)).forEach(push);
   return out.slice(0, UNSAID_ALIAS_LIMIT_PER_CHARACTER + 1);
 }
 
@@ -5979,12 +6045,12 @@ function codexCardIdentityCompatible(card, expectedName, expectedType) {
     return storyCardAliasValues(card).some(function(alias){ return codexCleanIdentity(alias) === wanted; });
   } catch (_) {
     const raw = Array.isArray(card.keys) ? card.keys.join(",") : String(card.keys || "");
-    return raw.split(/[,;|]/).some(function(alias){ return codexCleanIdentity(alias) === wanted; });
+    return CE_splitStoryCardKeys(raw).some(function(alias){ return codexCleanIdentity(alias) === wanted; });
   }
 }
 
 function codexCardsWithExactKeys(keys) {
-  const wanted = String(Array.isArray(keys) ? keys.join(",") : keys || "").trim().toLowerCase();
+  const wanted = CE_storyCardKeySignature(keys);
   try {
     const idx=CE_sharedStoryCardIndex();
     return (idx.byExactKeys[wanted]||[]).map(function(rec){return rec.card;});
@@ -6096,7 +6162,7 @@ function findConfigCardTolerant(title, maxDistance) {
   const wanted = String(title || "");
   const lowWanted = wanted.toLowerCase();
   for (let i = 0; i < storyCards.length; i++) {
-    if (storyCards[i] && storyCards[i].title === wanted) return storyCards[i];
+    if (storyCards[i] && CE_cardIdentityName(storyCards[i]) === wanted) return storyCards[i];
   }
   // Documented-core fallback: title/notes are not guaranteed scripting fields.
   // Unique inert trigger keys and stable Entry headers keep config identity
@@ -6112,8 +6178,10 @@ function findConfigCardTolerant(title, maxDistance) {
   const limit = typeof maxDistance === "number" ? maxDistance : 2;
   for (let i = 0; i < storyCards.length; i++) {
     const card = storyCards[i];
-    if (!card || typeof card.title !== "string") continue;
-    const candidate = card.title.toLowerCase().replace(/[^a-z]/g, "");
+    if (!card) continue;
+    const identity = CE_cardIdentityName(card);
+    if (!identity) continue;
+    const candidate = identity.toLowerCase().replace(/[^a-z]/g, "");
     if (Math.abs(candidate.length - target.length) > limit) continue;
     if (levenshteinDistance(candidate, target) <= limit) return card;
   }
@@ -6225,10 +6293,13 @@ function applyTwistConfigText(cfg, section) {
   return cfg;
 }
 
-function removeStoryCardByTitle(title) {
+function removeStoryCardByTitle(title, sentinelKey) {
   try {
+    const wanted = String(title || "").trim();
     for (let i = 0; i < storyCards.length; i++) {
-      if (storyCards[i] && storyCards[i].title === title) { removeStoryCard(i); return true; }
+      const card = storyCards[i];
+      if (!card) continue;
+      if (CE_cardIdentityName(card) === wanted || (sentinelKey && CE_hasCardKey(card, sentinelKey))) { removeStoryCard(i); return true; }
     }
   } catch (e) {}
   return false;
@@ -6724,12 +6795,9 @@ function normalizeSharedConfigEntry(card) {
   if (!card) return false;
   var current = CW_cardEntryText(card);
   var canonical = canonicalSharedConfigEntryText(current);
-  if (canonical !== current) {
-    card.entry = canonical;
-    card.value = canonical;
-    return true;
-  }
-  return false;
+  if (canonical === current) return false;
+  var committed = CE_updateStoryCardCompat(card, CE_cardKeysCore(card), canonical, String(card.type || CE_CONFIG_CATEGORY), String(card.title || card.name || CONFIG_CARD_TITLE), String(card.description || card.notes || ""));
+  return !!committed.ok;
 }
 
 function ensureSharedConfigCard() {
@@ -6771,14 +6839,14 @@ function ensureSharedConfigCard() {
     if (!card) card = storyCards.find(sc => CE_isRequiredConfigCard(sc, CE_CONFIG_KEY_UNSAID)) || null;
     if (!card) {
       for (let i = 0; i < storyCards.length; i++) {
-        if (storyCards[i] && storyCards[i].title === CONFIG_CARD_TITLE) { card = storyCards[i]; break; }
+        if (storyCards[i] && CE_cardIdentityName(storyCards[i]) === CONFIG_CARD_TITLE) { card = storyCards[i]; break; }
       }
     }
     if (card) {
-      card.title = CONFIG_CARD_TITLE;
-      card.type = CE_CONFIG_CATEGORY;
-      if (!CW_cardEntryText(card).trim()) { card.entry = initialEntry; card.value = initialEntry; } else if (!card.entry) card.entry = CW_cardEntryText(card);
-      if (!card.description || !card.description.trim()) card.description = initialDescription;
+      var migrateEntry = CW_cardEntryText(card).trim() ? CW_cardEntryText(card) : initialEntry;
+      var migrateNotes = String(card.description || card.notes || "").trim() ? String(card.description || card.notes || "") : initialDescription;
+      var migrateCommit = CE_updateStoryCardCompat(card, cardKeys, migrateEntry, CE_CONFIG_CATEGORY, CONFIG_CARD_TITLE, migrateNotes);
+      card = migrateCommit.card || card;
       // fold in complete — the two old separate cards are now redundant
       removeStoryCardByTitle("Twists and Turns Config");
       removeStoryCardByTitle("UNSAID Config");
@@ -7983,11 +8051,11 @@ function codexLearnExplicitAliasesFromText(source, cfg) {
     var card = establishedCard || findStoryCardForEntity(canonical);
     if (card && !codexCardIdentityCompatible(card, canonical, "")) card = null;
     if (card && state.unsaid.codex.cardMeta && (state.unsaid.codex.cardMeta[card.title] || codexLogHasEntity(card.title))) {
-      var keys = String(card.keys||"").split(/[,;|]/).map(function(x){return x.trim();}).filter(Boolean);
+      var keys = CE_splitStoryCardKeys(CE_cardKeysCore(card));
       if (!keys.some(function(k){return k.toLowerCase()===alias.toLowerCase();}) && keys.length<CODEX_ALIAS_AUTO_LIMIT) {
         keys.push(alias);
-        if (typeof codexCommitStoryCard === "function") codexCommitStoryCard(card,keys.join(","),card.entry,card.type,card.title||canonical,card.description||card.notes);
-        else card.keys=keys.join(",");
+        if (typeof codexCommitStoryCard === "function") codexCommitStoryCard(card,keys.join(","),CE_cardEntryCore(card),card.type,CE_cardIdentityName(card)||canonical,card.description||card.notes);
+        else CE_updateStoryCardCompat(card,keys.join(","),CE_cardEntryCore(card),String(card.type||"Character"),CE_cardIdentityName(card)||canonical,card.description||card.notes);
       }
     }
   }});
@@ -8042,10 +8110,9 @@ function repairManagedCodexNonCharacterCard(name, source, strongType) {
     if (entry.length > repairLimit) entry = entry.slice(0, repairLimit - 1).trimEnd() + "…";
 
     if (typeof codexCommitStoryCard === "function") {
-      if (!codexCommitStoryCard(card,card.keys,entry,platformType(strong.type),card.title||name,card.description||card.notes)) return false;
+      if (!codexCommitStoryCard(card,CE_cardKeysCore(card),entry,platformType(strong.type),CE_cardIdentityName(card)||name,card.description||card.notes)) return false;
     } else {
-      card.type = platformType(strong.type);
-      card.entry = entry;
+      if (!CE_updateStoryCardCompat(card,CE_cardKeysCore(card),entry,platformType(strong.type),CE_cardIdentityName(card)||name,card.description||card.notes).ok) return false;
     }
     codex.trustedEntities[name] = strong.type;
     codex.observedTypes[name] = strong.type;
@@ -8699,7 +8766,8 @@ function codexLoggedEntityNameSet() {
   const names = new Set();
   if (typeof storyCards === "undefined" || !Array.isArray(storyCards)) return names;
   storyCards.forEach(card => {
-    if (!card || typeof card.title !== "string" || card.title.indexOf("UNSAID Codex Log — ") !== 0) return;
+    const identity = card ? CE_cardIdentityName(card) : "";
+    if (!identity || identity.indexOf("UNSAID Codex Log — ") !== 0) return;
     String(card.description || "").split("\n").forEach(line => {
       const loggedName = line.split(" — ")[0].trim().toLowerCase();
       if (loggedName) names.add(loggedName);
@@ -8712,7 +8780,8 @@ function codexLogHasEntity(name) {
   if (!name || typeof storyCards === "undefined" || !Array.isArray(storyCards)) return false;
   const wanted = String(name).toLowerCase().trim();
   return storyCards.some(card => {
-    if (!card || typeof card.title !== "string" || card.title.indexOf("UNSAID Codex Log — ") !== 0) return false;
+    const identity = card ? CE_cardIdentityName(card) : "";
+    if (!identity || identity.indexOf("UNSAID Codex Log — ") !== 0) return false;
     return String(card.description || "")
       .split("\n")
       .map(line => line.split(" — ")[0].trim().toLowerCase())
@@ -8959,12 +9028,13 @@ function trackCodexCardUpdateEvidence(source, actionEpoch) {
 
   const loggedNames = codexLoggedEntityNameSet();
   const candidates = storyCards
-    .filter(card => card && card.title && !isOwnCard(card.title))
-    .filter(card =>
-      state.unsaid.codex.cardMeta[card.title] ||
-      loggedNames.has(String(card.title).toLowerCase().trim())
+    .map(card => ({ card, identity: card ? CE_cardIdentityName(card) : "" }))
+    .filter(rec => rec.card && rec.identity && !isOwnCard(rec.identity))
+    .filter(rec =>
+      state.unsaid.codex.cardMeta[rec.identity] ||
+      loggedNames.has(String(rec.identity).toLowerCase().trim())
     )
-    .sort((a, b) => String(b.title).length - String(a.title).length)
+    .sort((a, b) => String(b.identity).length - String(a.identity).length)
     .slice(0, CODEX_CARD_UPDATE_SCAN_LIMIT);
 
   if (candidates.length === 0) return;
@@ -8973,27 +9043,27 @@ function trackCodexCardUpdateEvidence(source, actionEpoch) {
     : String(source).replace(/([.!?])\s+/g, "$1\n").split("\n");
 
   sentences.forEach(sentence => {
-    const matched = candidates.filter(card => {
-      const aliases = typeof storyCardAliasValues === "function" ? storyCardAliasValues(card) : [card.title];
+    const matched = candidates.filter(rec => {
+      const aliases = typeof storyCardAliasValues === "function" ? storyCardAliasValues(rec.card) : [rec.identity];
       return aliases.some(alias => alias && nameAppears(alias, sentence));
     });
     if (matched.length === 0) return;
 
     // If both "Rose" and "Rose Garden" exist and the sentence only refers to
     // the longer entity, do not give the shorter card update evidence too.
-    const accepted = matched.filter(card =>
+    const accepted = matched.filter(rec =>
       !matched.some(other =>
-        other !== card &&
-        String(other.title).length > String(card.title).length &&
-        codexCardTitleContainedIn(other.title, card.title) &&
-        nameAppears(other.title, sentence)
+        other !== rec &&
+        String(other.identity).length > String(rec.identity).length &&
+        codexCardTitleContainedIn(other.identity, rec.identity) &&
+        nameAppears(other.identity, sentence)
       )
     );
 
-    accepted.forEach(card => {
-      const type = codexKindFromExistingCard(card, card.title);
-      ensureCodexCardMeta(card.title, card, type);
-      recordCodexCardUpdateEvidence(card.title, card, sentence, actionEpoch);
+    accepted.forEach(rec => {
+      const type = codexKindFromExistingCard(rec.card, rec.identity);
+      ensureCodexCardMeta(rec.identity, rec.card, type);
+      recordCodexCardUpdateEvidence(rec.identity, rec.card, sentence, actionEpoch);
     });
   });
 }
@@ -9739,7 +9809,7 @@ function createCodexDirectScaffoldCard(name, cfg, source) {
     if (typeof codexCommitStoryCard === "function") {
       if (!codexCommitStoryCard(card, triggers || name, entry, platformType(type), name, card.description || card.notes)) return false;
     } else {
-      card.title = name; card.name = name; card.type = platformType(type); card.entry = entry; card.keys = triggers || name;
+      if (!CE_updateStoryCardCompat(card,triggers || name,entry,platformType(type),name,card.description||card.notes).ok) return false;
     }
     markCodexCardGenerated(name, type, entry, false);
     const key = codexManagedCardKey(name, card);
@@ -9968,7 +10038,7 @@ function buildStatusReport(cfg) {
     lines.push(`UNSAID ↔ Twists link: ${twistCfg.crossSystemSynergy ? "enabled" : "off"}`);
   } catch (e) {}
 
-  const cacheCard = storyCards.find(c => c.title === "UNSAID — Important, Read This ⚠️");
+  const cacheCard = storyCards.find(c => c && CE_cardIdentityName(c) === "UNSAID — Important, Read This ⚠️");
   if (cacheCard && cacheCard.entry && cacheCard.entry.indexOf("no longer detected") === -1) {
     lines.push(`⚠️ Cache-efficient mode is currently detected — private thoughts and Codex cannot function normally right now; see the warning card.`);
   }
@@ -10158,7 +10228,7 @@ function ensureCodexLogCard(type) {
   const title = codexLogTitle(type);
   const keys = title.toLowerCase();
   const wantedEntry = `Every ${type} card Codex has made, with its initial mention count and later automatic refresh history when applicable. Codex-made cards can refresh from newer story evidence; hand-edited entries are protected by default.`;
-  let card = storyCards.find(function(c){ return c && (String(c.title || c.name || "") === title || CE_cardKeysCore(c).toLowerCase() === keys); });
+  let card = storyCards.find(function(c){ return c && (CE_cardIdentityName(c) === title || CE_cardKeysCore(c).toLowerCase() === keys); });
   if (!card) {
     card = createOrFindCard(keys, wantedEntry, "Class");
     if (!card) return null;
@@ -10181,7 +10251,7 @@ function logCodexCard(name, type, mentionCount, refreshed) {
   // is both a Character and a Location/Item/Faction.
   storyCards.forEach(other => {
     if (!other || other === card) return;
-    var otherIdentity = String(other.title || other.name || "");
+    var otherIdentity = CE_cardIdentityName(other);
     var otherKeys = CE_cardKeysCore(other).toLowerCase();
     if (otherIdentity.indexOf("UNSAID Codex Log — ") !== 0 && otherKeys.indexOf("unsaid codex log — ") !== 0) return;
     const lines = String(other.description || other.notes || "").split("\n");
@@ -10392,9 +10462,11 @@ function syncMindToCard(name, allowCoreShift, useJson) {
         ? Math.max(0, state.unsaid.turn - mind.lastReflectionTurn)
         : null
     };
-    const base = (card.description || "").split(MIND_NOTES_MARKER)[0].replace(/\s+$/, "");
-    card.description = `${base}\n\n${MIND_NOTES_MARKER}\n${JSON.stringify(jsonBody, null, 2)}`.trim();
-    return true;
+    const base = (card.description || card.notes || "").split(MIND_NOTES_MARKER)[0].replace(/\s+$/, "");
+    const nextNotes = `${base}\n\n${MIND_NOTES_MARKER}\n${JSON.stringify(jsonBody, null, 2)}`.trim();
+    const committed = CE_updateStoryCardCompat(card, CE_cardKeysCore(card), CE_cardEntryCore(card), String(card.type || "Character"), CE_cardIdentityName(card) || name, nextNotes);
+    if (committed.ok && typeof CE_noteExpectedEntityNotes === "function") CE_noteExpectedEntityNotes(committed.card || card, CE_cardIdentityName(committed.card || card) || name, nextNotes);
+    return !!committed.ok;
   }
 
   const sections = [];
@@ -10441,9 +10513,11 @@ function syncMindToCard(name, allowCoreShift, useJson) {
   if (sections.length === 0) return false;
   const body = sections.join("\n\n");
 
-  const base = (card.description || "").split(MIND_NOTES_MARKER)[0].replace(/\s+$/, "");
-  card.description = `${base}\n\n${MIND_NOTES_MARKER}\n${body}`.trim();
-  return true;
+  const base = (card.description || card.notes || "").split(MIND_NOTES_MARKER)[0].replace(/\s+$/, "");
+  const nextNotes = `${base}\n\n${MIND_NOTES_MARKER}\n${body}`.trim();
+  const committed = CE_updateStoryCardCompat(card, CE_cardKeysCore(card), CE_cardEntryCore(card), String(card.type || "Character"), CE_cardIdentityName(card) || name, nextNotes);
+  if (committed.ok && typeof CE_noteExpectedEntityNotes === "function") CE_noteExpectedEntityNotes(committed.card || card, CE_cardIdentityName(committed.card || card) || name, nextNotes);
+  return !!committed.ok;
 }
 
 function splitThoughtSentences(thought) {
@@ -12381,7 +12455,7 @@ function CW_configCard() {
   for (let i = 0; i < storyCards.length; i++) {
     const c = storyCards[i];
     if (!c) continue;
-    const title = String(c.title || c.name || "").trim().toLowerCase();
+    const title = CE_cardIdentityName(c).toLowerCase();
     const type = String(c.type || "").trim().toLowerCase();
     const keys = CW_cardKeysText(c).toLowerCase();
     const notes = String(c.description || c.notes || "");
@@ -12626,7 +12700,7 @@ function CW_writeConfigCard(card, cfg) {
 function CW_upgradeConfigCard(card) {
   if (!card) return;
   const notes = String(card.description || card.notes || "");
-  const cleanIdentity = String(card.title || card.name || "") === CW_CONFIG_TITLE && !CW_cardKeysText(card).includes("__crossed_wires_config__");
+  const cleanIdentity = (CE_cardIdentityName(card) === CW_CONFIG_TITLE || CE_isRequiredConfigCard(card, CW_CONFIG_KEYS)) && !CW_cardKeysText(card).includes("__crossed_wires_config__");
   if (cleanIdentity && state.crossedWires && state.crossedWires.configCardVersion >= 8) return;
   if (cleanIdentity && notes.includes(CW_CONFIG_MARKER)) {
     if (state.crossedWires) state.crossedWires.configCardVersion = 8;
@@ -16937,22 +17011,12 @@ const ECHO_VEIL = (() => {
     const titleChanged = String(card.title || card.name || "") !== CONFIG_CARD.title;
     const typeChanged = String(card.type || "") !== CONFIG_CARD.type;
     const notesChanged = String(card.description || card.notes || "") !== notes;
-    var committed = null;
-    if (changed || keyChanged || helpChanged || titleChanged || typeChanged || notesChanged) {
-      committed = CE_updateStoryCardCompat(card, CONFIG_CARD.keys, wantedEntry, CONFIG_CARD.type, CONFIG_CARD.title, notes);
-      RUNTIME_CARD_INDEX_CACHE = null;
-    }
-    const current = (committed && committed.card) || storyCards[index] || card;
-    // Even when no write was needed, normalize mirror fields exposed by some
-    // host versions without forcing an unnecessary Story Card update.
-    current.keys = CONFIG_CARD.keys;
-    current.entry = wantedEntry;
-    current.type = CONFIG_CARD.type;
-    current.title = CONFIG_CARD.title;
-    current.name = CONFIG_CARD.title;
-    current.description = notes;
-    current.notes = notes;
-    return index;
+    // Route even the nominally unchanged path through the compatibility writer.
+    // Its no-op guard avoids host churn, while its mirrored-metadata comparison
+    // repairs hosts that expose only one of title/name or description/notes.
+    var committed = CE_updateStoryCardCompat(card, CONFIG_CARD.keys, wantedEntry, CONFIG_CARD.type, CONFIG_CARD.title, notes);
+    if (!committed.skipped) RUNTIME_CARD_INDEX_CACHE = null;
+    return committed.index >= 0 ? committed.index : index;
   }
 
   function ensureConfigCard() {
@@ -18097,7 +18161,7 @@ const ECHO_VEIL = (() => {
       if (!isAgent && !isLocation && !isObject) continue;
 
       let raw = worldRec.keysRaw != null ? worldRec.keysRaw : (Array.isArray(card.keys) ? card.keys.join(",") : String(card.keys || ""));
-      const keys = worldRec.keyParts ? worldRec.keyParts.slice(0,12) : raw.split(",").map(x => x.trim()).filter(Boolean).slice(0, 12);
+      const keys = worldRec.keyParts ? worldRec.keyParts.slice(0,12) : CE_splitStoryCardKeys(raw).slice(0, 12);
       if (!keys.length) continue;
       const keyByNorm={}; keys.forEach(function(k){keyByNorm[String(k||"").trim().toLowerCase()]=String(k||"").trim();});
       const directName=String((card&&((card.title||card.name)))||"").trim();
@@ -22031,10 +22095,11 @@ function UN_configCard() {
     return storyCards.find(function(c){
       if (!c) return false;
       const entry = CE_cardEntryCore(c);
-      return c.title === CE_CONFIG_TITLE_INTEGRATION ||
-        c.title === "CROSSED ECHOES — The Unspoken Veil — Integration" ||
-        c.title === "THREADBOUND — Integration" ||
-        c.title === "UNIFIED NARRATIVE — Integration" ||
+      const identity = CE_cardIdentityName(c);
+      return identity === CE_CONFIG_TITLE_INTEGRATION ||
+        identity === "CROSSED ECHOES — The Unspoken Veil — Integration" ||
+        identity === "THREADBOUND — Integration" ||
+        identity === "UNIFIED NARRATIVE — Integration" ||
         CE_isRequiredConfigCard(c, CE_CONFIG_KEY_INTEGRATION) ||
         /^\s*CROSSED ECHOES INTEGRATION\b/i.test(entry);
     }) || null;
@@ -22532,7 +22597,7 @@ function UN_identityIndex() {
       if(!card||/^CROSSED ECHOES — Config/i.test(String(card.title||"")))return;
       var k=UN_identityKind(card.type),raw=Array.isArray(card.keys)?card.keys.join(","):String(card.keys||"");
       if(!k)return;
-      var keys=raw.split(",").map(function(x){return String(x||"").trim();}).filter(Boolean).slice(0,12);
+      var keys=CE_splitStoryCardKeys(raw).slice(0,12);
       var canonical=String(CE_cardIdentityName(card)||keys[0]||"").trim();if(!canonical)return;bind(canonical,canonical,k);keys.forEach(function(a){bind(a,canonical,k);});
     });
   } catch(e) {}
@@ -22611,7 +22676,7 @@ function UN_knownEntityNames() {
       add(cardName);
       if(out.length>=220)return;
       var raw=Array.isArray(c.keys)?c.keys.join(","):String(c.keys||"");
-      raw.split(",").slice(0,6).forEach(function(k){k=String(k||"").trim();if(k&&k.length>1&&out.length<220)add(k);});
+      CE_splitStoryCardKeys(raw).slice(0,6).forEach(function(k){k=String(k||"").trim();if(k&&k.length>1&&out.length<220)add(k);});
     });
   }catch(e){}
   return out.slice(0,220);

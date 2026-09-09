@@ -314,7 +314,7 @@ var unsaidModifier = (text) => {
     if (/^\/unsaid\s+status\s*$/i.test(commandText)) {
       const report = buildStatusReport(cfg);
       const statusKey = "__crossed_echoes_unsaid_status__";
-      let card = storyCards.find(c => c && (c.title === "UNSAID — Status" || (typeof CE_hasCardKey === "function" && CE_hasCardKey(c, statusKey))));
+      let card = storyCards.find(c => c && ((typeof CE_cardIdentityName === "function" && CE_cardIdentityName(c) === "UNSAID — Status") || (typeof CE_hasCardKey === "function" && CE_hasCardKey(c, statusKey))));
       if (!card) card = createOrFindCard(statusKey, " ", "Class");
       if (card) {
         const statusNotes = "Regenerated fresh each time you type \"/unsaid status\" as an action. Diagnostic only; not sent to the AI.\n\n" + report;
@@ -322,7 +322,7 @@ var unsaidModifier = (text) => {
           const committed = CE_updateStoryCardCompat(card, statusKey, " ", "Class", "UNSAID — Status", statusNotes);
           card = committed.card || card;
         } else {
-          card.title = "UNSAID — Status"; card.keys = statusKey; card.type = "Class"; card.entry = " "; card.description = statusNotes;
+          pushMessage("📋 Story Card compatibility writer unavailable; status card was not modified.");
         }
         const mindCount = Object.keys((state.unsaid && state.unsaid.minds) || {}).length;
         const trackedCount = Object.keys((state.unsaid && state.unsaid.codex && state.unsaid.codex.mentionCounts) || {}).length;
@@ -338,7 +338,7 @@ var unsaidModifier = (text) => {
         ? utRuntimeHealthReport()
         : "Runtime health data is unavailable in this build.";
       const healthKey = "__crossed_echoes_runtime_health__";
-      let card = storyCards.find(c => c && (c.title === "UNSPOKEN TURNS — Runtime Health" || (typeof CE_hasCardKey === "function" && CE_hasCardKey(c, healthKey))));
+      let card = storyCards.find(c => c && ((typeof CE_cardIdentityName === "function" && CE_cardIdentityName(c) === "UNSPOKEN TURNS — Runtime Health") || (typeof CE_hasCardKey === "function" && CE_hasCardKey(c, healthKey))));
       if (!card) card = createOrFindCard(healthKey, " ", "Class");
       if (card) {
         const healthNotes = "Regenerated fresh each time you type \"/unsaid health\". Diagnostic only; not sent to the AI.\n\n" + report;
@@ -346,7 +346,7 @@ var unsaidModifier = (text) => {
           const committed = CE_updateStoryCardCompat(card, healthKey, " ", "Class", "UNSPOKEN TURNS — Runtime Health", healthNotes);
           card = committed.card || card;
         } else {
-          card.title = "UNSPOKEN TURNS — Runtime Health"; card.keys = healthKey; card.type = "Class"; card.entry = " "; card.description = healthNotes;
+          pushMessage("🩺 Story Card compatibility writer unavailable; health card was not modified.");
         }
         pushMessage("🩺 Runtime diagnostics written — check the \"UNSPOKEN TURNS — Runtime Health\" card.");
       } else {
@@ -366,16 +366,15 @@ var unsaidModifier = (text) => {
       const sharedCard = ensureSharedConfigCard();
       const codexCard = ensureCodexConfigCard(sharedCard);
       if (codexCard) {
-        // Re-render the dedicated Codex card so the momentary reset flag is
-        // false while every other Story Card setting is preserved.
+        // Re-render the dedicated CODEX card through the durable writer. Keep
+        // its inert sentinel key: clearing that key made the card temporarily
+        // lose cross-hook ownership and could cause a duplicate bootstrap later.
         const currentCfg = readUnsaidConfig();
-        codexCard.entry = renderCodexSection(currentCfg);
-        codexCard.type = CE_CONFIG_CATEGORY;
-        codexCard.title = CE_CONFIG_TITLE_CODEX;
-        codexCard.name = CE_CONFIG_TITLE_CODEX;
-        codexCard.keys = "";
-        codexCard.description = CONFIG_DEFAULT_CODEX_NOTES_SECTION;
-        codexCard.notes = CONFIG_DEFAULT_CODEX_NOTES_SECTION;
+        const committed = CE_updateStoryCardCompat(
+          codexCard, CE_CONFIG_KEY_CODEX, renderCodexSection(currentCfg), CE_CONFIG_CATEGORY,
+          CE_CONFIG_TITLE_CODEX, CONFIG_DEFAULT_CODEX_NOTES_SECTION
+        );
+        codexCard = committed.card || codexCard;
       }
       pushMessage("♻️ Codex tracking reset. Existing Story Cards were left untouched.");
       return stopControl();
@@ -396,13 +395,19 @@ var unsaidModifier = (text) => {
         pushMessage(`🏷️ "${requestedCharacter}" matches ${characterMatches.length} Story Cards. Use the exact full character title first.`);
         return stopControl();
       }
-      const canonical = characterMatches.length === 1 && characterMatches[0].title
-        ? characterMatches[0].title
+      const canonicalIdentity = characterMatches.length === 1 && typeof CE_cardIdentityName === "function"
+        ? CE_cardIdentityName(characterMatches[0]) : "";
+      const canonical = canonicalIdentity
+        ? canonicalIdentity
         : (typeof resolveUnsaidCanonicalName === "function" ? resolveUnsaidCanonicalName(requestedCharacter) : requestedCharacter);
       const aliasMatches = typeof storyCardMatchesForEntity === "function"
         ? storyCardMatchesForEntity(alias)
         : [];
-      const conflict = aliasMatches.find(card => card && card.title && !isSameCardEntity(card.title, canonical));
+      const conflict = aliasMatches.find(card => {
+        if (!card) return false;
+        const identity = typeof CE_cardIdentityName === "function" ? CE_cardIdentityName(card) : String(card.title || card.name || "");
+        return identity && !isSameCardEntity(identity, canonical);
+      });
       let manualConflict = null;
       try {
         if (typeof buildUnsaidAliasIndex === "function" && typeof normalizeUnsaidIdentity === "function") {
@@ -411,13 +416,13 @@ var unsaidModifier = (text) => {
         }
       } catch (e) {}
       if (conflict || manualConflict) {
-        const owner = conflict && conflict.title ? conflict.title : manualConflict;
+        const owner = conflict && typeof CE_cardIdentityName === "function" ? (CE_cardIdentityName(conflict) || manualConflict) : (conflict && conflict.title ? conflict.title : manualConflict);
         pushMessage(`🏷️ "${alias}" already identifies ${owner}. I won't make that alias ambiguous.`);
         return stopControl();
       }
       const canonicalCard = findStoryCardForEntity(canonical);
       if (canonicalCard && !isCharacterLikeCard(canonical)) {
-        pushMessage(`🏷️ "${canonicalCard.title}" is not typed as a character, so I didn't attach a character alias to it.`);
+        pushMessage(`🏷️ "${(typeof CE_cardIdentityName === "function" ? CE_cardIdentityName(canonicalCard) : canonicalCard.title) || canonical}" is not typed as a character, so I didn't attach a character alias to it.`);
         return stopControl();
       }
       const saved = typeof registerUnsaidAlias === "function" ? registerUnsaidAlias(canonical, alias) : null;
@@ -481,16 +486,17 @@ var unsaidModifier = (text) => {
         pushMessage(`👁️ "${name}" matches ${peekEntityMatches.length} Character Story Cards — rename/remove the duplicate or use a more specific name before peeking.`);
         return stopControl();
       }
+      const matchedIdentity = matchedCard && typeof CE_cardIdentityName === "function" ? CE_cardIdentityName(matchedCard) : (matchedCard && matchedCard.title ? matchedCard.title : "");
       if (matchedCard && !isCharacterLikeCard(name)) {
-        pushMessage(`👁️ "${matchedCard.title}" is typed "${matchedCard.type}" on its Story Card, not a character — skipping the peek.`);
+        pushMessage(`👁️ "${matchedIdentity || name}" is typed "${matchedCard.type}" on its Story Card, not a character — skipping the peek.`);
         return stopControl();
       }
-      state.unsaid.forcedPeek = matchedCard && matchedCard.title ? matchedCard.title : name;
+      state.unsaid.forcedPeek = matchedIdentity || name;
       state.unsaid.forcedPeekCore = coreRequested;
       state.unsaid.controlRequest = "peek";
       pushMessage(coreRequested
-        ? `🌗 Checking whether this moment has changed ${matchedCard && matchedCard.title ? matchedCard.title : name}...`
-        : `👁️ Peeking into ${matchedCard && matchedCard.title ? matchedCard.title : name}'s thoughts...`);
+        ? `🌗 Checking whether this moment has changed ${matchedIdentity || name}...`
+        : `👁️ Peeking into ${matchedIdentity || name}'s thoughts...`);
       // This must reach Context/Output, but it is an admin/control turn rather
       // than a request to advance the scene. Output suppresses any incidental
       // story prose after extracting the hidden result.
@@ -519,9 +525,9 @@ var unsaidModifier = (text) => {
         pushMessage(`📇 "${name}" matches ${entityCardMatches.length} entity Story Cards — automatic overwrite is paused until you remove/rename the duplicate or use a more specific name.`);
         return stopControl();
       }
-      state.unsaid.forcedCodex = entityCardMatches.length === 1 && entityCardMatches[0].title
-        ? entityCardMatches[0].title
-        : name;
+      const forcedCardIdentity = entityCardMatches.length === 1 && typeof CE_cardIdentityName === "function"
+        ? CE_cardIdentityName(entityCardMatches[0]) : "";
+      state.unsaid.forcedCodex = forcedCardIdentity || name;
       state.unsaid.controlRequest = "card";
       pushMessage(`📇 Writing a Story Card for ${name}...`);
       return { text: "[UNSPOKEN TURNS CONTROL REQUEST]" };

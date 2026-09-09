@@ -871,22 +871,30 @@ var modifier = (text) => {
     // is still called every narrative turn.
     var worldPacket = runFeature("world_engine", function(){ return typeof CEW_onContext === "function" ? CEW_onContext(working) : ""; }, "", typeof CEW_onContext === "function");
     if (worldPacket) {
-      var canonTailReserve = typeof CE_contextSafetyTailReserve === "function" ? CE_contextSafetyTailReserve() : 0;
-      if (typeof CE_appendCompleteContextSuffix === "function") {
-        var worldAppend = CE_appendCompleteContextSuffix(working, worldPacket, canonTailReserve);
-        if (worldAppend.appended) working = worldAppend.text;
-        else if (typeof utSkipRuntimeTask === "function") utSkipRuntimeTask("world-engine-canon-headroom");
-      } else working += worldPacket;
+      working = runFeature("coordinator", function(){
+        var canonTailReserve = typeof CE_contextSafetyTailReserve === "function" ? CE_contextSafetyTailReserve() : 0;
+        if (typeof CE_appendCompleteContextSuffix === "function") {
+          var worldAppend = CE_appendCompleteContextSuffix(working, worldPacket, canonTailReserve);
+          if (worldAppend.appended) return worldAppend.text;
+          if (typeof utSkipRuntimeTask === "function") utSkipRuntimeTask("world-engine-canon-headroom");
+          return working;
+        }
+        return working + worldPacket;
+      }, working, true);
     }
 
     var bridgePacket = runFeature("coordinator", function(){ return typeof UN_contextPacket === "function" ? UN_contextPacket(working) : ""; }, "", typeof UN_contextPacket === "function");
     if (bridgePacket) {
-      var canonTailReserve2 = typeof CE_contextSafetyTailReserve === "function" ? CE_contextSafetyTailReserve() : 0;
-      if (typeof CE_appendCompleteContextSuffix === "function") {
-        var bridgeAppend = CE_appendCompleteContextSuffix(working, bridgePacket, canonTailReserve2);
-        if (bridgeAppend.appended) working = bridgeAppend.text;
-        else if (typeof utSkipRuntimeTask === "function") utSkipRuntimeTask("fusion-canon-headroom");
-      } else working += bridgePacket;
+      working = runFeature("coordinator", function(){
+        var canonTailReserve2 = typeof CE_contextSafetyTailReserve === "function" ? CE_contextSafetyTailReserve() : 0;
+        if (typeof CE_appendCompleteContextSuffix === "function") {
+          var bridgeAppend = CE_appendCompleteContextSuffix(working, bridgePacket, canonTailReserve2);
+          if (bridgeAppend.appended) return bridgeAppend.text;
+          if (typeof utSkipRuntimeTask === "function") utSkipRuntimeTask("fusion-canon-headroom");
+          return working;
+        }
+        return working + bridgePacket;
+      }, working, true);
     }
 
     var finalResult = runFeature("unsaid", function(){ return unsaidModifier(working); }, {text:working}, typeof unsaidModifier === "function");
@@ -898,15 +906,19 @@ var modifier = (text) => {
     // shrink/yield without starving the other specialists.
     var canonPacket = runFeature("canon_sentinel", function(){ return typeof CECS_onContext === "function" ? CECS_onContext(originalText) : ""; }, "", typeof CECS_onContext === "function");
     if (canonPacket) {
-      var canonBudget = canonPacket.length + 4;
-      try {
-        if (typeof info !== "undefined" && info && Number.isFinite(Number(info.maxChars))) {
-          canonBudget = Math.max(0, Math.floor(Number(info.maxChars)) - String(finalResult.text || "").length);
-        }
-      } catch (_) {}
-      if (typeof CECS_fitPacketToBudget === "function") canonPacket = CECS_fitPacketToBudget(canonPacket, canonBudget);
-      if (canonPacket) finalResult.text += canonPacket;
-      else if (typeof utSkipRuntimeTask === "function") utSkipRuntimeTask("canon-sentinel-no-final-headroom");
+      finalResult.text = runFeature("canon_sentinel", function(){
+        var fitted = canonPacket;
+        var canonBudget = fitted.length + 4;
+        try {
+          if (typeof info !== "undefined" && info && Number.isFinite(Number(info.maxChars))) {
+            canonBudget = Math.max(0, Math.floor(Number(info.maxChars)) - String(finalResult.text || "").length);
+          }
+        } catch (_) {}
+        if (typeof CECS_fitPacketToBudget === "function") fitted = CECS_fitPacketToBudget(fitted, canonBudget);
+        if (fitted) return String(finalResult.text || "") + fitted;
+        if (typeof utSkipRuntimeTask === "function") utSkipRuntimeTask("canon-sentinel-no-final-headroom");
+        return finalResult.text;
+      }, finalResult.text, true);
     }
 
     runFeature("full_hardening", function(){ if (typeof CEFH_maintenance === "function") CEFH_maintenance("context-final", finalResult.text); }, null, typeof CEFH_maintenance === "function");

@@ -713,7 +713,7 @@ var unsaidModifier = (text) => {
         if (typeof codexCommitStoryCard === "function") {
           if (!codexCommitStoryCard(card, finalKeys, finalEntry, finalType || platformType(type), name, card.description || card.notes)) return false;
         } else {
-          card.title = name; card.name = name; card.type = finalType || platformType(type); card.entry = finalEntry; card.keys = finalKeys;
+          if (!CE_updateStoryCardCompat(card, finalKeys, finalEntry, finalType || platformType(type), name, card.description || card.notes).ok) return false;
         }
 
         cardWasNew[name] = isNewCard;
@@ -848,7 +848,7 @@ var unsaidModifier = (text) => {
         if (typeof codexCommitStoryCard === "function") {
           if (!codexCommitStoryCard(card, name.toLowerCase(), entry, platformType(type), name, card.description || card.notes)) return false;
         } else {
-          card.title = name; card.name = name; card.keys = name.toLowerCase(); card.type = platformType(type); card.entry = entry;
+          if (!CE_updateStoryCardCompat(card, name.toLowerCase(), entry, platformType(type), name, card.description || card.notes).ok) return false;
         }
 
         cardWasNew[name] = true;

@@ -210,6 +210,14 @@ A bounded activation ledger keeps only recent turns and powers the runtime diagn
 
 Optimized Context does **not** deactivate specialists. It may defer expensive guidance or Story Card presentation work, but evidence observation, relationship maintenance, world state, continuity and subsystem heartbeats still advance on the turn.
 
+## 🧩 Final polish hardening
+
+The shared Story Card layer has been tightened again so configuration, CODEX, relationship presentation, UNSAID mind Notes, diagnostics and legacy fallback cards all use one replacement-safe persistence contract. Genuine no-op writes are skipped instead of replacing an unchanged Story Card, but a host-refused write remains marked degraded until the host actually accepts it.
+
+Story Card key parsing is now normalized across comma, semicolon, pipe and newline delimiters. Core identity lookup also falls back through durable keys/Entry metadata rather than trusting optional `title`/`name` fields, which improves compatibility with titleless/core-only host behavior. Legacy optimized-context backup cards now carry inert ownership sentinels so they can still be found and removed safely if optional metadata disappears.
+
+Per-turn health reporting is stricter too: a later successful call cannot erase an earlier failure from the same subsystem/hook. Shared Context packet assembly is fault-isolated, `/unsaid resetcodex` preserves the owned CODEX sentinel, and production code is statically checked so Story Card core/Notes fields are not mutated outside the compatibility layer.
+
 ## ⚡ Long adventures and large Story Card libraries
 
 CROSSED ECHOES uses bounded caches, capped histories, active-first Story Card sampling, streaming fingerprints and an adaptive runtime governor to keep work under control as an Adventure grows.
@@ -313,7 +321,7 @@ I test CROSSED ECHOES against isolated AI Dungeon-style hooks, long-running stat
 
 The target is not a large test number. The target is for the script to visibly do what it claims in normal play while still knowing when **not** to invent something.
 
-The current release passes the 185-test core suite, the stricter 185-test JSON/replacement round-trip suite, the dedicated **18/18 complete relationship + persisted Notes regression**, deep-system and twist suites, live Story Card metadata persistence, generic Notes/canon semantics, Notes-write-loss detection, the ultimate persistence/recovery regressions, source-hygiene checks, full-system/adversarial/host-contract checks, 30/30 cross-genre matrices in both Context modes, 60-turn general simulations, 48-turn fluidity simulations, high-concept temporal/multiversal simulations, 312-card relationship-foundation stress, 5,000 randomized property iterations / 82,000 checks, 1,000 malformed-state recoveries, and the 5,000-card correctness ceiling. Exact details and measured timings are in `TEST_REPORT.txt`.
+The current release passes the 185-test core suite, the stricter 185-test JSON/replacement round-trip suite, the dedicated **18/18 complete relationship + persisted Notes regression**, **9/9 per-turn activation/state heartbeat**, **8/8 final-polish regression**, deep-system and twist suites, live Story Card metadata persistence, generic Notes/canon semantics, Notes-write-loss detection, the ultimate persistence/recovery regressions, source-hygiene checks, full-system/adversarial/host-contract checks, 30/30 cross-genre matrices in both Context modes, 60-turn general simulations, 48-turn fluidity simulations, high-concept temporal/multiversal simulations, 312-card relationship-foundation stress, 5,000 randomized property iterations / 82,000 checks, 1,000 malformed-state recoveries, and the 5,000-card correctness ceiling. Exact details and measured timings are in `TEST_REPORT.txt`.
 
 Technical verification is kept with the release for anyone who wants to inspect it, but the public documentation stays focused on using the script rather than exposing internal fixtures or private scenario material.
 
