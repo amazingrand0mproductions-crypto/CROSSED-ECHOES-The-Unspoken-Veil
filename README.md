@@ -218,6 +218,14 @@ Story Card key parsing is now normalized across comma, semicolon, pipe and newli
 
 Per-turn health reporting is stricter too: a later successful call cannot erase an earlier failure from the same subsystem/hook. Shared Context packet assembly is fault-isolated, `/unsaid resetcodex` preserves the owned CODEX sentinel, and production code is statically checked so Story Card core/Notes fields are not mutated outside the compatibility layer.
 
+### 🧾 Live Character Notes self-repair
+
+Blank Character Notes are no longer treated as proof that presentation has already finished. CROSSED ECHOES checks the live card itself and automatically rebuilds the managed `🌒 CROSSED ECHOES — SCRIPT STATE` block for non-player Characters that have usable canon. Active Characters can repair during Context; the wider cast is migrated incrementally on Output.
+
+The persistence watcher verifies what survives on the next isolated hook. If a Notes write disappears, that Character is requeued automatically instead of being marked complete. Large libraries use bounded migration chunks so self-repair does not turn a thousands-of-Characters first turn into an unbounded scan.
+
+Creator canon from current AI Instructions/Plot Essentials-style context can also outrank stale older Story Card wording in the managed diagnostic block without rewriting the public Entry. This is especially important for updated knowledge boundaries, relationship status, consent/boundaries and other current facts that may have changed since the Character card was authored.
+
 ## ⚡ Long adventures and large Story Card libraries
 
 CROSSED ECHOES uses bounded caches, capped histories, active-first Story Card sampling, streaming fingerprints and an adaptive runtime governor to keep work under control as an Adventure grows.
@@ -311,7 +319,7 @@ CROSSED ECHOES now writes Story Card metadata through a replacement-safe compati
 
 Entity Notes are also verified independently from config-card persistence. Modern `🌒 CROSSED ECHOES — SCRIPT STATE` Character Notes are now a bounded recovery layer as well as a dashboard: if the private UNSAID state is lost or malformed, supported continuity such as private attitudes, core stability and recent private-memory snippets can be reconstructed conservatively from the managed Notes instead of resetting the NPC to a blank state. The CROSSED WIRES section writes every validated counterpart and every compatible active role rather than only the most recent few bonds. Creator-written Notes remain preserved above the managed block.
 
-If a managed Notes write still disappears on the next isolated hook, CROSSED ECHOES raises a warning instead of pretending the dashboard is healthy. If that happens in AI Dungeon, make sure Scripts are enabled and Gameplay → Memory System → Memory Bank is enabled before retrying.
+If a managed Notes write still disappears on the next isolated hook, CROSSED ECHOES raises a warning, automatically requeues that Character and keeps retrying instead of pretending the dashboard is healthy. `/crossedechoes doctor` reports managed/missing Character Notes and persistence failures. The player Character remains intentionally excluded from NPC-private managed Notes.
 
 ---
 
@@ -321,7 +329,7 @@ I test CROSSED ECHOES against isolated AI Dungeon-style hooks, long-running stat
 
 The target is not a large test number. The target is for the script to visibly do what it claims in normal play while still knowing when **not** to invent something.
 
-The current release passes the 185-test core suite, the stricter 185-test JSON/replacement round-trip suite, the dedicated **18/18 complete relationship + persisted Notes regression**, **9/9 per-turn activation/state heartbeat**, **8/8 final-polish regression**, deep-system and twist suites, live Story Card metadata persistence, generic Notes/canon semantics, Notes-write-loss detection, the ultimate persistence/recovery regressions, source-hygiene checks, full-system/adversarial/host-contract checks, 30/30 cross-genre matrices in both Context modes, 60-turn general simulations, 48-turn fluidity simulations, high-concept temporal/multiversal simulations, 312-card relationship-foundation stress, 5,000 randomized property iterations / 82,000 checks, 1,000 malformed-state recoveries, and the 5,000-card correctness ceiling. Exact details and measured timings are in `TEST_REPORT.txt`.
+The current release passes the 185-test core suite, the stricter 185-test JSON/replacement round-trip suite, the dedicated **18/18 complete relationship + persisted Notes regression**, **9/9 per-turn activation/state heartbeat**, **8/8 live Notes bootstrap/self-repair regression**, **8/8 final-polish regression**, deep-system and twist suites, live Story Card metadata persistence, generic Notes/canon semantics, Notes-write-loss detection, the ultimate persistence/recovery regressions, source-hygiene checks, full-system/adversarial/host-contract checks, real large-adventure Notes replay, 30/30 cross-genre matrices, long WORLD/high-concept/fluidity simulations, 312-card relationship-foundation stress, 5,000 randomized property iterations / 82,000 checks, 1,000 malformed-state recoveries, and the 5,000-card correctness ceiling. Exact details and measured timings are in `TEST_REPORT.txt`.
 
 Technical verification is kept with the release for anyone who wants to inspect it, but the public documentation stays focused on using the script rather than exposing internal fixtures or private scenario material.
 

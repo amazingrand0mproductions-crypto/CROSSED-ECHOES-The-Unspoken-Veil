@@ -1458,7 +1458,7 @@ var modifier = (text) => {
     runFeature("coordinator", function(){ if (typeof UN_afterOutput === "function") UN_afterOutput(visible); }, null, typeof UN_afterOutput === "function");
     runFeature("full_hardening", function(){ if (typeof CEFH_finishOutput === "function") CEFH_finishOutput(visible); }, null, typeof CEFH_finishOutput === "function");
     runFeature("coordinator", function(){ if (typeof CE_bridgeEchoThreadsToTwists === "function") CE_bridgeEchoThreadsToTwists(); }, null, typeof CE_bridgeEchoThreadsToTwists === "function");
-    runFeature("storycard_presentation", function(){ if (typeof CE_syncStoryCardPresentation === "function") CE_syncStoryCardPresentation(); }, null, typeof CE_syncStoryCardPresentation === "function");
+    runFeature("storycard_presentation", function(){ if (typeof CE_syncStoryCardPresentation === "function") CE_syncStoryCardPresentation(visible); }, null, typeof CE_syncStoryCardPresentation === "function");
     if (typeof CE_activationCompleteOutputTurn === "function") CE_activationCompleteOutputTurn();
     return { text: visible };
   } catch (e) {

@@ -839,6 +839,11 @@ var modifier = (text) => {
 
     runFeature("full_hardening", function(){ if (typeof CEFH_prepareContext === "function") CEFH_prepareContext(originalText); }, null, typeof CEFH_prepareContext === "function");
     runFeature("canon_sentinel", function(){ if (typeof CE_captureAuthoritativeEntityLocks === "function") CE_captureAuthoritativeEntityLocks(originalText); }, null, typeof CE_captureAuthoritativeEntityLocks === "function");
+    // Live repair path: Context contains the authoritative creator instructions
+    // plus recent story. Repair directly mentioned NPC Notes here as well as on
+    // Output so a stale/failed Output presentation queue cannot leave active
+    // Character cards permanently blank after an upgrade.
+    try { if (typeof CE_syncDirectStoryCardPresentation === "function") CE_syncDirectStoryCardPresentation(originalText, 4); } catch (_) {}
 
     // Manual UNSAID/Codex generations own the whole model call. They are
     // administrative workers, not story turns, so skip the other directors.
@@ -922,6 +927,14 @@ var modifier = (text) => {
     }
 
     runFeature("full_hardening", function(){ if (typeof CEFH_maintenance === "function") CEFH_maintenance("context-final", finalResult.text); }, null, typeof CEFH_maintenance === "function");
+
+    // Second live Notes pass happens AFTER relationship/world/canon maintenance.
+    // The early pass guarantees a blank active Character card gets repaired even
+    // if a later specialist fails; this late pass guarantees same-turn creator
+    // canon (friendship, boundaries, role changes, etc.) is reflected immediately
+    // rather than one Output/turn later. The writer is no-op aware, so unchanged
+    // cards do not incur another host replacement.
+    try { if (typeof CE_syncDirectStoryCardPresentation === "function") CE_syncDirectStoryCardPresentation(originalText, 6); } catch (_) {}
     return finalResult;
   } catch (e) {
     if (typeof utRecordRuntimeError === "function") utRecordRuntimeError("Context/unified", e);

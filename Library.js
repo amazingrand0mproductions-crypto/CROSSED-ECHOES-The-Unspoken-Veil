@@ -494,7 +494,7 @@ function CE_noteExpectedEntityNotes(card,name,notes) {
       if(rec.id&&x.id)return String(x.id)!==rec.id;
       return String(x.key||"").toLowerCase()!==String(rec.key||"").toLowerCase()||String(x.name||"").toLowerCase()!==String(rec.name||"").toLowerCase();
     });
-    w.pending.push(rec);if(w.pending.length>16)w.pending=w.pending.slice(-16);
+    w.pending.push(rec);if(w.pending.length>48)w.pending=w.pending.slice(-48);
   }catch(_){}
 }
 function CE_findExpectedNotesCard(rec) {
@@ -524,11 +524,24 @@ function CE_verifyExpectedEntityNotes(currentPhase) {
     });
     w.pending=keep;
     if(!failed.length)return 0;
+    // A failed Notes write must become actionable repair work immediately. The
+    // old watcher only counted failures; on a large cast the failed Character
+    // could then wait until the entire presentation queue cycled before being
+    // attempted again. Requeue failed identities at the front for the next
+    // presentation pass while retaining bounded work per hook.
+    try{
+      var cw=state.crossedWires;if(cw){
+        var existing=Array.isArray(cw.foundationPresentationQueue)?cw.foundationPresentationQueue.slice():[];
+        var retry=[];failed.forEach(function(rec){var n=String(rec&&rec.name||"").trim();if(n&&!retry.some(function(x){return CE_sameName(x,n);}))retry.push(n);});
+        existing=existing.filter(function(n){return !retry.some(function(x){return CE_sameName(x,n);});});
+        cw.foundationPresentationQueue=retry.concat(existing);
+      }
+    }catch(_){}
     w.failures=Number(w.failures||0)+failed.length;
     w.lastReason="Story Card Notes write disappeared between isolated hooks";
     if(now-Number(w.lastWarnAction||-999999)>=2){
       w.lastWarnAction=now;
-      if(typeof pushMessage==="function")pushMessage("⚠️ CROSSED ECHOES detected that script-managed Story Card Notes did not persist between AI Dungeon hooks. The story engine is still running, but the visible Notes dashboard is stale. If your AI Dungeon setup requires it, enable Gameplay → Memory System → Memory Bank and retry; otherwise check whether scripted Story Card metadata writes are being preserved.");
+      if(typeof pushMessage==="function")pushMessage("⚠️ CROSSED ECHOES: Character Story Card Notes did not persist between AI Dungeon hooks. The card has been requeued automatically and the story engine is still running. CROSSED ECHOES will keep retrying the live Notes repair path; /crossedechoes doctor shows current Notes coverage and persistence failures.");
     }
     return failed.length;
   }catch(_){return 0;}
@@ -643,12 +656,19 @@ function CE_coreConfigTitle(card) {
   if (CE_hasCardKey(card, CE_TWIST_FACTS_SENTINEL)) return "CROSSED ECHOES — Established Facts";
   return "";
 }
+var CE_STORY_CARD_COMPAT_HYDRATED = false;
 function CE_hydrateStoryCardCompat() {
   // title/name are convenient host extensions, not persistence primitives.
-  // Reconstruct them ephemerally every isolated hook so legacy helper paths
-  // remain fast while all durable identity lives in keys/entry/type.
+  // Reconstruct them ephemerally only on modest libraries. Correctness-critical
+  // code resolves identity from keys/Entry/type via CE_cardIdentityName, so a
+  // 5,000-card adventure must not spend a large fraction of every hook merely
+  // decorating host objects with optional metadata. The helper is also strictly
+  // once-per-hook: config bootstrap may call it after the Library's startup pass.
   try {
+    if (CE_STORY_CARD_COMPAT_HYDRATED) return 0;
+    CE_STORY_CARD_COMPAT_HYDRATED = true;
     if (typeof storyCards === "undefined" || !Array.isArray(storyCards)) return 0;
+    if (storyCards.length > 1200) return 0;
     let hydrated = 0;
     for (let i = 0; i < storyCards.length; i++) {
       const card = storyCards[i];
@@ -21610,10 +21630,22 @@ function CE_liveCanonNotesState(){
 }
 function CE_lineMentionsKnownEntities(line,cap){
   try{
-    var idx=CE_sharedStoryCardIndex(),norm=CE_sharedCardNorm(line),tokens=norm.split(/\s+/).filter(function(t){return t.length>=3;}),seenRec={},cands=[];
-    for(var i=0;i<tokens.length&&cands.length<80;i++){
-      var rows=idx.byToken[tokens[i]]||[];
-      for(var j=0;j<rows.length&&cands.length<80;j++){var r=rows[j];if(!r||seenRec[r.index])continue;seenRec[r.index]=1;cands.push(r);}
+    var idx=CE_sharedStoryCardIndex(),norm=CE_sharedCardNorm(line),rawTokens=norm.split(/\s+/).filter(function(t){return t.length>=3;}),uniq={},buckets=[];
+    // Large adventures often have hundreds/thousands of cards sharing broad
+    // tokens such as "legacy", "university", "walker" or "character". The old
+    // implementation consumed its entire candidate budget from the first broad
+    // token it saw, which could make a later explicit full Character name
+    // invisible. Rank token buckets by selectivity first so literal rare names
+    // always get a chance to resolve.
+    rawTokens.forEach(function(t){if(uniq[t])return;uniq[t]=1;var rows=idx.byToken[t]||[];if(rows.length)buckets.push({token:t,rows:rows});});
+    buckets.sort(function(a,b){return Number(a.rows.length||0)-Number(b.rows.length||0)||String(b.token||"").length-String(a.token||"").length;});
+    var seenRec={},cands=[],candidateCap=Math.max(120,Math.min(360,(Number(cap)||6)*40));
+    for(var i=0;i<buckets.length&&cands.length<candidateCap;i++){
+      var rows=buckets[i].rows||[];
+      // A single generic bucket must never monopolize the pool. Rare buckets
+      // are already first; broad buckets contribute only enough for recall.
+      var perBucket=Math.min(rows.length,rows.length<=24?rows.length:24);
+      for(var j=0;j<perBucket&&cands.length<candidateCap;j++){var r=rows[j];if(!r||seenRec[r.index])continue;seenRec[r.index]=1;cands.push(r);}
     }
     var out=[],seen={};
     function present(alias){
@@ -21631,29 +21663,52 @@ function CE_lineMentionsKnownEntities(line,cap){
     return out;
   }catch(_){return [];}
 }
+function CE_safeCreatorCanonNote(line){
+  var s=String(line||"");
+  // Preserve the creator's boundary meaning without copying phrases that can
+  // read like romantic subtext when viewed out of their original negated
+  // sentence. Notes are a dashboard, not a verbatim instruction dump.
+  s=s.replace(/\bhidden\s+yes\b/gi,"consent");
+  s=s.replace(/\bsecretly\s+wants?\b/gi,"has consented");
+  return s.replace(/\s+/g," ").trim();
+}
 function CE_captureAuthoritativeEntityLocks(text){
   try{
     var box=CE_liveCanonNotesState();if(!box)return;
     var source=typeof CE_authoritativeContextHead==="function"?CE_authoritativeContextHead(text,18000):String(text||"").slice(0,18000);
     var sig=CE_notesFingerprint(source),turn=(typeof info!=="undefined"&&info&&Number.isFinite(Number(info.actionCount)))?Number(info.actionCount):0;
     if(box.signature===sig&&Number(box.turn)===turn)return;
-    var by={},lines=String(source||"").replace(/\r/g,"").split(/\n+/).map(function(x){return x.trim();}).filter(Boolean);
+    var by={},lines=String(source||"").replace(/\r/g,"").split(/\n+/).map(function(x){return x.trim();}).filter(Boolean),sectionEntity="";
     var strong=/\b(?:now|currently|explicitly|has been told|have been told|does not|doesn't|do not|don't|did not|not yet|has not|have not|unresolved|unknown|unverified|unconfirmed|boundary|declined|refused|not looking for|does not want|doesn't want|friend|co-investigator|married|relationship|kiss|theory|not fact|not canon|not automatically|not entered|has entered|entered yet)\b/i;
+    function add(name,line){
+      if(!name||!line)return;if(typeof CE_isPlayerIdentity==="function"&&CE_isPlayerIdentity(name))return;
+      var k=String(name).toLowerCase();if(!by[k])by[k]={name:name,lines:[]};
+      var safeLine=CE_safeCreatorCanonNote(line);if(!safeLine)return;if(!by[k].lines.some(function(x){return x.toLowerCase()===safeLine.toLowerCase();}))by[k].lines.push(CE_noteClip(safeLine,360));
+      if(by[k].lines.length>6)by[k].lines=by[k].lines.slice(-6);
+    }
     lines.forEach(function(line){
+      // AI Instructions/Plot Essentials commonly use a character's name as a
+      // section heading followed by pronoun-led canon ("MEGAN" -> "They shared
+      // one brief mutual kiss..."). Preserve that structured ownership instead
+      // of losing the fact simply because every sentence does not repeat the
+      // name. An unrelated uppercase heading clears the character section.
+      var headingLike=line.length<=80&&!/[.!?]$/.test(line)&&(/^[A-Z0-9 /&'’_-]{2,}$/.test(line)||/^[A-Z][A-Za-z'’.-]+(?:\s+[A-Z][A-Za-z'’.-]+){0,3}$/.test(line));
+      if(headingLike){
+        var hc=CE_lineMentionsKnownEntities(line,3);
+        if(hc.length===1) sectionEntity=hc[0];
+        else if(/^[A-Z0-9 /&'’_-]{2,}$/.test(line)) sectionEntity="";
+      }
       if(line.length<12||line.length>520||!strong.test(line))return;
       var words=line.split(/\s+/);if(words.length<=6&&line===line.toUpperCase()&&!/[.!?]/.test(line))return;
-      CE_lineMentionsKnownEntities(line,6).forEach(function(name){
-        if(typeof CE_isPlayerIdentity==="function"&&CE_isPlayerIdentity(name))return;
-        var k=String(name).toLowerCase();if(!by[k])by[k]={name:name,lines:[]};
-        if(!by[k].lines.some(function(x){return x.toLowerCase()===line.toLowerCase();}))by[k].lines.push(CE_noteClip(line,360));
-        if(by[k].lines.length>4)by[k].lines=by[k].lines.slice(-4);
-      });
+      var mentioned=CE_lineMentionsKnownEntities(line,6);
+      if(!mentioned.length&&sectionEntity) mentioned=[sectionEntity];
+      mentioned.forEach(function(name){add(name,line);});
     });
     box.turn=turn;box.signature=sig;box.byEntity=by;
   }catch(_){}
 }
 function CE_currentCanonNotesForEntity(name){
-  try{var box=CE_liveCanonNotesState(),wanted=String(name||"").toLowerCase(),row=box&&box.byEntity&&box.byEntity[wanted];return row&&Array.isArray(row.lines)?row.lines.slice(0,4):[];}catch(_){return [];}
+  try{var box=CE_liveCanonNotesState(),wanted=String(name||"").toLowerCase(),row=box&&box.byEntity&&box.byEntity[wanted];return row&&Array.isArray(row.lines)?row.lines.slice(0,6):[];}catch(_){return [];}
 }
 function CE_liveCanonTwistResolution(thread,name){
   try{
@@ -21698,6 +21753,17 @@ function CE_unsaidCardSection(name) {
     return lines.length?lines.join("\n"):"Tracking active; no new private state this turn.";
   } catch(_){return "Tracking available.";}
 }
+function CE_currentRelationshipBoundary(events){
+  try{
+    var rows=(Array.isArray(events)?events:[]),lastReject=-1,lastPositive=-1,reject=null;
+    var positive={date_or_courtship:1,confession:1,affection_declared:1,relationship_defined:1,exclusivity:1,commitment:1,proposal:1,marriage:1,reconciliation:1};
+    rows.forEach(function(e,i){if(!e)return;if(e.kind==="rejection"){lastReject=i;reject=e;}if(positive[e.kind])lastPositive=i;});
+    if(lastReject>=0&&lastReject>lastPositive){
+      return "current romantic boundary: declined/no relationship is established; earlier attraction, flirting or a kiss does not override present consent";
+    }
+  }catch(_){}
+  return "";
+}
 function CE_crossedCardSection(name) {
   try {
     if(!state.crossedWires)return "Relationship tracking ready; no relationship history yet.";
@@ -21737,7 +21803,11 @@ function CE_crossedCardSection(name) {
         }
         continue;
       }
-      var label=link.explicitRoleOnly?("established "+(typeof CW_roleDisplay==="function"?CW_roleDisplay(role):role)+" relationship"):(typeof CW_roleAwareLabel==="function"?CW_roleAwareLabel(link):"developing relationship"),pressure=typeof CW_pressureText==="function"?CW_pressureText(link.scores||{}):"tracked",extra=link.unresolved?"; unresolved: "+link.unresolved:"";lines.push(CE_noteClip(prefix+": "+label+"; "+pressure+"; trajectory "+(link.trajectory||"forming")+extra,460));
+      var label=link.explicitRoleOnly?("established "+(typeof CW_roleDisplay==="function"?CW_roleDisplay(role):role)+" relationship"):(typeof CW_roleAwareLabel==="function"?CW_roleAwareLabel(link):"developing relationship"),pressure=typeof CW_pressureText==="function"?CW_pressureText(link.scores||{}):"tracked",extra=link.unresolved?"; unresolved: "+link.unresolved:"";
+      var pairKey=(typeof CW_key==="function"?CW_key(link.from):String(link.from||"").toLowerCase())+"=>"+(String(link.to||"").toUpperCase()==="YOU"?"you":(typeof CW_key==="function"?CW_key(link.to):String(link.to||"").toLowerCase()));
+      var boundary=CE_currentRelationshipBoundary(eventMap[pairKey]||[]);
+      if(boundary) lines.push(CE_noteClip(prefix+": "+label+"; "+boundary+"; trajectory "+(link.trajectory||"forming")+extra,520));
+      else lines.push(CE_noteClip(prefix+": "+label+"; "+pressure+"; trajectory "+(link.trajectory||"forming")+extra,460));
     }
     return lines.length?lines.join("\n"):"Relationship tracking ready; no mature directional bond is established yet.";
   } catch(_){return "Relationship tracking available.";}
@@ -21845,7 +21915,16 @@ function CE_syncEntityCard(name){try{
   var displayName=String(CE_cardIdentityName(card)||name).trim()||name;
   if(kind==="character"&&CE_isPlayerIdentity(displayName))return false;
   var base=CE_publicStoryCardNotes(card),managed=CE_renderManagedEntityNotes(displayName,card,kind),next=(base?base+"\n\n":"")+CE_CARD_NOTES_START+"\n"+managed;
-  if(String(card.description||card.notes||"")!==next){var committed=CE_updateStoryCardCompat(card,CE_cardKeysCore(card),CE_cardEntryCore(card),String(card.type||kind),displayName,next);var live=committed.card||card;if(typeof CE_noteExpectedEntityNotes==="function")CE_noteExpectedEntityNotes(live,displayName,next);}return true;
+  var before=String(card.description||card.notes||"");
+  if(before===next)return before.indexOf(CE_CARD_NOTES_START)>=0;
+  var committed=CE_updateStoryCardCompat(card,CE_cardKeysCore(card),CE_cardEntryCore(card),String(card.type||kind),displayName,next),live=committed.card||card;
+  if(typeof CE_noteExpectedEntityNotes==="function")CE_noteExpectedEntityNotes(live,displayName,next);
+  // apiOk=false means even the core host update path was unavailable/rejected;
+  // keep this card in the rotating repair queue instead of marking it done.
+  // A core-only host that accepts the four-argument fallback remains watched
+  // across the next isolated hook, where any lost Notes are automatically
+  // requeued by CE_verifyExpectedEntityNotes().
+  return !!(committed&&committed.apiOk&&String(live.description||live.notes||"").indexOf(CE_CARD_NOTES_START)>=0);
 }catch(_){return false;}}
 function CE_syncCrossedWiresCardSection(name){
   try{
@@ -21857,7 +21936,7 @@ function CE_syncCrossedWiresCardSection(name){
     // one stale Crossed Wires paragraph.
     if(raw.indexOf(CE_CARD_NOTES_START)>=0&&/❤️ CROSSED WIRES\n/.test(raw)){
       var next=raw.replace(/❤️ CROSSED WIRES\n[\s\S]*?(?=\n\n🌘 ECHO VEIL)/,nextSection);
-      if(next!==raw){var committed=CE_updateStoryCardCompat(card,CE_cardKeysCore(card),CE_cardEntryCore(card),String(card.type||"Character"),playerDisplay,next);var live=committed.card||card;if(typeof CE_noteExpectedEntityNotes==="function")CE_noteExpectedEntityNotes(live,playerDisplay,next);}return true;
+      if(next!==raw){var committed=CE_updateStoryCardCompat(card,CE_cardKeysCore(card),CE_cardEntryCore(card),String(card.type||"Character"),playerDisplay,next);var live=committed.card||card;if(typeof CE_noteExpectedEntityNotes==="function")CE_noteExpectedEntityNotes(live,playerDisplay,next);return !!(committed&&committed.apiOk&&String(live.description||live.notes||"").indexOf(CE_CARD_NOTES_START)>=0);}return true;
     }
     return CE_syncEntityCard(display);
   }catch(_){return false;}
@@ -21903,35 +21982,108 @@ function CE_bridgeEchoThreadsToTwists(){
   }catch(_){}return null;
 }
 
+function CE_characterCardNeedsManagedNotes(card){
+  try{
+    if(!card||!/^(?:character|npc)$/i.test(String(card.type||"")))return false;
+    var name=String(CE_cardIdentityName(card)||"").trim();
+    if(!name||CE_isPlayerIdentity(name))return false;
+    var raw=String(card.description||card.notes||"");
+    if(raw.indexOf(CE_CARD_NOTES_START)>=0)return false;
+    // Blank/current Character cards and any Character card with explicit
+    // relationship canon are eligible for automatic Notes bootstrap. Cards
+    // deliberately archived with no triggers and no relationship field stay
+    // quiet until they become relevant again.
+    var keys=String(CE_cardKeysCore(card)||"").trim(),entry=String(CE_cardEntryCore(card)||"");
+    var relationship=/^\s*(?:Relationships?|Family|Parents?|Children?|Siblings?|Cousins?|Grandparents?|Aunts?|Uncles?|Friends?|Roommates?|Colleagues?|Teammates?|Mentors?|Students?|Partners?|Spouses?|Exes?|Doctor|Patient|Lawyer|Client|Handler|Asset|Captain|Crew|Caregiver)\s*:/im.test(entry);
+    return !!(keys||relationship);
+  }catch(_){return false;}
+}
+function CE_characterNotesCoverageSnapshot(){
+  try{
+    var rows=typeof CE_sharedStoryCardCharacters==="function"?CE_sharedStoryCardCharacters():[],eligible=0,managed=0,missing=0;
+    rows.forEach(function(r){var c=r&&r.card;if(!c)return;var name=String(CE_cardIdentityName(c)||"").trim();if(!name||CE_isPlayerIdentity(name))return;var raw=String(c.description||c.notes||"");var isManaged=raw.indexOf(CE_CARD_NOTES_START)>=0;var isEligible=isManaged||CE_characterCardNeedsManagedNotes(c);if(!isEligible)return;eligible++;if(isManaged)managed++;else missing++;});
+    return {eligible:eligible,managed:managed,missing:missing};
+  }catch(_){return {eligible:0,managed:0,missing:0};}
+}
+function CE_directCharacterNamesFromText(text,cap){
+  try{
+    var src=String(text||"");
+    // Context can be enormous. The recent tail is what identifies who is
+    // actually in this beat; creator canon is captured separately by
+    // CE_captureAuthoritativeEntityLocks.
+    if(src.length>7000)src=src.slice(-7000);
+    return CE_lineMentionsKnownEntities(src,Math.max(1,Math.min(12,Number(cap)||6)));
+  }catch(_){return [];}
+}
+function CE_syncDirectStoryCardPresentation(text,cap){
+  var count=0;try{CE_directCharacterNamesFromText(text,cap).forEach(function(n){if(CE_syncEntityCard(n))count++;});}catch(_){}return count;
+}
 function CE_relationshipPresentationQueue(cw){
   try{
     cw=cw||state.crossedWires||{};
-    var sig=String(cw.foundationSignature||"");
-    if(cw.foundationPresentationTargetSignature===sig&&Array.isArray(cw.foundationPresentationQueue))return cw.foundationPresentationQueue;
+    var sig=String(cw.foundationSignature||""),cards=(typeof storyCards!=="undefined"&&Array.isArray(storyCards))?storyCards:[],large=cards.length>1200;
+    if(String(cw.foundationPresentationScanSignature||"")!==sig){
+      cw.foundationPresentationScanSignature=sig;
+      cw.foundationPresentationScanCursor=0;
+      cw.foundationPresentationScanComplete=false;
+    }
+    // A queue from an older build can be empty even while Character Notes are
+    // still blank. On ordinary libraries a cheap coverage check verifies the
+    // cache. On very large libraries, avoid rescanning thousands of Character
+    // cards in one hook: continue a bounded migration scan instead. Current-scene
+    // names are repaired separately and therefore never wait for this cursor.
+    if(cw.foundationPresentationTargetSignature===sig&&Array.isArray(cw.foundationPresentationQueue)){
+      if(cw.foundationPresentationQueue.length)return cw.foundationPresentationQueue;
+      if(!large){
+        var coverage=CE_characterNotesCoverageSnapshot();
+        if(!coverage.missing){cw.foundationPresentationScanComplete=true;return cw.foundationPresentationQueue;}
+      }else if(cw.foundationPresentationScanComplete){
+        // A completed sweep normally means there is nothing left to migrate.
+        // Persistence failures are pushed directly back into the queue by the
+        // watcher, so no 5,000-card coverage rescan is needed every turn.
+        return cw.foundationPresentationQueue;
+      }
+    }
     var participants={},found=cw.foundations||{};
     Object.keys(found).forEach(function(k){var f=found[k];if(!f)return;participants[String(f.from||"").toLowerCase()]=true;if(String(f.to||"").toUpperCase()!=="YOU")participants[String(f.to||"").toLowerCase()]=true;});
     var queue=[],recent="";try{recent=typeof CW_recentHistoryText==="function"?CW_recentHistoryText():"";}catch(_){}
-    if(typeof storyCards!=="undefined"&&Array.isArray(storyCards))storyCards.forEach(function(card,idx){
-      if(!card||!/^(?:character|npc)$/i.test(String(card.type||"")))return;
-      var title=String(CE_cardIdentityName(card)).trim();if(!title)return;
+    var scanStart=large?Math.max(0,Math.min(cards.length,Number(cw.foundationPresentationScanCursor)||0)):0;
+    // 320 cards keeps worst-case migration comfortably bounded while normal
+    // adventures (including several hundred cards) still bootstrap in one pass.
+    var scanEnd=large?Math.min(cards.length,scanStart+320):cards.length;
+    for(var idx=scanStart;idx<scanEnd;idx++){
+      var card=cards[idx];
+      if(!card||!/^(?:character|npc)$/i.test(String(card.type||"")))continue;
+      var title=String(CE_cardIdentityName(card)).trim();if(!title)continue;
       var rel="";try{rel=typeof CW_relationshipField==="function"?CW_relationshipField(typeof CW_cardEntryText==="function"?CW_cardEntryText(card):String(card.entry||card.value||"")):"";}catch(_){}
-      var stale=/Relationship tracking ready; no mature directional bond is established yet\.|Relationship tracking ready; no relationship history yet\./i.test(String(card.description||card.notes||""));
-      if(!(rel||participants[title.toLowerCase()]))return;
-      var mentioned=false;try{mentioned=typeof CW_wordPresent==="function"&&CW_wordPresent(recent,title);if(!mentioned&&typeof CW_cardKeysText==="function")mentioned=CW_cardKeysText(card).split(/[,;]/).some(function(a){return a&&CW_wordPresent(recent,String(a).trim());});}catch(_){}
-      queue.push({name:title,priority:(mentioned?1000:0)+(stale?300:0)+(participants[title.toLowerCase()]?150:0)+(rel?50:0),index:idx});
-    });
+      var rawNotes=String(card.description||card.notes||"");
+      var stale=/Relationship tracking ready; no mature directional bond is established yet\.|Relationship tracking ready; no relationship history yet\./i.test(rawNotes);
+      var unmanaged=CE_characterCardNeedsManagedNotes(card);
+      if(!(rel||participants[title.toLowerCase()]||unmanaged))continue;
+      var mentioned=false;try{mentioned=typeof CW_wordPresent==="function"&&CW_wordPresent(recent,title);if(!mentioned&&typeof CW_cardKeysText==="function")mentioned=CW_cardKeysText(card).split(/[,;|\n]+/).some(function(a){return a&&CW_wordPresent(recent,String(a).trim());});}catch(_){}
+      queue.push({name:title,priority:(mentioned?1000:0)+(unmanaged?500:0)+(stale?300:0)+(participants[title.toLowerCase()]?150:0)+(rel?50:0),index:idx});
+    }
+    if(large){
+      cw.foundationPresentationScanCursor=scanEnd;
+      cw.foundationPresentationScanComplete=scanEnd>=cards.length;
+    }else{
+      cw.foundationPresentationScanCursor=cards.length;
+      cw.foundationPresentationScanComplete=true;
+    }
     queue.sort(function(a,b){return Number(b.priority||0)-Number(a.priority||0)||Number(a.index||0)-Number(b.index||0);});
     queue=queue.map(function(x){return x.name;});
-    // De-duplicate while preserving priority order. Active cast is injected
-    // ahead of this queue by CE_syncStoryCardPresentation.
     var seen={};queue=queue.filter(function(n){var k=String(n).toLowerCase();if(seen[k])return false;seen[k]=true;return true;});
     cw.foundationPresentationQueue=queue;
     cw.foundationPresentationTargetSignature=sig;
     return queue;
   }catch(_){return [];}
 }
-function CE_syncStoryCardPresentation(){try{
+function CE_syncStoryCardPresentation(directText){try{
   var names=[],add=function(n){n=String(n||"").trim();if(n&&!names.some(function(x){return CE_sameName(x,n);}))names.push(n);};
+  // Literal names in the current visible beat outrank stale runtime recency.
+  // This makes Notes repair deterministic even when upgrading an adventure
+  // whose old persisted state has empty/stale presentation queues.
+  CE_directCharacterNamesFromText(directText,8).forEach(add);
   var u=state.unsaid||{},cw=state.crossedWires||{},now=typeof CW_turn==="function"?CW_turn():0;
   if(typeof CW_rebuildStoryCardFoundations==="function")CW_rebuildStoryCardFoundations(now);
 
@@ -21960,17 +22112,21 @@ function CE_syncStoryCardPresentation(){try{
   // work, not simulation work, and can dominate hook time without improving the
   // generated scene. The priority ordering above keeps focus/current bonds fresh
   // while the rotating relationship queue repairs the wider cast incrementally.
-  var active=names.slice(0,4),synced={};
-  active.forEach(function(n){CE_syncEntityCard(n);synced[String(n).toLowerCase()]=true;});
-  var q=CE_relationshipPresentationQueue(cw),remain=[],budget=12;
+  var active=names.slice(0,6),synced={},failedActive={};
+  active.forEach(function(n){var ok=CE_syncEntityCard(n),k=String(n).toLowerCase();if(ok)synced[k]=true;else failedActive[k]=n;});
+  var q=CE_relationshipPresentationQueue(cw),remain=[],failed=[],budget=12;
   for(var qi=0;qi<q.length;qi++){
     var qn=q[qi],qk=String(qn||"").toLowerCase();
     if(synced[qk])continue;
-    if(budget>0){CE_syncCrossedWiresCardSection(qn);synced[qk]=true;budget--;}
+    if(budget>0){var okq=CE_syncCrossedWiresCardSection(qn);if(okq)synced[qk]=true;else failed.push(qn);budget--;}
     else remain.push(qn);
   }
-  cw.foundationPresentationQueue=remain;
-  if(!remain.length)cw.foundationPresentationSignature=String(cw.foundationSignature||"");
+  // Unattempted cards remain ahead of failures so one host-incompatible card
+  // cannot monopolize every turn. Failed writes still stay queued and the
+  // cross-hook watcher moves a proven persistence failure to the front later.
+  Object.keys(failedActive).forEach(function(k){if(!failed.some(function(n){return CE_sameName(n,failedActive[k]);})&&!remain.some(function(n){return CE_sameName(n,failedActive[k]);}))failed.push(failedActive[k]);});
+  cw.foundationPresentationQueue=remain.concat(failed);
+  if(!remain.length&&cw.foundationPresentationScanComplete!==false)cw.foundationPresentationSignature=String(cw.foundationSignature||"");
 }catch(_){}}
 
 // ============================================================================
@@ -25986,7 +26142,7 @@ function CEDS_doctor() {
 
 var CEDS_ORIG_CW_addEvent = (typeof CW_addEvent === "function") ? CW_addEvent : null;
 if (CEDS_ORIG_CW_addEvent) {
-  CW_addEvent = function (from, to, kind, severity, note, turn) {
+  CW_addEvent = function (from, to, kind, severity, note, turn, source) {
     CEDS_stateBox();
     var decision = CEDS_relationshipEventAllowed(from, to, kind, note, turn);
     if (!decision.allowed) {
@@ -26005,7 +26161,7 @@ if (CEDS_ORIG_CW_addEvent) {
       var sameKind = prior.filter(function (e) { return e && e.kind === kind && Number(turn) - Number(e.turn) <= 3; });
       if (sameKind.length >= 2 && Number(severity) > 1 && !CEDS_RUPTURE_EVENTS[kind]) adjustedSeverity = Math.max(1, Number(severity) - 1);
     } catch (_) {}
-    var ok = CEDS_ORIG_CW_addEvent(from, to, kind, adjustedSeverity, note, turn);
+    var ok = CEDS_ORIG_CW_addEvent(from, to, kind, adjustedSeverity, note, turn, source);
     if (ok) {
       try {
         var ledger = state.crossedWires.ledger;
@@ -27020,6 +27176,7 @@ function CEFH_doctor(){
     "Twists: "+(deep.twists&&deep.twists.threads||0)+" threads | safe ready="+(deep.twists&&deep.twists.safeReady||0)+" | blocked="+(deep.twists&&deep.twists.blockedReady||0),
     "Integrity: repairs="+s.integrity.repairCount+" | warnings="+s.integrity.warnings.length+" | state chars="+s.performance.lastStateChars,
     (typeof CE_activationHealthText==="function"?CE_activationHealthText():"Per-turn feature activation: unavailable"),
+    (function(){try{var n=CE_characterNotesCoverageSnapshot();var w=CE_entityNotesWatchState();return "Character Notes: managed="+n.managed+" / eligible="+n.eligible+" | missing="+n.missing+" | persistence failures="+Number(w&&w.failures||0);}catch(_){return "Character Notes: health unavailable";}})(),
     "Contracts: current explicit canon outranks scores; private thought cannot create world fact; counter-evidence vetoes reveals; Retry replaces rejected hidden state; family/professional roles never auto-convert into romance."
   ];
   return lines.join("\n");
