@@ -94,6 +94,423 @@ function CE_cardIdentityName(card) {
   return "";
 }
 
+
+// -----------------------------------------------------------------------------
+// CROSSED ECHOES — AUTHORITATIVE PLAYER IDENTITY
+//
+// Player identity is a root dependency for every subsystem.  A copied scenario
+// can legitimately contain stale Character-card PLAYER markers or stale
+// info.characterNames values from the source adventure; the opening story is
+// the creator's clearest declaration of who "you" are in the new scenario and
+// therefore outranks those fallbacks.
+// -----------------------------------------------------------------------------
+var CE_PLAYER_IDENTITY_SCHEMA = 3;
+var CE_RUNTIME_PLAYER_IDENTITY = null;
+
+function CE_playerIdentityKey(value) {
+  return String(value == null ? "" : value)
+    .normalize("NFKC")
+    .toLowerCase()
+    .replace(/[‘’‛]/g, "'")
+    .replace(/[‐‑‒–—―]/g, "-")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function CE_playerIdentityCleanName(value) {
+  var raw = String(value == null ? "" : value)
+    .replace(/^[\s"'“”‘’`({\[]+|[\s"'“”‘’`)}\].,;:!?]+$/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!raw || raw.length > 80) return "";
+  return raw;
+}
+
+function CE_playerIdentityNamePrefix(value, allowSingleUnknown) {
+  var raw = CE_playerIdentityCleanName(value);
+  if (!raw) return "";
+  raw = raw
+    .replace(/^(?:the\s+)?(?:player\s+character|protagonist|main\s+character|character)\s+(?:is\s+|is:\s*|:\s*)?/i, "")
+    .replace(/^(?:you\s+are|you\s*=|you\s+play\s+as|you\s+play|you\s+control|your\s+name\s+is)\s+/i, "")
+    .trim();
+  var parts = raw.split(/\s+/), out = [];
+  var particles = {"de":1,"del":1,"della":1,"da":1,"di":1,"du":1,"la":1,"le":1,"van":1,"von":1,"of":1};
+  var stop = {"in":1,"at":1,"from":1,"with":1,"and":1,"but":1,"who":1,"whose":1,"where":1,"when":1,"while":1,"aged":1,"age":1,"living":1,"working":1,"based":1,"starts":1,"start":1,"begins":1,"begin":1,"is":1,"was":1,"has":1,"have":1,"will":1};
+  for (var i=0;i<parts.length && out.length<5;i++) {
+    var token = String(parts[i] || "").replace(/^["'“”‘’`([{]+|["'“”‘’`)}\],;:!?]+$/g, "");
+    if (!token) break;
+    var low = token.toLowerCase().replace(/[.'’]+$/g, "");
+    if (out.length && stop[low]) break;
+    if (out.length && particles[low]) { out.push(token); continue; }
+    if (!/^[A-ZÀ-ÖØ-Þ\u0100-\u017F\u0370-\u03FF\u0400-\u04FF][A-Za-zÀ-ÖØ-öø-ÿ\u0100-\u024F\u0370-\u03FF\u0400-\u04FF'’.-]*$/.test(token) &&
+        !/^[A-Z0-9][A-Z0-9'’.-]*$/.test(token)) break;
+    out.push(token);
+  }
+  var candidate = CE_playerIdentityCleanName(out.join(" "));
+  if (!candidate) return "";
+  if (out.length === 1 && !allowSingleUnknown) {
+    var canon = CE_playerIdentityCanonicalName(candidate, true);
+    if (!canon || CE_playerIdentityKey(canon) === CE_playerIdentityKey(candidate)) {
+      var known = CE_playerIdentityKnownNames();
+      if (!known.aliasToCanonical[CE_playerIdentityKey(candidate)]) return "";
+    }
+  }
+  return candidate;
+}
+
+function CE_playerIdentityKnownNames() {
+  var aliasToOwners = Object.create(null), canonicalByKey = Object.create(null), aliasesByCanonical = Object.create(null);
+  try {
+    var cards = (typeof storyCards !== "undefined" && Array.isArray(storyCards)) ? storyCards : [];
+    for (var i=0;i<cards.length;i++) {
+      var card=cards[i]; if(!card) continue;
+      var type=String(card.type||"").toLowerCase();
+      if (type && !/(?:character|npc|person|cast|companion)/.test(type)) continue;
+      var entry=CE_cardEntryCore(card), identity=CE_playerIdentityCleanName(CE_cardIdentityName(card));
+      if (!identity) {
+        var nm=String(entry||"").match(/(?:^|\n)\s*Name\s*:\s*([^\n]{1,100})/i);
+        identity=nm?CE_playerIdentityCleanName(nm[1]):"";
+      }
+      if(!identity) continue;
+      var ck=CE_playerIdentityKey(identity); canonicalByKey[ck]=identity;
+      var aliases=[identity];
+      String(CE_cardKeysCore(card)||"").split(/[,;|\n\r]+/).forEach(function(x){x=CE_playerIdentityCleanName(x);if(x)aliases.push(x);});
+      var am,arx=/(?:^|\n)\s*Alias(?:es)?\s*:\s*([^\n]{1,240})/ig;
+      while((am=arx.exec(String(entry||"")))!==null) String(am[1]||"").split(/[,;/]+/).forEach(function(x){x=CE_playerIdentityCleanName(x);if(x)aliases.push(x);});
+      var seen=Object.create(null), cleanAliases=[];
+      aliases.forEach(function(a){var ak=CE_playerIdentityKey(a);if(!ak||seen[ak])return;seen[ak]=1;cleanAliases.push(a);if(!aliasToOwners[ak])aliasToOwners[ak]=[];if(aliasToOwners[ak].indexOf(identity)<0)aliasToOwners[ak].push(identity);});
+      aliasesByCanonical[ck]=cleanAliases;
+    }
+  } catch (_) {}
+  var aliasToCanonical=Object.create(null);
+  Object.keys(aliasToOwners).forEach(function(k){var owners=aliasToOwners[k]||[];if(owners.length===1)aliasToCanonical[k]=owners[0];});
+  return {aliasToCanonical:aliasToCanonical,canonicalByKey:canonicalByKey,aliasesByCanonical:aliasesByCanonical};
+}
+
+function CE_playerIdentityCanonicalName(value, skipPrefixRecovery) {
+  var clean=CE_playerIdentityCleanName(value); if(!clean)return "";
+  var known=CE_playerIdentityKnownNames(), key=CE_playerIdentityKey(clean);
+  if(known.aliasToCanonical[key])return known.aliasToCanonical[key];
+  if(known.canonicalByKey[key])return known.canonicalByKey[key];
+  if(!skipPrefixRecovery){
+    var bits=clean.split(/\s+/);
+    for(var n=Math.min(5,bits.length);n>=1;n--){var prefix=bits.slice(0,n).join(" "),pk=CE_playerIdentityKey(prefix);if(known.aliasToCanonical[pk])return known.aliasToCanonical[pk];if(known.canonicalByKey[pk])return known.canonicalByKey[pk];}
+  }
+  return clean;
+}
+
+function CE_playerOpeningStoryText() {
+  try {
+    if (typeof history === "undefined" || !Array.isArray(history) || !history.length) return "";
+    var starts=[], fallback=[];
+    for(var i=0;i<history.length && i<8;i++){
+      var row=history[i]; if(!row||!String(row.text||"").trim())continue;
+      var type=String(row.type||"").toLowerCase();
+      if(type==="start"||type==="opening"||type==="prompt")starts.push(String(row.text));
+      if(fallback.length<2)fallback.push(String(row.text));
+    }
+    return (starts.length?starts.slice(0,3):fallback.slice(0,1)).join("\n").slice(0,16000);
+  } catch (_) { return ""; }
+}
+
+function CE_detectPlayerDeclaration(text, sourceKind) {
+  var src=String(text||""); if(!src.trim())return null;
+  var rows=[], patterns=[
+    {score:120,allowSingle:true,re:/(?:^|\n)\s*YOU\s+ARE\s+([^\n,.!?;:]{1,90})/g},
+    {score:119,allowSingle:true,re:/(?:^|\n)\s*You\s*=\s*([^\n,.!?;:]{1,90})/g},
+    {score:118,allowSingle:true,re:/\bYou\s+(?:play\s+as|play|control)\s+([^\n,.!?;:]{1,90})/gi},
+    {score:117,allowSingle:true,re:/\bYour\s+name\s+is\s+([^\n,.!?;:]{1,90})/gi},
+    {score:116,allowSingle:true,re:/(?:^|\n)\s*PLAYER(?:\s+CHARACTER)?\s*:\s*(?:You\s+are\s+)?([^\n,.!?;:]{1,90})/gim},
+    {score:115,allowSingle:true,re:/\b(?:The\s+)?player\s+character\s+is\s+([^\n,.!?;:]{1,90})/gi},
+    {score:114,allowSingle:true,re:/([^\n,.!?;:]{1,90}?)\s+is\s+(?:the\s+)?(?:only|sole)\s+player[- ]controlled\s+character\b/gi,fromEnd:true},
+    {score:100,allowSingle:false,re:/(?:^|\n|[.!?]\s+)\s*You\s+are\s+([^\n,.!?;:]{1,90})/g}
+  ];
+  function suffixName(raw,allowSingle){
+    var seg=String(raw||"").trim().split(/\s+/), best="";
+    for(var start=Math.max(0,seg.length-5);start<seg.length;start++){
+      var cand=CE_playerIdentityNamePrefix(seg.slice(start).join(" "),allowSingle);
+      if(cand){best=cand;break;}
+    }
+    return best;
+  }
+  patterns.forEach(function(spec){var m;spec.re.lastIndex=0;while((m=spec.re.exec(src))!==null){var raw=m[1]||"",candidate=spec.fromEnd?suffixName(raw,spec.allowSingle):CE_playerIdentityNamePrefix(raw,spec.allowSingle);if(!candidate)continue;candidate=CE_playerIdentityCanonicalName(candidate);if(!candidate)continue;rows.push({name:candidate,score:spec.score,index:m.index,source:sourceKind||"text"});if(spec.re.lastIndex===m.index)spec.re.lastIndex++;}});
+  if(!rows.length)return null;
+  rows.sort(function(a,b){return b.score-a.score||a.index-b.index||b.name.length-a.name.length;});
+  return rows[0];
+}
+
+function CE_playerPlaceholderName() {
+  try {
+    var ph=(typeof state!=="undefined"&&state&&Array.isArray(state.placeholders))?state.placeholders:[];
+    for(var i=0;i<ph.length;i++){
+      var p=ph[i];if(!p)continue;var q=String(p.question||"").trim().toLowerCase(),a=CE_playerIdentityCleanName(p.answer);if(!a||a.length>80)continue;
+      if(/\b(?:kingdom|realm|city|town|village|country|nation|planet|world|ship|starship|faction|guild|clan|company|organization|organisation|pet|companion|weapon|item)\b/i.test(q))continue;
+      if(q==="character.name"||/^(?:what(?:'s| is) )?(?:your|player|protagonist|hero|main character)(?:'s)? name\??$/.test(q)||/^(?:your|player|protagonist|hero|main character)[ _.-]*name$/.test(q)||(/\bname\b/.test(q)&&/\b(?:your|character|player|protagonist|hero)\b/.test(q)))return CE_playerIdentityCanonicalName(a);
+    }
+  } catch (_) {}
+  return "";
+}
+
+function CE_playerCardFallbackName() {
+  try {
+    var cards=(typeof storyCards!=="undefined"&&Array.isArray(storyCards))?storyCards:[], found=[];
+    for(var i=0;i<cards.length;i++){
+      var c=cards[i];if(!c||!/^(?:character|npc)$/i.test(String(c.type||"")))continue;
+      var entry=CE_cardEntryCore(c), body=String(entry||"");
+      if(!/(?:^|\n)\s*(?:Arc\s+Role|Role)\s*:\s*(?:PRIMARY\s*\/\s*)?PROTAGONIST\b|(?:^|\n)\s*PLAYER\s*CHARACTER\s*:|(?:^|\n)\s*PLAYER\s*:\s*(?:YOU\s+ARE\b|YES\b|TRUE\b)/im.test(body))continue;
+      var n=CE_playerIdentityCanonicalName(CE_cardIdentityName(c));if(n&&!found.some(function(x){return CE_playerIdentityKey(x)===CE_playerIdentityKey(n);}))found.push(n);
+    }
+    return found.length===1?found[0]:"";
+  } catch (_) { return ""; }
+}
+
+function CE_playerCreatorContextName() {
+  var parts=[];
+  try{if(typeof state!=="undefined"&&state&&state.memory){parts.push(state.memory.context||"");parts.push(state.memory.authorsNote||"");}}catch(_){}
+  try{if(typeof memory==="string")parts.push(memory);}catch(_){}
+  try{if(typeof authorNote==="string")parts.push(authorNote);}catch(_){}
+  var src=parts.filter(Boolean).join("\n").slice(0,18000);
+  var hit=CE_detectPlayerDeclaration(src,"creator-context");
+  return hit?hit.name:"";
+}
+
+function CE_playerIdentityAliasesFor(name) {
+  var out=[],seen=Object.create(null),canonical=CE_playerIdentityCanonicalName(name);if(!canonical)return out;
+  function add(x){x=CE_playerIdentityCleanName(x);var k=CE_playerIdentityKey(x);if(!x||!k||seen[k])return;seen[k]=1;out.push(x);}
+  add(canonical);
+  var known=CE_playerIdentityKnownNames(), ck=CE_playerIdentityKey(canonical), aliases=known.aliasesByCanonical[ck]||[];aliases.forEach(add);
+  var bits=canonical.split(/\s+/);if(bits.length>=2&&bits[0].length>=3)add(bits[0]);
+  return out;
+}
+
+function CE_persistedPlayerIdentity() {
+  try {
+    if (typeof state === "undefined" || !state || !state.crossedEchoesPlayerIdentity || typeof state.crossedEchoesPlayerIdentity !== "object") return null;
+    var p=state.crossedEchoesPlayerIdentity, primary=CE_playerIdentityCanonicalName(p.primary);
+    if(!primary)return null;
+    var source=String(p.source||"");
+    // Only reuse identities that were previously resolved from a meaningful
+    // source. A half-written/unresolved object must never become authoritative.
+    if(!/^(?:opening-story|placeholder|creator-context|platform|player-card-fallback)$/.test(source))return null;
+    return {
+      schema:Number(p.schema)||0, primary:primary, source:source,
+      openingExplicit:!!p.openingExplicit || source==="opening-story",
+      controlledNames:Array.isArray(p.controlledNames)?p.controlledNames.slice():[primary],
+      aliases:Array.isArray(p.aliases)?p.aliases.slice():[],
+      signature:String(p.signature||""), turn:Number(p.turn)||0
+    };
+  } catch (_) { return null; }
+}
+
+function CE_resolvePlayerIdentity(force) {
+  if(CE_RUNTIME_PLAYER_IDENTITY&&!force)return CE_RUNTIME_PLAYER_IDENTITY;
+  var openingText=CE_playerOpeningStoryText();
+  var opening=CE_detectPlayerDeclaration(openingText,"opening-story");
+  var placeholder=CE_playerPlaceholderName();
+  var platform=[];try{if(typeof CE_platformCharacterNames==="function")platform=CE_platformCharacterNames().map(CE_playerIdentityCanonicalName).filter(Boolean);}catch(_){}
+  platform=platform.filter(function(x,i,a){return a.findIndex(function(y){return CE_playerIdentityKey(y)===CE_playerIdentityKey(x);})===i;});
+  var creator=CE_playerCreatorContextName(), card=CE_playerCardFallbackName(), persisted=CE_persistedPlayerIdentity();
+  var primary="",source="unresolved",local=false,persistedLock=false;
+  var persistedStrong=!!(persisted&&/^(?:opening-story|placeholder|creator-context)$/.test(String(persisted.source||"")));
+
+  // Evidence precedence is intentional. The live opening is strongest and can
+  // replace a copied/stale state object. Once a strong creator-local identity
+  // has been learned, persist it across isolated hooks even after AI Dungeon
+  // trims the opening out of history. Platform-only identity is deliberately
+  // NOT locked ahead of the current platform list, so legitimate multiplayer
+  // or selected-character changes remain possible in scenarios that never made
+  // an explicit protagonist declaration.
+  if(opening&&opening.name){primary=opening.name;source="opening-story";local=true;}
+  else if(placeholder){primary=placeholder;source="placeholder";local=true;}
+  else if(creator){primary=creator;source="creator-context";local=true;}
+  else if(persistedStrong){primary=persisted.primary;source=persisted.source;local=true;persistedLock=true;}
+  else if(platform.length){primary=platform[0];source="platform";local=false;}
+  else if(persisted&&persisted.primary){primary=persisted.primary;source=persisted.source;local=source!=="platform";persistedLock=true;}
+  else if(card){primary=card;source="player-card-fallback";local=true;}
+
+  var controlled=[],seen=Object.create(null);
+  function addControlled(n){n=CE_playerIdentityCanonicalName(n);var k=CE_playerIdentityKey(n);if(!n||!k||seen[k])return;seen[k]=1;controlled.push(n);}
+  if(primary)addControlled(primary);
+
+  // Carry forward previously proven multiplayer identities when the durable
+  // lock is being reused. Named aliases are canonicalized again against the
+  // current Story Cards so renamed cards do not leave stale spellings behind.
+  if(persistedLock&&persisted&&Array.isArray(persisted.controlledNames))persisted.controlledNames.forEach(addControlled);
+
+  if(platform.length){
+    if(!primary || source==="platform") platform.forEach(addControlled);
+    else {
+      var pk=CE_playerIdentityKey(primary), platformHasPrimary=platform.some(function(n){return CE_playerIdentityKey(n)===pk;});
+      // If the platform list agrees with the authoritative identity, preserve
+      // true multiplayer identities. If it disagrees completely, treat it as
+      // stale copied-scenario metadata rather than protecting the wrong player.
+      if(platformHasPrimary)platform.forEach(addControlled);
+    }
+  }
+  if(!controlled.length&&card)addControlled(card);
+
+  var allAliases=[],aliasSeen=Object.create(null),localAliases=[];
+  controlled.forEach(function(n){CE_playerIdentityAliasesFor(n).forEach(function(a){var k=CE_playerIdentityKey(a);if(!k||aliasSeen[k])return;aliasSeen[k]=1;allAliases.push(a);});});
+  if(primary&&local)CE_playerIdentityAliasesFor(primary).forEach(function(a){if(!localAliases.some(function(x){return CE_playerIdentityKey(x)===CE_playerIdentityKey(a);}))localAliases.push(a);});
+
+  // Keep the identity signature stable after the opening scrolls out. The
+  // declaration fingerprint is inherited from the prior strong resolution; a
+  // genuinely new live opening still produces a new fingerprint and wins.
+  var declarationFingerprint="";
+  if(opening&&opening.name)declarationFingerprint=String(opening.index||0)+":"+String(openingText.slice(Math.max(0,(opening.index||0)-80),Math.min(openingText.length,(opening.index||0)+260)));
+  else if(persistedLock&&persisted&&persisted.signature){var ps=String(persisted.signature);var cut=ps.indexOf("|decl=");if(cut>=0)declarationFingerprint=ps.slice(cut+6);}
+  var sig=source+"|"+CE_playerIdentityKey(primary)+"|"+controlled.map(CE_playerIdentityKey).sort().join(",")+"|decl="+declarationFingerprint;
+  var openingExplicit=source==="opening-story" || !!(persistedLock&&persisted&&persisted.openingExplicit);
+  CE_RUNTIME_PLAYER_IDENTITY={schema:CE_PLAYER_IDENTITY_SCHEMA,primary:primary,source:source,openingExplicit:openingExplicit,persistedLock:persistedLock,controlledNames:controlled,aliases:allAliases,localAliases:localAliases,signature:sig};
+  try{if(typeof state!=="undefined"&&state)state.crossedEchoesPlayerIdentity={schema:CE_PLAYER_IDENTITY_SCHEMA,primary:primary,source:source,openingExplicit:openingExplicit,persistedLock:persistedLock,controlledNames:controlled.slice(),aliases:allAliases.slice(),signature:sig,turn:(typeof info!=="undefined"&&info&&Number.isFinite(Number(info.actionCount)))?Number(info.actionCount):0};}catch(_){}
+  return CE_RUNTIME_PLAYER_IDENTITY;
+}
+
+function CE_primaryPlayerName(){var r=CE_resolvePlayerIdentity();return r&&r.primary?r.primary:"";}
+function CE_playerIdentityNames(){
+  var r=CE_resolvePlayerIdentity();
+  // Firewall consumers need every unambiguous player alias (Maya + Maya Walker),
+  // not only the canonical controlled-name list.
+  if(r&&Array.isArray(r.aliases)&&r.aliases.length)return r.aliases.slice();
+  return r&&Array.isArray(r.controlledNames)?r.controlledNames.slice():[];
+}
+function CE_isResolvedPlayerName(name){
+  var key=CE_playerIdentityKey(name);if(!key)return false;var r=CE_resolvePlayerIdentity();
+  return (r.aliases||[]).some(function(x){return CE_playerIdentityKey(x)===key;})||(r.controlledNames||[]).some(function(x){return CE_playerIdentityKey(x)===key;});
+}
+// Compatibility alias used by the full-system hardening layer.
+function CECS_playerName(){return CE_primaryPlayerName();}
+
+// Player identity is a root invariant, not just a display label. When a copied
+// adventure changes protagonist, old saves can still contain the new player in
+// NPC-only stores. Reconcile those stores once per resolved identity so every
+// engine agrees on who is controlled while preserving objective NPC -> player
+// continuity. Never manufacture player-origin feelings/motives to "repair" it.
+function CE_reconcilePlayerIdentityState(force) {
+  try {
+    if (typeof state === "undefined" || !state) return { ok:false, reason:"no-state" };
+    var id = CE_resolvePlayerIdentity(!!force);
+    if (!id || !id.primary) return { ok:false, reason:"unresolved" };
+    var sig = String(id.schema||CE_PLAYER_IDENTITY_SCHEMA)+"|"+String(id.signature||"");
+    var prior = state.crossedEchoesPlayerIdentityMigration;
+    if (!force && prior && String(prior.signature||"") === sig) return { ok:true, skipped:true, primary:id.primary };
+
+    var aliasKeys=Object.create(null);
+    (id.aliases||[]).concat(id.controlledNames||[]).forEach(function(n){var k=CE_playerIdentityKey(n);if(k)aliasKeys[k]=1;});
+    var primaryKey=CE_playerIdentityKey(id.primary);if(primaryKey)aliasKeys[primaryKey]=1;
+    function isNamedPlayer(v){var k=CE_playerIdentityKey(v);return !!(k&&aliasKeys[k]);}
+    function isGenericPlayer(v){var k=CE_playerIdentityKey(v);return k==="you"||k==="player";}
+    function mapActor(v){return isNamedPlayer(v)?"PLAYER":v;}
+    function uniqNames(rows){var seen=Object.create(null),out=[];(rows||[]).forEach(function(v){v=String(v||"").trim();var k=CE_playerIdentityKey(v);if(!v||!k||seen[k])return;seen[k]=1;out.push(v);});return out;}
+    var changed={crossedWires:0,unsaid:0,echo:0,cards:0,twists:0};
+
+    // CROSSED WIRES ---------------------------------------------------------
+    try {
+      if (typeof CW_init === "function") CW_init();
+      var cw=state.crossedWires;
+      if(cw&&typeof cw==="object"){
+        Object.keys(cw.npcs||{}).forEach(function(k){var n=cw.npcs[k];if(isNamedPlayer(k)||isNamedPlayer(n&&n.name)){delete cw.npcs[k];changed.crossedWires++;}});
+        Object.keys(cw.aliases||{}).forEach(function(k){if(isNamedPlayer(k)||isNamedPlayer(cw.aliases[k])){delete cw.aliases[k];changed.crossedWires++;}});
+        function repairEventRows(rows){
+          var out=[];(Array.isArray(rows)?rows:[]).forEach(function(rec){if(!rec)return;if(isNamedPlayer(rec.from)){changed.crossedWires++;return;}var x=Object.assign({},rec);if(isNamedPlayer(x.to)){x.to="YOU";changed.crossedWires++;}out.push(x);});return out;
+        }
+        cw.ledger=repairEventRows(cw.ledger);
+        cw.archivedAnchors=repairEventRows(cw.archivedAnchors);
+        cw.roleHistory=(cw.roleHistory||[]).reduce(function(out,rec){
+          if(!rec)return out;var fk=CE_playerIdentityKey(rec.fromKey),tk=CE_playerIdentityKey(rec.toKey);if(aliasKeys[fk]){changed.crossedWires++;return out;}
+          var x=Object.assign({},rec);if(aliasKeys[tk]){x.toKey="you";changed.crossedWires++;}if(x.fromKey&&x.toKey&&CE_playerIdentityKey(x.fromKey)!==CE_playerIdentityKey(x.toKey))out.push(x);return out;
+        },[]);
+        cw.sightings=(cw.sightings||[]).filter(function(r){var n=r&&(r.name||r.entity||r.npc);if(isNamedPlayer(n)){changed.crossedWires++;return false;}return true;});
+        if(cw.twist){
+          cw.twist.history=(cw.twist.history||[]).reduce(function(out,t){if(!t)return out;if(isNamedPlayer(t.from)){changed.crossedWires++;return out;}var x=Object.assign({},t);if(isNamedPlayer(x.to)){x.to="YOU";x.pairKey=typeof CW_pairKey==="function"?CW_pairKey(x.from,"YOU"):String(x.from||"").toLowerCase()+"<->you";changed.crossedWires++;}out.push(x);return out;},[]);
+          if(cw.twist.pending){if(isNamedPlayer(cw.twist.pending.from)){cw.twist.pending=null;changed.crossedWires++;}else if(isNamedPlayer(cw.twist.pending.to)){cw.twist.pending.to="YOU";cw.twist.pending.pairKey=typeof CW_pairKey==="function"?CW_pairKey(cw.twist.pending.from,"YOU"):String(cw.twist.pending.from||"").toLowerCase()+"<->you";changed.crossedWires++;}}
+          try{if(typeof CW_rebuildTwistIndexes==="function")CW_rebuildTwistIndexes();}catch(_){}
+        }
+        // Foundations are derived from current Story Cards/player direction.
+        // Force them to rebuild under the new YOU endpoint.
+        cw.foundations={};cw.foundationSignature="";cw.foundationRebuiltTurn=-1;cw.foundationCheckedTurn=-1;
+        cw.foundationPresentationSignature="";cw.foundationPresentationTargetSignature="";cw.foundationPresentationQueue=[];
+        try{if(typeof CW_rebuildRoles==="function")CW_rebuildRoles();}catch(_){}
+      }
+    } catch (_) {}
+
+    // UNSPOKEN TURNS / UNSAID ----------------------------------------------
+    try {
+      if(typeof initUnsaid==="function")initUnsaid();
+      var u=state.unsaid;
+      if(u&&typeof u==="object"){
+        Object.keys(u.minds||{}).forEach(function(k){var m=u.minds[k];if(isNamedPlayer(k)||isNamedPlayer(m&&m.name)){delete u.minds[k];changed.unsaid++;}});
+        u.castRegistry=(u.castRegistry||[]).filter(function(n){if(isNamedPlayer(n)){changed.unsaid++;return false;}return true;});
+        u.lastActiveCast=(u.lastActiveCast||[]).filter(function(n){if(isNamedPlayer(n)){changed.unsaid++;return false;}return true;});
+        Object.keys(u.scenePresence||{}).forEach(function(k){if(isNamedPlayer(k)){delete u.scenePresence[k];changed.unsaid++;}});
+        Object.keys(u.aliases||{}).forEach(function(k){if(isNamedPlayer(k)){delete u.aliases[k];changed.unsaid++;return;}u.aliases[k]=(u.aliases[k]||[]).filter(function(a){return !isNamedPlayer(a);});});
+        Object.keys(u.minds||{}).forEach(function(k){var m=u.minds[k];if(!m||typeof m!=="object")return;
+          m.relations=m.relations&&typeof m.relations==="object"?m.relations:{};m.relationHistory=m.relationHistory&&typeof m.relationHistory==="object"?m.relationHistory:{};m.relationOrder=Array.isArray(m.relationOrder)?m.relationOrder:[];
+          Object.keys(m.relations).forEach(function(other){if(!isNamedPlayer(other))return;var val=m.relations[other];if(m.relations.YOU===undefined)m.relations.YOU=val;delete m.relations[other];changed.unsaid++;});
+          Object.keys(m.relationHistory).forEach(function(other){if(!isNamedPlayer(other))return;var hist=Array.isArray(m.relationHistory[other])?m.relationHistory[other]:[];m.relationHistory.YOU=(m.relationHistory.YOU||[]).concat(hist).slice(-12);delete m.relationHistory[other];changed.unsaid++;});
+          m.relationOrder=uniqNames(m.relationOrder.map(function(n){return isNamedPlayer(n)?"YOU":n;}));
+        });
+        ["forcedPeek","forcedCodex"].forEach(function(f){if(isNamedPlayer(u[f])){u[f]=null;changed.unsaid++;}});
+        if(u.pending&&typeof u.pending==="object"&&[u.pending.name,u.pending.entity,u.pending.target,u.pending.character].some(isNamedPlayer)){u.pending=null;changed.unsaid++;}
+        var cod=u.codex;if(cod&&typeof cod==="object"){
+          ["pendingNames","pendingRefreshNames","consecutiveFailedNames"].forEach(function(f){if(Array.isArray(cod[f]))cod[f]=cod[f].filter(function(n){return !isNamedPlayer(n);});});
+          ["mentionCounts","attempts","firstSeenTurn","introducedTurn","likelyCharacters","observedTypes","appearanceTurns","evidence","lastMentionTurn","lastAttemptTurn","candidateScores","typeVotes","trustedEntities","lastConfidenceTurn","lastTypeVoteTurn","lastDecayTurn","strongScores","strongReasons"].forEach(function(f){if(!cod[f]||typeof cod[f]!=="object")return;Object.keys(cod[f]).forEach(function(k){if(isNamedPlayer(k))delete cod[f][k];});});
+        }
+      }
+    } catch (_) {}
+
+    // ECHO VEIL -------------------------------------------------------------
+    try {
+      var es=state.echoVeil;
+      if(es&&typeof es==="object"){
+        Object.keys(es.entities||{}).forEach(function(k){var e=es.entities[k];if(isNamedPlayer(k)||isNamedPlayer(e&&e.name)){delete es.entities[k];changed.echo++;}});
+        if(es.scene&&es.scene.cast)Object.keys(es.scene.cast).forEach(function(k){var c=es.scene.cast[k];if(isNamedPlayer(k)||isNamedPlayer(c&&c.name)){delete es.scene.cast[k];changed.echo++;}});
+        var repairedRelations={};
+        Object.keys(es.relations||{}).forEach(function(k){var r=es.relations[k];if(!r)return;if(isNamedPlayer(r.from)){changed.echo++;return;}var x=Object.assign({},r);if(isNamedPlayer(x.to)){x.to="PLAYER";changed.echo++;}var nk=CE_playerIdentityKey(x.from)+"->"+CE_playerIdentityKey(x.to);var old=repairedRelations[nk];if(!old){repairedRelations[nk]=x;return;}
+          ["trust","hostility","affection","respect","obligation","fear","loyalty"].forEach(function(f){var a=Number(old[f]||0),b=Number(x[f]||0);if(Math.abs(b)>Math.abs(a))old[f]=b;});old.lastTurn=Math.max(Number(old.lastTurn||0),Number(x.lastTurn||0));old.confidence=Math.max(Number(old.confidence||0),Number(x.confidence||0));old.evidence=uniqNames((old.evidence||[]).concat(x.evidence||[])).slice(-6);
+        });
+        es.relations=repairedRelations;
+        es.beliefs=(es.beliefs||[]).reduce(function(out,b){if(!b)return out;if(isNamedPlayer(b.owner)){changed.echo++;return out;}var x=Object.assign({},b);if(isNamedPlayer(x.speaker))x.speaker="PLAYER";out.push(x);return out;},[]);
+        es.knowledgeGaps=(es.knowledgeGaps||[]).filter(function(g){if(g&&isNamedPlayer(g.owner)){changed.echo++;return false;}return true;});
+        ["threads","consequences","secrets"].forEach(function(f){(es[f]||[]).forEach(function(row){if(!row)return;if(Array.isArray(row.actors))row.actors=uniqNames(row.actors.map(mapActor));if(Array.isArray(row.names))row.names=uniqNames(row.names.map(mapActor));if(f==="secrets"&&Array.isArray(row.holders))row.holders=uniqNames(row.holders.map(mapActor));});});
+        if(es.discourse){if(isNamedPlayer(es.discourse.lastSubject))es.discourse.lastSubject="PLAYER";if(isNamedPlayer(es.discourse.lastObject))es.discourse.lastObject="PLAYER";if(Array.isArray(es.discourse.recent))es.discourse.recent=uniqNames(es.discourse.recent.map(mapActor));}
+      }
+      try{if(typeof ECHO_VEIL!=="undefined"&&ECHO_VEIL&&ECHO_VEIL.api&&typeof ECHO_VEIL.api.invalidateCaches==="function")ECHO_VEIL.api.invalidateCaches();}catch(_){}
+    } catch (_) {}
+
+    // TWISTS AND TURNS ------------------------------------------------------
+    // Plot threads may legitimately involve the protagonist, so do not delete
+    // them. Refresh the controlled-name firewall instead: when involvePlayer is
+    // disabled these names cannot be selected as autonomous twist entities.
+    try {
+      if(state.contingency&&typeof state.contingency==="object"){
+        var nextNames=CE_playerIdentityNames();
+        if(JSON.stringify(state.contingency.multiplayerNames||[])!==JSON.stringify(nextNames)){state.contingency.multiplayerNames=nextNames;changed.twists++;}
+      }
+    } catch (_) {}
+
+    // Visible Character Notes ---------------------------------------------
+    // A previously misclassified player may already have script-managed NPC
+    // diagnostics such as "Maya Walker → YOU [aunt/uncle]". Strip only the
+    // managed section; creator-written Notes remain untouched.
+    try {
+      if(typeof storyCards!=="undefined"&&Array.isArray(storyCards)){
+        storyCards.slice().forEach(function(card){if(!card||!/^(?:character|npc)$/i.test(String(card.type||"")))return;var n=CE_cardIdentityName(card);if(!isNamedPlayer(n))return;var raw=String(card.description||card.notes||"");var hasManaged=(typeof CE_CARD_NOTES_START!=="undefined"&&raw.indexOf(CE_CARD_NOTES_START)>=0)||(typeof CE_CARD_NOTES_LEGACY_START!=="undefined"&&raw.indexOf(CE_CARD_NOTES_LEGACY_START)>=0);if(!hasManaged)return;var base=typeof CE_publicStoryCardNotes==="function"?CE_publicStoryCardNotes(card):raw;var committed=CE_updateStoryCardCompat(card,CE_cardKeysCore(card),CE_cardEntryCore(card),String(card.type||"Character"),String(n||id.primary),base,{forceHostWrite:true});if(committed&&committed.ok)changed.cards++;});
+      }
+      var watch=state.crossedEchoesEntityNotesWatch;if(watch&&Array.isArray(watch.pending))watch.pending=watch.pending.filter(function(rec){return !isNamedPlayer(rec&&rec.name);});
+    } catch (_) {}
+
+    // Invalidate same-hook derived indexes after migration.
+    try{CW_RUNTIME_PLAYER_NAMES=null;CW_RUNTIME_EVENT_INDEX=null;CW_RUNTIME_CARD_INDEX=null;CW_RUNTIME_LINK_CACHE=null;CW_RUNTIME_PAIR_KEYS=null;CW_RUNTIME_PAIR_INDEX=null;CW_RUNTIME_ACTIVE_ROLE_INDEX=null;}catch(_){}
+    try{if(typeof CE_invalidateSharedStoryCardIndex==="function")CE_invalidateSharedStoryCardIndex();}catch(_){}
+    state.crossedEchoesPlayerIdentityMigration={schema:CE_PLAYER_IDENTITY_SCHEMA,signature:sig,primary:id.primary,source:id.source,turn:(typeof info!=="undefined"&&info&&Number.isFinite(Number(info.actionCount)))?Number(info.actionCount):0,changed:changed};
+    return {ok:true,skipped:false,primary:id.primary,source:id.source,changed:changed};
+  } catch (e) {
+    try{if(typeof log==="function")log("CROSSED ECHOES player identity reconciliation error: "+(e&&e.message?e.message:String(e)));}catch(_){}
+    return {ok:false,reason:e&&e.message?e.message:String(e)};
+  }
+}
+
 // Shared per-hook Story Card index ------------------------------------------------
 // Large adventures can contain hundreds or thousands of cards. Historically
 // UNSAID, CROSSED WIRES, ECHO VEIL, WORLD ENGINE, TWISTS and Canon Sentinel
@@ -1888,6 +2305,10 @@ var CP_SCENARIO_HINT_PATTERNS = [
   { rx: /\b(hereditary curse|runs in the (?:family|bloodline)|passed down through blood)\b/i, cat: "inheritedTrait" },
   { rx: /\b(secretly|in truth|unbeknownst to|hidden agenda)\b/i, cat: "ulteriorMotive" },
   { rx: /\b(true identity|masquerading as|not what (he|she|they) seem|disguised as (?:an? |the )?(?:person|man|woman|guard|soldier|doctor|officer|student|teacher|worker|civilian|agent|someone|somebody))\b/i, cat: "hiddenIdentity" },
+  // Documentary identity contradictions are strong, visible evidence rather than
+  // vague suspicion. Requiring an identity/name/document cue keeps ordinary
+  // uses of words such as "forged" or "record" from creating false threads.
+  { rx: /(?:\b(?:forged|fake|false|fraudulent)\s+(?:identity|identification|identity\s+document|id\s+card|passport|credentials?)\b|\b(?:using|under|registered\s+under|documented\s+under)\s+(?:an?\s+)?(?:different|false|assumed|second|another)\s+(?:legal\s+)?(?:name|identity|alias)\b|\b(?:another|second|different)\s+(?:verified\s+|legal\s+|official\s+)*(?:identity|name)\b)/i, cat: "hiddenIdentity" },
   { rx: /\b(exiled|banished|forbidden|sealed away)\b/i, cat: "buriedPast" },
   { rx: /\b(cursed|prophecy (foretells|speaks of)|rumored to)\b/i, cat: "theWarningWasReal" },
   { rx: /\b(?:believed to be dead.{0,60}(?:but|yet).{0,45}(?:alive|returned|sighting|signal)|vanished decades ago.{0,45}(?:new sighting|message|signal|returned)|long[- ]lost.{0,35}(?:returned|appeared|contacted))\b/i, cat: "fakedDefeat" },
@@ -2413,6 +2834,13 @@ var Library = (() => {
     if (typeof state.contingency.lastMatureEnabled !== "boolean") state.contingency.lastMatureEnabled = null;
     if (!state.contingency.scenarioProfile || typeof state.contingency.scenarioProfile !== "object") state.contingency.scenarioProfile = null;
     if (!Array.isArray(state.contingency.multiplayerNames)) state.contingency.multiplayerNames = [];
+    // Refresh the twist firewall from the same authoritative identity resolver
+    // used by UNSAID, Crossed Wires, ECHO VEIL and Canon Sentinel. This makes
+    // copied-scenario player changes take effect immediately instead of leaving
+    // a stale protagonist protected/targeted forever.
+    try {
+      if (typeof CE_playerIdentityNames === "function") state.contingency.multiplayerNames = CE_playerIdentityNames();
+    } catch (_) {}
     if (!state.contingencyConfig) {
       state.contingencyConfig = Object.assign({}, CP_DEFAULTS);
     } else {
@@ -2548,10 +2976,11 @@ var Library = (() => {
 
   function isPlayerEntity(c, entity) {
     if (!entity) return false;
+    try { if (typeof CE_isResolvedPlayerName === "function" && CE_isResolvedPlayerName(entity)) return true; } catch (_) {}
     const lower = entity.toLowerCase();
-    if (lower === "you") return true;
+    if (lower === "you" || lower === "player") return true;
     if (c && c.multiplayerNames && c.multiplayerNames.length) {
-      return c.multiplayerNames.some(n => n && n.toLowerCase() === lower);
+      return c.multiplayerNames.some(n => n && String(n).toLowerCase() === lower);
     }
     return false;
   }
@@ -6016,6 +6445,7 @@ function activeUnsaidCharacters(cast, recentText, latestText) {
     if (explicitUnsaidExitCue(name, latestText)) return;
     active.push(name);
     const p = state.unsaid.scenePresence[name] || {};
+    if (typeof p.firstSeenTurn !== "number") p.firstSeenTurn = state.unsaid.turn;
     p.lastSeenTurn = state.unsaid.turn;
     p.lastSeenAction = (typeof info !== "undefined" && info && Number.isInteger(info.actionCount)) ? info.actionCount : state.unsaid.turn;
     state.unsaid.scenePresence[name] = p;
@@ -7022,6 +7452,16 @@ function readUnsaidConfig() {
     if (nameAnswer) cfg.playerName = nameAnswer.answer.trim();
   }
 
+  // Opening-story / platform / placeholder identity is authoritative across
+  // the suite. In particular, it must override a stale Player value copied in
+  // from another scenario before UNSAID adopts the new protagonist as an NPC.
+  try {
+    if (typeof CE_primaryPlayerName === "function") {
+      const resolvedPlayer = CE_primaryPlayerName();
+      if (resolvedPlayer) cfg.playerName = resolvedPlayer;
+    }
+  } catch (_) {}
+
   const excludedCastNames = excludedNames(cfg);
   const dedupedRegistry = [];
   state.unsaid.castRegistry.forEach(name => {
@@ -7042,14 +7482,19 @@ function readUnsaidConfig() {
   // buried deep in a huge card library waits dozens of turns to join UNSAID.
   const adoptionCards = (typeof storyCards !== "undefined" && Array.isArray(storyCards)) ? storyCards : [];
   const tryAdoptCard = c => {
-    if (!c || !CE_cardIdentityName(c) || adoptedThisPass >= 20) return false;
-    if (isOwnCard(c.title)) return false;
-    if (excludedCastNames.some(ex => isSameCardEntity(c.title, ex))) return false;
-    if (cfg.cast.some(existing => isSameCardEntity(c.title, existing))) return false;
-    if (!isCharacterLikeCard(c.title, c)) return false;
-    if (codexKindFromExistingCard(c, c.title) !== "character") return false;
-    cfg.cast.push(c.title);
-    if (!state.unsaid.castRegistry.some(existing => isSameCardEntity(existing, c.title))) state.unsaid.castRegistry.push(c.title);
+    const cardName = c ? CE_cardIdentityName(c) : "";
+    if (!c || !cardName || adoptedThisPass >= 20) return false;
+    // `title`/`name` are optional on the documented live Story Card contract.
+    // Once the compatibility layer has recovered an identity from Name:/keys,
+    // use that durable identity all the way through adoption; otherwise a
+    // titleless Character card can be recognised but still never enter UNSAID.
+    if (isOwnCard(cardName)) return false;
+    if (excludedCastNames.some(ex => isSameCardEntity(cardName, ex))) return false;
+    if (cfg.cast.some(existing => isSameCardEntity(cardName, existing))) return false;
+    if (!isCharacterLikeCard(cardName, c)) return false;
+    if (codexKindFromExistingCard(c, cardName) !== "character") return false;
+    cfg.cast.push(cardName);
+    if (!state.unsaid.castRegistry.some(existing => isSameCardEntity(existing, cardName))) state.unsaid.castRegistry.push(cardName);
     adoptedThisPass++;
     return true;
   };
@@ -7182,7 +7627,7 @@ function stripConfigNoise(text) {
   }
   let cleaned = text;
   storyCards
-    .filter(c => isCardOfKind(c, "class") && isOwnCard(c.title))
+    .filter(c => isCardOfKind(c, "class") && isOwnCard(CE_cardIdentityName(c)))
     .forEach(card => {
       // Guard against stripping on trivially short content — several of our
       // own cards deliberately use a single-space entry (e.g. the Twist Log,
@@ -8093,7 +8538,8 @@ function codexLearnExplicitAliasesFromText(source, cfg) {
     try { if (typeof CW_registerAlias === "function") CW_registerAlias(alias, canonical); } catch (_) {}
     var card = establishedCard || findStoryCardForEntity(canonical);
     if (card && !codexCardIdentityCompatible(card, canonical, "")) card = null;
-    if (card && state.unsaid.codex.cardMeta && (state.unsaid.codex.cardMeta[card.title] || codexLogHasEntity(card.title))) {
+    const cardIdentity = card ? (CE_cardIdentityName(card) || canonical) : "";
+    if (card && state.unsaid.codex.cardMeta && (state.unsaid.codex.cardMeta[cardIdentity] || codexLogHasEntity(cardIdentity))) {
       var keys = CE_splitStoryCardKeys(CE_cardKeysCore(card));
       if (!keys.some(function(k){return k.toLowerCase()===alias.toLowerCase();}) && keys.length<CODEX_ALIAS_AUTO_LIMIT) {
         keys.push(alias);
@@ -8116,7 +8562,7 @@ function repairManagedCodexNonCharacterCard(name, source, strongType) {
     const codex = state.unsaid.codex;
     const key = codexManagedCardKey(name, card);
     const meta = codex.cardMeta && codex.cardMeta[key];
-    const wasLogged = codexLogHasEntity(name) || codexLogHasEntity(card.title);
+    const wasLogged = codexLogHasEntity(name) || codexLogHasEntity(CE_cardIdentityName(card));
     if (!meta && !wasLogged) return false; // never rewrite a hand-authored card
 
     // Respect manual edits even on an originally Codex-generated card.
@@ -8243,10 +8689,11 @@ function trackMentions(text, observeIntroductions) {
     if (canConfirmIntroductions) {
       const existingCard = findStoryCardForEntity(name) || findStoryCardForEntity(key);
       if (existingCard &&
-          (state.unsaid.codex.cardMeta[existingCard.title] || codexLogHasEntity(existingCard.title))) {
+          (state.unsaid.codex.cardMeta[CE_cardIdentityName(existingCard)] || codexLogHasEntity(CE_cardIdentityName(existingCard)))) {
+        const existingIdentity = CE_cardIdentityName(existingCard) || key || name;
         const aliasSnippets = codexEvidenceSentences(name, source);
         aliasSnippets.forEach(snippet =>
-          recordCodexCardUpdateEvidence(existingCard.title, existingCard, snippet, actionEpoch)
+          recordCodexCardUpdateEvidence(existingIdentity, existingCard, snippet, actionEpoch)
         );
       }
     }
@@ -8712,9 +9159,10 @@ function storyCardMatchesForEntity(name) {
     ? index.aliasToCards[aliasKey].slice()
     : [];
   if (direct.length) {
-    const exactTitleMatches = direct.filter(card =>
-      card && card.title && !isOwnCard(card.title) && clean(card.title) === aliasKey
-    );
+    const exactTitleMatches = direct.filter(card => {
+      const identity = card ? CE_cardIdentityName(card) : "";
+      return !!identity && !isOwnCard(identity) && clean(identity) === aliasKey;
+    });
     const result = exactTitleMatches.length ? exactTitleMatches : direct;
     UNSAID_ENTITY_LOOKUP_CACHE[aliasKey] = result.slice();
     return result;
@@ -8790,10 +9238,19 @@ function isCardOfKind(card, kind) {
 
 function excludedNames(cfg) {
   const names = [];
-  if (cfg.playerName) names.push(cfg.playerName);
-  if (typeof CE_platformCharacterNames === "function") {
-    CE_platformCharacterNames().forEach(n => names.push(n));
-  }
+  try {
+    if (typeof CE_resolvePlayerIdentity === "function") {
+      const id = CE_resolvePlayerIdentity();
+      (id && id.aliases || []).forEach(function(n){ if(n) names.push(n); });
+      (id && id.controlledNames || []).forEach(function(n){ if(n) names.push(n); });
+      // A configured Player value is a fallback only. A strong opening-story
+      // identity must be able to replace a copied/stale config value.
+      if ((!id || !id.primary) && cfg && cfg.playerName) names.push(cfg.playerName);
+      return names;
+    }
+  } catch (_) {}
+  if (cfg && cfg.playerName) names.push(cfg.playerName);
+  if (typeof CE_platformCharacterNames === "function") CE_platformCharacterNames().forEach(n => names.push(n));
   return names;
 }
 
@@ -8850,7 +9307,7 @@ function codexKindFromExistingCard(card, name) {
   if (rawCharacter) return "character";
 
   const entry = String(card.entry || "");
-  const semanticNonCharacter = strongCodexNonCharacterEvidence(name || card.title, entry);
+  const semanticNonCharacter = strongCodexNonCharacterEvidence(name || CE_cardIdentityName(card), entry);
   if (semanticNonCharacter && semanticNonCharacter.type) return semanticNonCharacter.type;
 
   // Repair the common "place generated with Character labels" failure even
@@ -8869,16 +9326,16 @@ function codexKindFromExistingCard(card, name) {
   if (itemFields >= 2) return "item";
   if (characterFields >= 2 || rawCharacter) return "character";
 
-  const inferred = reconcileCodexEntityType(name || card.title, entry) ||
-    resolveCodexEntityType(name || card.title, entry);
+  const inferred = reconcileCodexEntityType(name || CE_cardIdentityName(card), entry) ||
+    resolveCodexEntityType(name || CE_cardIdentityName(card), entry);
   return inferred || "faction";
 }
 
 
 function codexManagedCardKey(name, card) {
-  if (!state.unsaid || !state.unsaid.codex) return String((card && card.title) || name || "").trim();
+  if (!state.unsaid || !state.unsaid.codex) return String((card && CE_cardIdentityName(card)) || name || "").trim();
   const codex = state.unsaid.codex;
-  const preferred = String((card && card.title) || name || "").trim();
+  const preferred = String((card && CE_cardIdentityName(card)) || name || "").trim();
   if (!preferred) return preferred;
 
   const stores = [
@@ -8928,7 +9385,7 @@ function ensureCodexCardMeta(name, card, type) {
     // Only adopt an old card into automatic refresh tracking when the Codex
     // log says this script created it. Hand-authored Story Cards are never
     // silently enrolled into overwrite behavior.
-    if (!codexLogHasEntity(name) && !codexLogHasEntity(card.title)) return null;
+    if (!codexLogHasEntity(name) && !codexLogHasEntity(CE_cardIdentityName(card))) return null;
     codex.cardMeta[key] = {
       type: type || codexKindFromExistingCard(card, name),
       lastGeneratedEntry: String(card.entry || ""),
@@ -9141,7 +9598,7 @@ function pickCodexRefreshCandidate(cfg) {
 
   Object.keys(codex.cardMeta || {}).forEach(storedName => {
     const card = findStoryCardForEntity(storedName);
-    if (!card || isOwnCard(card.title)) {
+    if (!card || isOwnCard(CE_cardIdentityName(card))) {
       delete codex.cardMeta[storedName];
       delete codex.cardUpdateEvidence[storedName];
       delete codex.cardUpdateLastSeenTurn[storedName];
@@ -10383,7 +10840,7 @@ function resolveUnsaidRelationTarget(owner, rawTarget, cfg) {
     : [];
   if (directMatches.length === 1) {
     const card = directMatches[0];
-    const canonical = card && card.title ? card.title : raw;
+    const canonical = card ? (CE_cardIdentityName(card) || raw) : raw;
     if ((!owner || !isSameCardEntity(owner, canonical)) &&
         !blocked.some(name => isSameCardEntity(name, canonical)) &&
         isCharacterLikeCard(canonical, card) &&
@@ -11173,6 +11630,44 @@ function recordThoughtHistory(mind, thought) {
   if (mind.thoughtHistory.length > THOUGHT_HISTORY_LIMIT) {
     mind.thoughtHistory = mind.thoughtHistory.slice(-THOUGHT_HISTORY_LIMIT);
   }
+}
+
+// Keep private-thought generation genuinely probabilistic while preventing the
+// default setting from starving a repeatedly active NPC forever. This does not
+// override an explicit thoughtChance=0, does not bypass reveal backoff, and
+// scales from the player's configured chance instead of imposing a hidden fixed
+// frequency. The boost only grows after an eligible character has remained
+// unrevealed/quiet for several story turns.
+function unsaidEffectiveRevealChance(cfg, eligible, currentTurn, isPlayerAction) {
+  if (!cfg || !Array.isArray(eligible) || eligible.length === 0) return 0;
+  let chance = Math.max(0, Math.min(1, Number(cfg.chance) || 0));
+  if (chance <= 0) return 0;
+  if (cfg.reduceDuringActions && isPlayerAction) chance *= 0.5;
+
+  const anyoneNeverRevealed = eligible.some(name => {
+    const mind = state.unsaid && state.unsaid.minds ? state.unsaid.minds[name] : null;
+    return !mind || !!mind.shellOnly || !(mind.revealCount || mind.lastThoughtText || mind.core || (mind.thoughtOrder && mind.thoughtOrder.length));
+  });
+  if (anyoneNeverRevealed) chance = Math.min(0.6, chance * 1.5);
+
+  let longestWait = 0;
+  eligible.forEach(name => {
+    const mind = state.unsaid && state.unsaid.minds ? state.unsaid.minds[name] : null;
+    const presence = state.unsaid && state.unsaid.scenePresence ? state.unsaid.scenePresence[name] : null;
+    let anchor = null;
+    if (mind && typeof mind.lastTurn === "number" && !mind.shellOnly) anchor = mind.lastTurn;
+    else if (presence && typeof presence.firstSeenTurn === "number") anchor = presence.firstSeenTurn;
+    if (anchor !== null) longestWait = Math.max(longestWait, Math.max(0, currentTurn - anchor));
+  });
+
+  const grace = Math.max(4, Math.min(12, (Number(cfg.cooldown) || 0) + 2));
+  if (longestWait > grace) {
+    // At defaults, an NPC that has stayed eligible for a long stretch can rise
+    // from 15–22.5% to roughly 45–55%, while very low custom chances remain low.
+    const factor = 1 + Math.min(1.5, (longestWait - grace) * 0.18);
+    chance = Math.min(0.8, chance * factor);
+  }
+  return Math.max(0, Math.min(1, chance));
 }
 
 function pickBySilence(names, currentTurn) {
@@ -12436,38 +12931,18 @@ function CW_playerNames() {
     const key = CW_key(clean || raw);
     if (!key) return;
     names.push(key);
-    // First-name aliases are useful in Character-card relationship fields such
-    // as "Married to Kyle" when the platform reports "Kyle Walker". Only add
-    // a non-trivial first token; full names remain authoritative.
     const bits = key.split(/\s+/).filter(Boolean);
     if (bits.length >= 2 && bits[0].length >= 3) names.push(bits[0]);
   }
-  if (typeof CE_platformCharacterNames === "function") {
-    for (const n of CE_platformCharacterNames()) addName(n);
-  }
-  const ph = (state && Array.isArray(state.placeholders)) ? state.placeholders : [];
-  for (const p of ph) {
-    if (!p) continue;
-    const q = String(p.question || "").toLowerCase();
-    if (!/(?:character\.name|player\s*name|protagonist\s*name|your\s*name|what\s+is\s+your\s+name)/i.test(q)) continue;
-    addName(String(p.answer || ""));
-  }
-  // AI Dungeon does not always expose characterNames to scripts. If exactly
-  // one Character card explicitly identifies itself as the protagonist/player,
-  // use that as a safe fallback instead of registering the player as an NPC.
-  if (names.length === 1 && typeof storyCards !== "undefined" && Array.isArray(storyCards)) {
-    const explicit = [];
-    for (const card of storyCards) {
-      if (!card || !/^(?:character|npc)$/i.test(String(card.type || ""))) continue;
-      const entry = CW_cardEntryText(card);
-      const playerMarker = /(?:^|\n)\s*(?:Arc\s+Role|Role)\s*:\s*(?:PRIMARY\s*\/\s*)?PROTAGONIST\b|(?:^|\n)\s*PLAYER\s*CHARACTER\s*:|(?:^|\n)\s*PLAYER\s*:\s*(?:YOU\s+ARE\b|YES\b|TRUE\b)/im;
-      if (!playerMarker.test(entry)) continue;
-      const title = CW_cleanName(CE_cardIdentityName(card));
-      if (title) explicit.push(title);
-    }
-    const unique = explicit.filter(function(x,i,a){ return a.findIndex(function(y){return CW_key(y)===CW_key(x);})===i; });
-    if (unique.length === 1) addName(unique[0]);
-  }
+  // One resolver owns player identity for the entire suite. Opening-story
+  // declarations outrank stale copied Character-card/platform metadata.
+  try {
+    const identity = typeof CE_resolvePlayerIdentity === "function" ? CE_resolvePlayerIdentity() : null;
+    const rows = identity && Array.isArray(identity.aliases) && identity.aliases.length
+      ? identity.aliases
+      : (identity && Array.isArray(identity.controlledNames) ? identity.controlledNames : []);
+    rows.forEach(addName);
+  } catch (_) {}
   CW_RUNTIME_PLAYER_NAMES = names.filter(function (x, i, arr) { return x && arr.indexOf(x) === i; });
   return CW_RUNTIME_PLAYER_NAMES.slice();
 }
@@ -13166,7 +13641,7 @@ function CW_resolveNpcName(name) {
 
 function CW_roleKey(from, to) {
   const f = CW_key(CW_resolveNpcName(from));
-  const t = CW_key(to) === "you" ? "you" : CW_key(CW_resolveNpcName(to));
+  const t = (CW_key(to) === "you" || CW_isPlayerName(to)) ? "you" : CW_key(CW_resolveNpcName(to));
   return f + "->" + t;
 }
 
@@ -13793,7 +14268,7 @@ function CW_addRelationshipStatusCardFoundations(index,target) {
 function CW_storyCardFoundationSignature() {
   let shared=null;try{shared=CE_sharedStoryCardIndex();}catch(_){}
   if(!shared && (typeof storyCards === "undefined" || !Array.isArray(storyCards))) return "";
-  const players=(typeof CE_platformCharacterNames==="function"?CE_platformCharacterNames():[]).map(CW_key).sort().join(",");
+  const players=(typeof CE_playerIdentityNames==="function"?CE_playerIdentityNames():(typeof CE_platformCharacterNames==="function"?CE_platformCharacterNames():[])).map(CW_key).sort().join(",");
   // At very large card counts the shared full-content signature is both cheaper
   // and stronger than re-parsing every relationship field merely to fingerprint
   // it. Any card edit invalidates the foundation cache; the rebuild still applies
@@ -13945,7 +14420,7 @@ function CW_setRole(from, to, role, turn, source) {
   const cfg = CW_config();
   if (!cfg.roleAwareness) return false;
   const fromName = CW_resolveNpcName(from);
-  const toName = CW_key(to) === "you" ? "YOU" : CW_resolveNpcName(to);
+  const toName = (CW_key(to) === "you" || CW_isPlayerName(to)) ? "YOU" : CW_resolveNpcName(to);
   const r = String(role || "").toLowerCase();
   if (!fromName || CW_isPlayerName(fromName) || !toName || !CW_ROLE_CODES.includes(r)) return false;
   if (!cfg.enableNpcNpc && toName !== "YOU") return false;
@@ -14285,7 +14760,7 @@ function CW_handleUndo(turn) {
 
 function CW_matureAtForName(name) {
   const cfg = CW_config();
-  if (CW_key(name) === "you") return 0;
+  if (CW_key(name) === "you" || CW_isPlayerName(name)) return 0;
   const resolved = CW_resolveNpcName(name);
   const key = CW_key(resolved);
   const npc = state.crossedWires.npcs[key];
@@ -14312,7 +14787,7 @@ function CW_pairMature(from, to, turn) {
 
 function CW_isAdultName(name) {
   const cfg = CW_config();
-  if (CW_key(name) === "you") {
+  if (CW_key(name) === "you" || CW_isPlayerName(name)) {
     const explicit = CW_playerExplicitAgeStatus();
     if (explicit === "minor") return false;
     if (explicit === "adult") return true;
@@ -14397,7 +14872,7 @@ function CW_addEvent(from, to, kind, severity, note, turn, source) {
   const cfg = CW_config();
   const cw = state.crossedWires;
   const fromClean = CW_resolveNpcName(from);
-  const toClean = CW_key(to) === "you" ? "YOU" : CW_resolveNpcName(to);
+  const toClean = (CW_key(to) === "you" || CW_isPlayerName(to)) ? "YOU" : CW_resolveNpcName(to);
   const eventKind = String(kind || "").toLowerCase();
   const requestedSeverity = Math.max(1, Math.min(3, parseInt(severity, 10) || 1));
   const sev = Math.min(requestedSeverity, CW_EVENT_SEVERITY_CAPS[eventKind] || 3);
@@ -14747,7 +15222,7 @@ function CW_pairKeys() {
   const foundations = state.crossedWires.foundations || {};
   for (const fk in foundations) {
     const f=foundations[fk]; if(!f)continue;
-    const key=CW_key(f.from)+"=>"+(CW_key(f.to)==="you"?"you":CW_key(f.to));
+    const key=CW_key(f.from)+"=>"+((CW_key(f.to)==="you"||CW_isPlayerName(f.to))?"you":CW_key(f.to));
     if(!seen[key]){seen[key]=true;pairs.push({from:f.from,to:f.to});}
   }
   const roles=state.crossedWires.roles||{};
@@ -14873,7 +15348,7 @@ function CW_roleAwareLabel(link) {
 }
 
 function CW_mutualPattern(link, reverse) {
-  if (!link || !reverse || CW_key(link.to) === "you") return "";
+  if (!link || !reverse || CW_key(link.to) === "you" || CW_isPlayerName(link.to)) return "";
   const a = link.scores, b = reverse.scores;
   const bits = [];
   if (a.attraction >= 35 && b.attraction >= 35) bits.push("mutual attraction");
@@ -14960,7 +15435,7 @@ function CW_relevantLinks(turn) {
     // Pair records are stored canonically when they enter the foundation/event
     // stores, so the hot selector does not need the expensive alias resolver.
     const fromKey = CW_key(pair.from);
-    const toKey = CW_key(pair.to) === "you" ? "you" : CW_key(pair.to);
+    const toKey = (CW_key(pair.to) === "you" || CW_isPlayerName(pair.to)) ? "you" : CW_key(pair.to);
     const relevance = Math.max(sceneScores[fromKey] || 0, toKey === "you" ? 0 : (sceneScores[toKey] || 0));
     if (relevance <= 0) continue;
 
@@ -15019,7 +15494,7 @@ function CW_groupDynamicsLine(links) {
   for (const l of links) {
     if (!l) continue;
     involved[CW_key(l.from)] = true;
-    if (CW_key(l.to) !== "you") involved[CW_key(l.to)] = true;
+    if (CW_key(l.to) !== "you" && !CW_isPlayerName(l.to)) involved[CW_key(l.to)] = true;
     else towardPlayer++;
     const s = l.scores || {};
     if ((s.trust || 0) >= 35 || (s.loyalty || 0) >= 35 || (s.affection || 0) >= 35) positive++;
@@ -15199,7 +15674,7 @@ function CW_chooseTwistLink(turn, cfg, forced) {
     const present = CW_recentPresenceKeys(cfg.twistSceneWindow);
     links = links.filter(function (l) {
       const fk = CW_resolveNpcKey(l.from) || CW_key(l.from);
-      const tk = CW_key(l.to) === "you" ? "you" : (CW_resolveNpcKey(l.to) || CW_key(l.to));
+      const tk = (CW_key(l.to) === "you" || CW_isPlayerName(l.to)) ? "you" : (CW_resolveNpcKey(l.to) || CW_key(l.to));
       return !!present[fk] || (tk !== "you" && !!present[tk]);
     });
   }
@@ -15409,7 +15884,7 @@ function CW_foundationRoleLabel(role) {
 
 function CW_foundationBehaviorHint(link) {
   if(!link||!link.foundation)return "";
-  const role=CW_getRole(link.from,link.to), f=link.flags||{}, toPlayer=CW_key(link.to)==="you";
+  const role=CW_getRole(link.from,link.to), f=link.flags||{}, toPlayer=CW_key(link.to)==="you"||CW_isPlayerName(link.to);
   let hint="";
   if(f.married) hint="Use lived-in familiarity, spouse shorthand, shared history and ordinary expectations when relevant; spouses must not behave like newly introduced coworkers. Disagreement is not a relationship reset; do not force affection or drama every turn.";
   else if(role==="parent") hint="Let this established parent role shape protective responsibility, boundaries and familiarity without making the other person helpless.";
@@ -15462,7 +15937,7 @@ function CW_relationshipContextLine(link, turn) {
   if (link.unresolved) line += " Unresolved: " + link.unresolved + ".";
   const anchor = CW_anchorText(link, cfg); if (anchor) line += " Turning point: " + anchor + ".";
   if (last && last.note) line += " Recent: " + CW_clipText(last.note, 105) + ".";
-  if (CW_key(link.to) !== "you") {
+  if (CW_key(link.to) !== "you" && !CW_isPlayerName(link.to)) {
     const reverse = CW_computeLink(link.to, link.from, turn), mutual = CW_mutualPattern(link, reverse); if (mutual) line += " Pair pattern: " + mutual + ".";
   }
   return CW_clipText(line, 520);
@@ -15712,7 +16187,7 @@ function CW_eventEvidenceSupported(raw, from, to) {
   if (!fromForms.length) fromForms.push(CW_resolveNpcName(from) || from);
   if (!fromForms.some(function (name) { return CW_wordPresent(evidence, name); })) return false;
 
-  if (CW_key(to) !== "you") {
+  if (CW_key(to) !== "you" && !CW_isPlayerName(to)) {
     const toKey = CW_resolveNpcKey(to);
     const toForms = CW_nameFormsForKey(toKey);
     if (!toForms.length) toForms.push(CW_resolveNpcName(to) || to);
@@ -15910,7 +16385,7 @@ function CW_parseModelOutput(text, turn) {
   const pairCounts = {}, pairGroups = {};
   for (const c of candidates) {
     if (accepted >= CW_config().maxEventsPerTurn) break;
-    const pair = CW_key(CW_resolveNpcName(c.from)) + "=>" + (CW_key(c.to) === "you" ? "you" : CW_key(CW_resolveNpcName(c.to)));
+    const pair = CW_key(CW_resolveNpcName(c.from)) + "=>" + ((CW_key(c.to) === "you" || CW_isPlayerName(c.to)) ? "you" : CW_key(CW_resolveNpcName(c.to)));
     const group = CW_eventGroup(c.kind);
     if ((pairCounts[pair] || 0) >= 2) continue;
     if (pairGroups[pair + "|" + group]) continue;
@@ -16016,7 +16491,7 @@ function CW_manualAge(name, status) {
 
 function CW_manualRole(fromName, toName, role) {
   const from = CW_resolveNpcName(fromName) || CW_cleanName(fromName);
-  const to = !toName || CW_key(toName) === "you" ? "YOU" : (CW_resolveNpcName(toName) || CW_cleanName(toName));
+  const to = !toName || CW_key(toName) === "you" || CW_isPlayerName(toName) ? "YOU" : (CW_resolveNpcName(toName) || CW_cleanName(toName));
   const r = String(role || "").trim().toLowerCase().replace(/[ -]+/g, "_");
   if (!from || !to || !CW_ROLE_CODES.includes(r)) return false;
   return CW_setRole(from, to, r, CW_turn());
@@ -18407,7 +18882,18 @@ const ECHO_VEIL = (() => {
   function playerIdentityHints() {
     const local = new Set(), controlled = new Set();
     if (!CFG.enablePlayerIdentityHints) return { local, controlled };
+    try {
+      if (typeof CE_resolvePlayerIdentity === "function") {
+        const id=CE_resolvePlayerIdentity();
+        (id && id.localAliases || []).forEach(function(n){const x=String(n||"").trim();if(x)local.add(x.toLowerCase());});
+        (id && id.aliases || []).forEach(function(n){const x=String(n||"").trim();if(x)controlled.add(x.toLowerCase());});
+        (id && id.controlledNames || []).forEach(function(n){const x=String(n||"").trim();if(x)controlled.add(x.toLowerCase());});
+        return { local, controlled };
+      }
+    } catch (_) {}
 
+    // Compatibility fallback for hosts running only a fragment of the shared
+    // library. The combined build normally returns above.
     if (typeof state !== "undefined" && state && Array.isArray(state.placeholders)) {
       for (const p of state.placeholders) {
         const q = String(p && p.question || "").trim().toLowerCase();
@@ -18417,9 +18903,7 @@ const ECHO_VEIL = (() => {
         if (localNameQuestion) local.add(a.toLowerCase());
       }
     }
-    if (typeof CE_platformCharacterNames === "function") {
-      CE_platformCharacterNames().forEach(n => { const x=String(n||"").trim(); if (x) controlled.add(x.toLowerCase()); });
-    }
+    if (typeof CE_platformCharacterNames === "function") CE_platformCharacterNames().forEach(n => { const x=String(n||"").trim(); if (x) controlled.add(x.toLowerCase()); });
     return { local, controlled };
   }
 
@@ -21953,9 +22437,8 @@ function CE_findWritableEntityCard(name){
   }catch(_){return null;}
 }
 function CE_isPlayerIdentity(name){
+  try{if(typeof CE_isResolvedPlayerName==="function"&&CE_isResolvedPlayerName(name))return true;}catch(_){}
   try{if(typeof CW_isPlayerName==="function"&&CW_isPlayerName(name))return true;}catch(_){}
-  var key=String(name||"").trim().toLowerCase();if(!key)return false;
-  try{if(typeof CE_platformCharacterNames==="function"&&CE_platformCharacterNames().some(function(n){return String(n||"").trim().toLowerCase()===key;}))return true;}catch(_){}
   return false;
 }
 function CE_syncEntityCard(name){try{
@@ -22140,7 +22623,7 @@ function CE_syncStoryCardPresentation(directText){try{
   // Relationship-relevant current-scene names come first so established bonds
   // and changed dynamics refresh before older cast insertion order can consume
   // the bounded Story Card presentation budget.
-  if(typeof CW_relevantLinks==="function")try{(CW_relevantLinks(now)||[]).forEach(function(l){if(l){add(l.from);if(CW_key(l.to)!=="you")add(l.to);}});}catch(_){}
+  if(typeof CW_relevantLinks==="function")try{(CW_relevantLinks(now)||[]).forEach(function(l){if(l){add(l.from);if(CW_key(l.to)!=="you"&&!CW_isPlayerName(l.to))add(l.to);}});}catch(_){}
   if(state.unifiedNarrative&&state.unifiedNarrative.focus)add(state.unifiedNarrative.focus.entity);
 
   var ev=state.echoVeil||{},castRows=[];
@@ -24187,15 +24670,19 @@ function CECS_findCharacter(name){
   return score>0?best:null;
 }
 function CECS_extractPlayerName(){
+  try{if(typeof CE_primaryPlayerName==="function"){var resolved=CE_primaryPlayerName();if(resolved)return resolved;}}catch(_){}
+  // Fragment-host compatibility fallback. The full combined build should
+  // resolve above through CE_resolvePlayerIdentity().
   var sources=[];
   try{if(typeof state!=="undefined"&&state&&state.memory){sources.push(state.memory.context||"");sources.push(state.memory.authorsNote||"");}}catch(_){}
   CECS_storyCards().slice(0,120).forEach(function(c){var b=CECS_cardText(c); if(/\bPLAYER\b/i.test(b))sources.push(b);});
   for(var i=0;i<sources.length;i++){
-    var s=sources[i],m=s.match(/\b(?:You\s*=|You\s+are|PLAYER\s*:\s*You\s+are)\s+([A-Z][A-Za-z'’-]+(?:[ \t]+[A-Z][A-Za-z'’-]+){0,2})/i);
-    if(m)return m[1].trim();
+    var hit=typeof CE_detectPlayerDeclaration==="function"?CE_detectPlayerDeclaration(sources[i],"canon-fallback"):null;
+    if(hit&&hit.name)return hit.name;
   }
   return"";
 }
+
 function CECS_extractPlayerAge(playerName){
   var c=playerName?CECS_findCharacter(playerName):null, b=CECS_cardText(c),m=b.match(/\bAge\s*:\s*(\d{1,3})\b/i); return m?Number(m[1]):null;
 }

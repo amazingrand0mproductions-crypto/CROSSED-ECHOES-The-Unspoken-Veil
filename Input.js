@@ -2,6 +2,12 @@ state.message = "";
 var inputRuntimeToken = typeof utBeginRuntimePhase === "function" ? utBeginRuntimePhase("input") : null;
 
 try {
+  if (typeof CE_reconcilePlayerIdentityState === "function") CE_reconcilePlayerIdentityState();
+} catch (e) {
+  if (typeof log === "function") log("CROSSED ECHOES player identity/Input error: " + (e && e.message));
+}
+
+try {
   if (typeof CE_runTurnFeature === "function") {
     CE_runTurnFeature("codex", "input", function(){
       if (typeof CE_bootstrapRequiredConfigCards === "function") CE_bootstrapRequiredConfigCards("input");

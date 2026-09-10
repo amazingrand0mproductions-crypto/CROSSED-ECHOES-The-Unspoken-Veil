@@ -2,6 +2,12 @@
 var contextRuntimeToken = typeof utBeginRuntimePhase === "function" ? utBeginRuntimePhase("context") : null;
 
 try {
+  if (typeof CE_reconcilePlayerIdentityState === "function") CE_reconcilePlayerIdentityState();
+} catch (e) {
+  if (typeof log === "function") log("CROSSED ECHOES player identity/Context error: " + (e && e.message));
+}
+
+try {
   if (typeof CE_runTurnFeature === "function") {
     CE_runTurnFeature("codex", "context", function(){ if (typeof CE_bootstrapRequiredConfigCards === "function") CE_bootstrapRequiredConfigCards("context"); }, null, typeof CE_bootstrapRequiredConfigCards === "function");
   } else if (typeof CE_bootstrapRequiredConfigCards === "function") CE_bootstrapRequiredConfigCards("context");
@@ -62,7 +68,9 @@ var twistsModifier = (text) => {
     const cacheEfficient = !!(typeof info !== "undefined" && info && info.useCacheEfficient);
     Library.updateCacheEfficiencyWarning(cacheEfficient);
 
-    if (typeof CE_platformCharacterNames === "function") {
+    if (typeof CE_playerIdentityNames === "function") {
+      c.multiplayerNames = CE_playerIdentityNames();
+    } else if (typeof CE_platformCharacterNames === "function") {
       c.multiplayerNames = CE_platformCharacterNames();
     }
 
@@ -755,18 +763,9 @@ var unsaidModifier = (text) => {
 
       const actionType = getLastActionType();
       const isPlayerAction = actionType === "do" || actionType === "say";
-      let effectiveChance = (cfg.reduceDuringActions && isPlayerAction) ? cfg.chance * 0.5 : cfg.chance;
-
-      const anyoneNeverRevealed = eligible.some(name => {
-        const mind = state.unsaid.minds[name];
-        return !mind || !!mind.shellOnly || !(mind.revealCount || mind.lastThoughtText || mind.core || (mind.thoughtOrder && mind.thoughtOrder.length));
-      });
-      if (anyoneNeverRevealed) {
-        // Give new NPCs a modest nudge, but never turn a 30% setting into an
-        // almost-every-turn metadata request. Repeated model misses now trigger
-        // an internal cooldown instead of hammering the same hidden format.
-        effectiveChance = Math.min(0.6, effectiveChance * 1.5);
-      }
+      const effectiveChance = (typeof unsaidEffectiveRevealChance === "function")
+        ? unsaidEffectiveRevealChance(cfg, eligible, state.unsaid.turn, isPlayerAction)
+        : ((cfg.reduceDuringActions && isPlayerAction) ? cfg.chance * 0.5 : cfg.chance);
 
       const revealBackoffActive = state.unsaid.turn < (state.unsaid.revealBackoffUntil || 0);
       if (!revealBackoffActive && eligible.length > 0 && Math.random() < effectiveChance) {

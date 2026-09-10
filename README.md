@@ -8,6 +8,18 @@ CROSSED ECHOES is not one mechanic. It is a set of connected narrative systems t
 
 ---
 
+## 🧭 Player identity contract
+
+The player is resolved **once, centrally**, before the narrative systems decide who can think, act, relate or carry hidden state. An explicit opening-story declaration such as `YOU ARE Maya Walker`, `You play as Maya Walker`, `You = Maya Walker`, `Your name is Maya Walker`, or `Maya Walker is the sole player-controlled character` takes priority over stale copied-scenario player markers. Once an opening establishes the protagonist, that strong identity is persisted so it cannot drift back to stale platform metadata after the opening scrolls out of the live history window. Character Creator/platform names and `PLAYER:` Story Card markers remain compatibility fallbacks when no strong opening/creator identity exists; platform-only identity remains live so a genuine selected-character change can still take effect.
+
+That identity changes behavior across the whole suite. The resolved player is the fixed **YOU** endpoint in CROSSED WIRES, can be involved in evidence-backed TWISTS, and can be affected by ECHO/world consequences, but is **never** given an autonomous UNSAID private mind, invented relationship feelings, or autonomous ECHO motives. Named references to the current player are normalized back to `YOU`, so an event aimed at the player's character name cannot accidentally create a second NPC copy of the protagonist.
+
+If an older/copy-derived save already misclassified the current protagonist as an NPC, the script performs a bounded migration: it removes player-owned NPC mind/motive state, drops invented player-origin relationship attitudes, preserves legitimate **NPC → player** history by retargeting it to `YOU`, clears stale presentation/foundation caches, and rebuilds from the corrected identity.
+
+The dedicated player-identity/liveness regression also verifies that correcting the player does **not** starve the rest of the suite: multiple NPCs still acquire UNSAID private thoughts, overdue active NPCs receive a bounded anti-starvation increase in reveal opportunity, visible relationship actions can grow NPC→YOU bonds even when hidden tags are omitted, relationship twists can arm naturally, TWISTS can create and mature evidence threads from distinct visible clues, titleless Character cards still join the NPC cast, and ECHO tracks NPC continuity across Input/Context/Output.
+
+---
+
 ## ✨ Core systems
 
 ### 🧠 UNSPOKEN TURNS

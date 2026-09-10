@@ -1,6 +1,12 @@
 var outputRuntimeToken = typeof utBeginRuntimePhase === "function" ? utBeginRuntimePhase("output") : null;
 
 try {
+  if (typeof CE_reconcilePlayerIdentityState === "function") CE_reconcilePlayerIdentityState();
+} catch (e) {
+  if (typeof log === "function") log("CROSSED ECHOES player identity/Output error: " + (e && e.message));
+}
+
+try {
   if (typeof CE_runTurnFeature === "function") CE_runTurnFeature("codex", "output", function(){ if (typeof CE_bootstrapRequiredConfigCards === "function") CE_bootstrapRequiredConfigCards("output"); }, null, typeof CE_bootstrapRequiredConfigCards === "function");
   else if (typeof CE_bootstrapRequiredConfigCards === "function") CE_bootstrapRequiredConfigCards("output");
   initUnsaid();
