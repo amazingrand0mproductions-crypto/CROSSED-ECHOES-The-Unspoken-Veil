@@ -1,963 +1,119 @@
-// @cache-compatible
 var contextRuntimeToken = typeof utBeginRuntimePhase === "function" ? utBeginRuntimePhase("context") : null;
-
-try {
-  if (typeof CE_reconcilePlayerIdentityState === "function") CE_reconcilePlayerIdentityState();
-} catch (e) {
-  if (typeof log === "function") log("CROSSED ECHOES player identity/Context error: " + (e && e.message));
-}
-
-try {
-  if (typeof CE_runTurnFeature === "function") {
-    CE_runTurnFeature("codex", "context", function(){ if (typeof CE_bootstrapRequiredConfigCards === "function") CE_bootstrapRequiredConfigCards("context"); }, null, typeof CE_bootstrapRequiredConfigCards === "function");
-  } else if (typeof CE_bootstrapRequiredConfigCards === "function") CE_bootstrapRequiredConfigCards("context");
-  initUnsaid();
-  // High-authority scenario declarations are a first-class CODEX input. Do
-  // this before the heavier twist/world/context directors so a large 300–500
-  // card adventure cannot repeatedly starve the one-time bootstrap behind the
-  // adaptive runtime governor. Static declarations do NOT count as appearances.
-  try {
-    if (typeof readUnsaidConfig === "function" && typeof trackScenarioContextDeclarations === "function") {
-      const earlyCodexCfg = readUnsaidConfig();
-      if (earlyCodexCfg && earlyCodexCfg.codexEnabled !== false) {
-        const codexWork = function(){
-          const declared = trackScenarioContextDeclarations(text, earlyCodexCfg);
-          if (declared && declared.length && typeof createCodexScenarioScaffoldCards === "function") {
-            const made = createCodexScenarioScaffoldCards(earlyCodexCfg, text, 1);
-            if (made && made.length && typeof pushMessage === "function") {
-              pushMessage("📇 CODEX recovered " + made.length + " scenario-declared Story Card" + (made.length === 1 ? "" : "s") + " from authoritative context.");
-            }
-          }
-        };
-        if (typeof CE_runTurnFeature === "function") CE_runTurnFeature("codex", "context", codexWork, null, true);
-        else codexWork();
-      }
-    }
-  } catch (e) { if (typeof utRecordRuntimeError === "function") utRecordRuntimeError("Codex/early-scenario-bootstrap", e); }
-  if (typeof CE_noteCacheCompatibleSeen === "function") CE_noteCacheCompatibleSeen();
-  checkCacheEfficientWarning();
-} catch (e) {
-  if (typeof log === "function") log("UNSAID init/Context error: " + (e && e.message));
-}
-
-var twistsModifier = (text) => {
-  try {
-    const { c, cfg } = Library.initState();
-    const matureWasEnabled = c.lastMatureEnabled;
+function CE_CTX_twists(text){
+  try{
+    var init=Library.initState(),c=init.c,cfg=init.cfg;
     Library.applyEntryConfig(cfg);
-    if (matureWasEnabled === false && cfg.allowMatureTwists) {
-      // A manual config-card toggle should behave the same as /mature on:
-      // rescan lore that may previously have been skipped while adult
-      // categories were disabled.
-      c.importedCardSignatures = {};
-      c.lastContextSignature = null;
-      c.lastAuthorsNoteSignature = null;
-    }
-    c.lastMatureEnabled = !!cfg.allowMatureTwists;
-    // Manual /peek and /card are model-control calls, not narrative turns.
-    // Acknowledge their actionCount so retries de-duplicate correctly, but do
-    // not age twist threads, cooldowns, or pacing clocks.
-    const unsaidControlRequest = String((state.unsaid && state.unsaid.controlRequest) || "");
-    const manualUnsaidControl = unsaidControlRequest === "peek" || unsaidControlRequest === "card";
-    const twistStoryAdvanced = Library.beginContextTurn(c, text, !manualUnsaidControl);
-    // Re-evaluate from live story + lore every context pass. The profile is
-    // advisory and may evolve as a scenario reveals that it is hybrid,
-    // grounded, speculative, historical, etc.
-    Library.updateScenarioProfile(c, cfg, text);
-
-    const cacheEfficient = !!(typeof info !== "undefined" && info && info.useCacheEfficient);
-    Library.updateCacheEfficiencyWarning(cacheEfficient);
-
-    if (typeof CE_playerIdentityNames === "function") {
-      c.multiplayerNames = CE_playerIdentityNames();
-    } else if (typeof CE_platformCharacterNames === "function") {
-      c.multiplayerNames = CE_platformCharacterNames();
-    }
-
-    if (!cfg.enabled) {
-      syncTwistFrontMemoryHint("");
-      c.hintActive = false;
-      c.lastContextHint = "";
-      Library.updateConfigCard(cfg, c);
-      Library.updateTwistLogCard(c, cfg);
-      Library.updateNudgeCard(cacheEfficient, "", []);
-      return { text };
-    }
-
-    // A manual /peek or /card is already a dedicated model-control turn.
-    // Never stack an automatic twist instruction onto the same generation:
-    // competing hidden formats were a major source of "command ran but the
-    // model ignored the metadata" failures. Manual control gets sole ownership
-    // of this call; normal twist pacing resumes on the next story turn.
-    if (manualUnsaidControl) {
-      syncTwistFrontMemoryHint("");
-      c.hintActive = false;
-      c.lastContextHint = "";
-      Library.updateNudgeCard(cacheEfficient, "", []);
-      if (typeof utSkipRuntimeTask === "function") utSkipRuntimeTask("single-control-owner-manual");
-      return { text };
-    }
-
-    // Retries/regenerations of the same action should not seed, pay off, or
-    // advance pacing twice. Keep the already-delivered managed hint in place
-    // and leave pending Output work untouched.
-    if (!twistStoryAdvanced && !c.forcePlant && !c.forceEntity) {
-      // Retry/regenerate still needs the SAME managed instruction. In native
-      // cache-compatible mode replay the stored hint as an append-only suffix
-      // instead of advancing or creating a second twist.
-      if (cacheEfficient && c.hintActive && c.lastContextHint &&
-          typeof CE_appendCompleteContextSuffix === "function") {
-        const reserve = typeof UN_contextReserveChars === "function" ? UN_contextReserveChars() : 0;
-        const replay = CE_appendCompleteContextSuffix(text, "\n\n" + c.lastContextHint, reserve);
-        if (replay.appended) {
-          Library.updateNudgeCard(false, "", []);
-          return { text: replay.text };
-        }
+    var control=String(state.unsaid&&state.unsaid.controlRequest||"");
+    var manual=control==="peek"||control==="card";
+    var advanced=Library.beginContextTurn(c,text,!manual);
+    Library.updateScenarioProfile(c,cfg,text);
+    var cache=!!(typeof info!=="undefined"&&info&&info.useCacheEfficient);
+    Library.updateCacheEfficiencyWarning(cache);
+    if(typeof CE_playerIdentityNames==="function")c.multiplayerNames=CE_playerIdentityNames();
+    else if(typeof CE_platformCharacterNames==="function")c.multiplayerNames=CE_platformCharacterNames();
+    if(!cfg.enabled||manual){c.hintActive=false;c.lastContextHint="";if(typeof syncTwistFrontMemoryHint==="function")syncTwistFrontMemoryHint("");Library.updateNudgeCard(cache,"",[]);Library.updateConfigCard(cfg,c);Library.updateTwistLogCard(c,cfg);return text;}
+    if(!advanced&&!c.forcePlant&&!c.forceEntity){
+      if(cache&&c.hintActive&&c.lastContextHint&&typeof CE_appendCompleteContextSuffix==="function"){
+        var reserve=typeof UN_contextReserveChars==="function"?UN_contextReserveChars():0;
+        var replay=CE_appendCompleteContextSuffix(text,"\n\n"+c.lastContextHint,reserve);if(replay&&replay.appended)return replay.text;
       }
-      Library.updateConfigCard(cfg, c);
-      Library.updateTwistLogCard(c, cfg);
-      return { text };
+      return text;
     }
-
-    let hint = null;
-    let hintEntities = [];
-    let directTwistDelivered = false;
-
-    try {
-    if (c.forcePlant) {
-      // /plant is author intent, not factual evidence. It creates (or reuses)
-      // the requested category without pretending the story has already
-      // supplied a clue. Explicit categories can coexist up to the normal
-      // per-entity cap instead of being blocked by some unrelated old thread.
-      const planted = Library.createThread(c, c.forcePlant.entity, c.forcePlant.category, c.turn, cfg);
-      if (planted) {
-        planted.source = "manual";
-        planted.manualPlant = true;
-        if (!planted.evidenceRecords || !planted.evidenceRecords.length) planted.storyEvidenceTouches = 0;
-      }
-      c.forcePlant = null;
+    if(c.forcePlant){var planted=Library.createThread(c,c.forcePlant.entity,c.forcePlant.category,c.turn,cfg);if(planted){planted.source="manual";planted.manualPlant=true;if(!planted.evidenceRecords||!planted.evidenceRecords.length)planted.storyEvidenceTouches=0;}c.forcePlant=null;}
+    var scan=(typeof recentTurnsText==="function"?recentTurnsText(text,3):String(text||"").slice(-4500)).replace(/\[[^\[\]]*\]/g," ").replace(/《[^》]*》?/g," ").replace(/【CARD】[\s\S]*?【\/CARD】?/g," ");
+    var live=Library.eligibleCardTitles(scan,32),lane=Math.abs(Number(c.turn||0))%4;
+    Library.scanForLooseThreads(scan,c,cfg,live);
+    if(lane===0&&live.length&&(typeof utHasRuntimeBudget!=="function"||utHasRuntimeBudget(180)))Library.scanStoryCardsForScenarioThreads(c,cfg,live,true);
+    else if(lane===1&&(typeof utHasRuntimeBudget!=="function"||utHasRuntimeBudget(300)))Library.scanPlotEssentialsForThreads(c,cfg,live);
+    else if(lane===2&&(typeof utHasRuntimeBudget!=="function"||utHasRuntimeBudget(260)))Library.scanAuthorsNoteForThreads(c,cfg,live);
+    else if(lane===3&&(typeof utHasRuntimeBudget!=="function"||utHasRuntimeBudget(380)))Library.scanStoryCardsForScenarioThreads(c,cfg,[],false);
+    var hint=null,entities=[],direct=false,thread=null;
+    if(c.forceEntity){
+      if(c.forceEntity==="any")thread=Library.pickPayoffThread(c,cfg)||Library.pickMostBuiltUpBrewingThread(c,cfg);else thread=(c.threads||[]).find(function(t){return t.id===c.forceEntity&&Library.isThreadAllowed(t,cfg);});
+      if(thread){if(thread.status==="brewing"){thread.seedTouches=Math.max(thread.seedTouches,cfg.minSeedsForPayoff);thread.tier=Library.tierFor(thread.seedTouches);thread.status="ready";}hint=Library.payoffHint(thread);entities=[thread.entity];c.pendingPayoffId=thread.id;c.pendingPayoffId2=null;c.lastPayoffAttemptTurn=c.turn;}else if(typeof pushMessage==="function")pushMessage('🌀 Nothing has built up enough yet to force a twist on.');
+      c.forceEntity=null;
     }
-
-    // Always prioritize the live story window. Lore maintenance can wait a
-    // turn; understanding what just happened cannot. In very large adventures
-    // do NOT materialize/sort every Story Card title just to discover which
-    // few names appear in the current text. eligibleCardTitles(source, cap)
-    // performs one bounded relevance scan instead.
-    const twistScanSource = (typeof recentTurnsText === "function")
-      ? recentTurnsText(text, 3)
-      : String(text || "").slice(-4500);
-    const scanText = twistScanSource
-      .replace(/\[[^\[\]]*\]/g, " ")
-      .replace(/《[^》]*》?/g, " ")
-      .replace(/【CARD】[\s\S]*?【\/CARD】?/g, " ");
-
-    const liveCardTitles = Library.eligibleCardTitles(scanText, 64);
-    const loreReferenceText = [
-      scanText,
-      state && state.memory && typeof state.memory.context === "string" ? state.memory.context.slice(-5000) : "",
-      state && state.memory && typeof state.memory.authorsNote === "string" ? state.memory.authorsNote.slice(-3000) : ""
-    ].filter(Boolean).join("\n");
-    const cardTitles = Library.eligibleCardTitles(loreReferenceText, 96);
-    Library.scanForLooseThreads(scanText, c, cfg, liveCardTitles);
-
-    // Never let a large archive starve the directly relevant current-entity
-    // mystery scan. This pass is bounded to the active card plus at most two
-    // explicitly related cards per entity. The broader rotating lore scan stays
-    // optional and yields first under runtime pressure.
-    if (liveCardTitles.length && (typeof utHasRuntimeBudget !== "function" || utHasRuntimeBudget(120))) {
-      Library.scanStoryCardsForScenarioThreads(c, cfg, liveCardTitles, true);
-    } else if (liveCardTitles.length && typeof utSkipRuntimeTask === "function") {
-      utSkipRuntimeTask("twist-current-card-scan");
+    if(!hint&&!(typeof UN_shouldSuppressPlotTwist==="function"&&UN_shouldSuppressPlotTwist())&&(c.turn-c.lastPayoffTurn)>=cfg.payoffCooldown&&(c.turn-c.lastPayoffAttemptTurn)>=cfg.twistRetryCooldown){
+      var payoff=Library.pickPayoffThread(c,cfg);if(payoff){hint=Library.payoffHint(payoff);entities=[payoff.entity];c.pendingPayoffId=payoff.id;c.pendingPayoffId2=null;c.lastPayoffAttemptTurn=c.turn;}
     }
-    if (typeof utHasRuntimeBudget !== "function" || utHasRuntimeBudget(430)) {
-      Library.scanStoryCardsForScenarioThreads(c, cfg, [], false);
-    } else if (typeof utSkipRuntimeTask === "function") {
-      utSkipRuntimeTask("twist-storycard-scan");
+    if(!hint&&!(typeof UN_shouldSuppressPlotTwist==="function"&&UN_shouldSuppressPlotTwist())){
+      var pace=Library.effectivePacing(cfg,c);if(pace>0&&c.turn%pace===0){var seed=Library.pickForeshadowThread(c,cfg);if(seed){hint=Library.foreshadowHint(seed);entities=[seed.entity];c.pendingSeedId=seed.id;}}
     }
-    if (typeof utHasRuntimeBudget !== "function" || utHasRuntimeBudget(350)) {
-      Library.scanPlotEssentialsForThreads(c, cfg, cardTitles);
-    } else if (typeof utSkipRuntimeTask === "function") {
-      utSkipRuntimeTask("twist-plot-scan");
+    c.lastContextHint=hint||"";c.hintActive=!!hint;
+    if(cache&&hint&&typeof CE_appendCompleteContextSuffix==="function"){
+      var rr=typeof UN_contextReserveChars==="function"?UN_contextReserveChars():0,ap=CE_appendCompleteContextSuffix(text,"\n\n"+hint,rr);if(ap&&ap.appended){text=ap.text;direct=true;if(typeof syncTwistFrontMemoryHint==="function")syncTwistFrontMemoryHint("");}else if(typeof syncTwistFrontMemoryHint==="function")syncTwistFrontMemoryHint(hint);
+    }else if(typeof syncTwistFrontMemoryHint==="function")syncTwistFrontMemoryHint(hint||"");
+    Library.updateNudgeCard(cache&&!direct,hint,entities);Library.updateConfigCard(cfg,c);Library.updateTwistLogCard(c,cfg);
+  }catch(e){try{if(typeof utRecordRuntimeError==="function")utRecordRuntimeError("Context/Twists",e);}catch(_){}}
+  return text;
+}
+function CE_CTX_nameIn(name,text){var n=String(name||"").toLowerCase().trim(),s=String(text||"").toLowerCase();if(!n)return false;var at=s.indexOf(n);while(at>=0){var b=at?s[at-1]:"",a=at+n.length<s.length?s[at+n.length]:"";if((!b||!/[a-z0-9]/i.test(b))&&(!a||!/[a-z0-9]/i.test(a)))return true;at=s.indexOf(n,at+1);}return false;}
+function CE_CTX_readCfg(text){
+  if(typeof initUnsaid==="function")initUnsaid();
+  var cfg={...UNSAID_DEFAULTS},card=typeof ensureSharedConfigCard==="function"?ensureSharedConfigCard():null;
+  try{if(card&&typeof extractConfigSection==="function"&&typeof parseUnsaidSectionInto==="function")parseUnsaidSectionInto(cfg,extractConfigSection(CW_cardEntryText(card),CONFIG_SECTION_UNSAID));}catch(_){}
+  try{var cc=card&&typeof ensureCodexConfigCard==="function"?ensureCodexConfigCard(card):null;if(cc&&typeof applyCodexConfigText==="function")applyCodexConfigText(cfg,CW_cardEntryText(cc));}catch(_){}
+  try{var pn=typeof CE_primaryPlayerName==="function"?CE_primaryPlayerName():"";if(pn)cfg.playerName=pn;}catch(_){}
+  var recent=String(text||"").slice(-9000),live=[];
+  try{if(typeof CW_liteCharacterNames==="function")live=CW_liteCharacterNames(recent,16)||[];}catch(_){}
+  try{var reg=state.unsaid&&Array.isArray(state.unsaid.castRegistry)?state.unsaid.castRegistry:[];reg.slice(-48).forEach(function(n){if(CE_CTX_nameIn(n,recent)&&live.indexOf(n)<0)live.push(n);});}catch(_){}
+  if(state.unsaid&&state.unsaid.forcedPeek&&live.indexOf(state.unsaid.forcedPeek)<0)live.push(state.unsaid.forcedPeek);
+  cfg.cast=live.filter(function(n){try{return !(typeof CE_isResolvedPlayerName==="function"&&CE_isResolvedPlayerName(n));}catch(_){return String(n).toLowerCase()!==String(cfg.playerName||"").toLowerCase();}}).slice(0,24);
+  try{cfg.cast.forEach(function(n){if(!state.unsaid.castRegistry.some(function(x){return isSameCardEntity(x,n);}))state.unsaid.castRegistry.push(n);});if(state.unsaid.castRegistry.length>MAX_CAST_SIZE)state.unsaid.castRegistry=state.unsaid.castRegistry.slice(-MAX_CAST_SIZE);}catch(_){}
+  return cfg;
+}
+function CE_CTX_unsaid(text){
+  var original=text;
+  try{
+    var cfg=CE_CTX_readCfg(text);text=stripConfigNoise(text);var cache=!!(typeof info!=="undefined"&&info&&info.useCacheEfficient);
+    var fp=state.unsaid.forcedPeek,fpc=state.unsaid.forcedPeekCore,fc=state.unsaid.forcedCodex;state.unsaid.forcedPeek=null;state.unsaid.forcedPeekCore=null;state.unsaid.forcedCodex=null;
+    if(!cfg.enabled){state.unsaid.pending=null;state.unsaid.controlRequest="";if(typeof updateUnsaidBackupCard==="function")updateUnsaidBackupCard(cache,"");return text;}
+    var manual=String(state.unsaid.controlRequest||"");var advanced=isNewStoryTurn(text);
+    if(!advanced&&!fp&&!fc){state.unsaid.pending=null;if(typeof updateUnsaidBackupCard==="function")updateUnsaidBackupCard(cache,"");return text;}
+    if(manual!=="peek"&&manual!=="card")state.unsaid.turn++;
+    var recent=recentTurnsText(text,cfg.recentTurnsWindow),latest=recentTurnsText(text,1),active=activeUnsaidCharacters(cfg.cast,recent,latest);active.forEach(seedMindIfKnown);if(fp)seedMindIfKnown(fp);
+    if(fp&&fpc&&!cfg.allowCoreShift){if(typeof pushMessage==="function")pushMessage('🌗 Core-shift checks are disabled in config.');state.unsaid.controlRequest="";return text;}
+    if(fp){var fi=fpc?buildCoreCheckInstruction(fp,state.unsaid.minds[fp]):buildAndFitThoughtInstruction(fp,active,text,cfg.allowCoreShift,cfg);var ff=fpc?fitInstructionToBudget(text,fi):fi;if(ff){state.unsaid.pending=fp;state.unsaid.pendingCoreShiftAllowed=fpc||naturalCoreShiftEligible(state.unsaid.minds[fp],cfg.allowCoreShift,fp);state.unsaid.pendingCoreCheck=!!fpc;state.unsaid.pendingRevealForced=true;if(typeof updateUnsaidBackupCard==="function")updateUnsaidBackupCard(cache,ff);return text+ff;}state.unsaid.controlRequest="";return text;}
+    if(fc){var ft=reconcileCodexEntityType(fc,text)||resolveCodexEntityType(fc,text)||classifyCodexEntry(fc,text),pf=state.unsaid.codex.attempts[fc]||0,ci=buildAndFitCodexInstruction([fc],text,true,pf,true);if(ci){state.unsaid.codex.attempts[fc]=pf+1;state.unsaid.codex.lastAttemptTurn[fc]=state.unsaid.turn;state.unsaid.codex.pendingNames=[fc];state.unsaid.codex.pendingTypes={};state.unsaid.codex.pendingTypes[fc]=ft;state.unsaid.codex.pendingForced=true;state.unsaid.codex.pendingRefreshNames=[];state.unsaid.codex.lastTriggerTurn=state.unsaid.turn;state.unsaid.pending=null;if(typeof updateUnsaidBackupCard==="function")updateUnsaidBackupCard(cache,ci);return text+ci;}state.unsaid.controlRequest="";return text;}
+    var owner=!!(state.contingency&&state.contingency.hintActive)||(typeof UN_structuredOwnerActive==="function"&&UN_structuredOwnerActive());
+    if(cfg.codexEnabled&&!owner){
+      var since=state.unsaid.turn-(state.unsaid.codex.lastTriggerTurn||0);
+      if(cfg.codexAutoRefresh&&since>=cfg.codexCooldown&&typeof pickCodexRefreshCandidate==="function"&&(typeof utHasRuntimeBudget!=="function"||utHasRuntimeBudget(240))){var r=pickCodexRefreshCandidate(cfg);if(r&&r.name){var ri=buildAndFitCodexInstruction([r.name],text,false,0,false,true);if(ri){state.unsaid.codex.pendingNames=[r.name];state.unsaid.codex.pendingTypes={};state.unsaid.codex.pendingTypes[r.name]=r.type||"character";state.unsaid.codex.pendingForced=false;state.unsaid.codex.pendingRefreshNames=[r.name];state.unsaid.codex.lastTriggerTurn=state.unsaid.turn;if(typeof updateUnsaidBackupCard==="function")updateUnsaidBackupCard(cache,ri);return text+ri;}}}
     }
-    if (typeof utHasRuntimeBudget !== "function" || utHasRuntimeBudget(300)) {
-      Library.scanAuthorsNoteForThreads(c, cfg, cardTitles);
-    } else if (typeof utSkipRuntimeTask === "function") {
-      utSkipRuntimeTask("twist-authors-note-scan");
-    }
-
-    if (c.forceEntity) {
-      let thread = null;
-      if (c.forceEntity === "any") {
-        thread = Library.pickPayoffThread(c, cfg) || Library.pickMostBuiltUpBrewingThread(c, cfg);
-        if (thread && cfg.strictLogic !== false && Library.twistGroundingScore(thread) < 0.90) thread = null;
-        if (thread && thread.status === "brewing") {
-          thread.seedTouches = Math.max(thread.seedTouches, cfg.minSeedsForPayoff);
-          thread.tier = Library.tierFor(thread.seedTouches);
-          thread.status = "ready";
-        }
-      } else {
-        thread = c.threads.find(t => t.id === c.forceEntity);
-        if (thread && !Library.isThreadAllowed(thread, cfg)) thread = null;
-      }
-      if (thread) {
-        hint = Library.payoffHint(thread);
-        hintEntities = [thread.entity];
-        c.pendingPayoffId = thread.id;
-        c.pendingPayoffId2 = null;
-        c.lastPayoffAttemptTurn = c.turn;
-        Library.safeLog("[Twists and Turns] /twist forced a payoff for " + thread.entity + " (" + thread.category + ")");
-      } else {
-        // The Input hook always shows "Forcing the next twist..." on
-        // /twist with no name, since it can't know in advance whether
-        // anything will actually be available by the time this hook
-        // runs — confirmed directly via sandbox that with zero threads
-        // of any kind (a genuinely fresh game, nothing /planted, nothing
-        // scanned yet), the player got that confident message and then
-        // nothing happened at all: no hint, no thread, no log entry, and
-        // no explanation, the exact same shape of "the command doesn't
-        // work" complaint as the cfg.enabled gap fixed last round, just
-        // triggered by empty state instead of a disabled system.
-        pushMessage("🌀 Nothing has built up enough yet to force a twist on — try \"/plant a name\" first, or let the story develop a bit more.");
-      }
-      c.forceEntity = null;
-    }
-
-    if (!hint && !(typeof UN_shouldSuppressPlotTwist === "function" && UN_shouldSuppressPlotTwist()) &&
-        (c.turn - c.lastPayoffTurn) >= cfg.payoffCooldown &&
-        (c.turn - c.lastPayoffAttemptTurn) >= cfg.twistRetryCooldown) {
-      let compound = null;
-      if (cfg.allowCompoundTwists && Math.random() < Library.CP_COMPOUND_CHANCE) {
-        compound = Library.pickCompoundPayoffThreads(c, cfg);
-      }
-      if (compound) {
-        hint = Library.compoundPayoffHint(compound[0], compound[1]);
-        hintEntities = [compound[0].entity, compound[1].entity];
-        c.pendingPayoffId = compound[0].id;
-        c.pendingPayoffId2 = compound[1].id;
-        c.lastPayoffAttemptTurn = c.turn;
-        Library.safeLog("[Twists and Turns] compound payoff: " + compound[0].entity + " + " + compound[1].entity);
-      } else {
-        const payoffThread = Library.pickPayoffThread(c, cfg);
-        if (payoffThread) {
-          hint = Library.payoffHint(payoffThread);
-          hintEntities = [payoffThread.entity];
-          c.pendingPayoffId = payoffThread.id;
-          c.pendingPayoffId2 = null;
-          c.lastPayoffAttemptTurn = c.turn;
-          Library.safeLog("[Twists and Turns] payoff: " + payoffThread.entity + " (" + payoffThread.category + ", " + payoffThread.tier + ")");
-        }
-      }
-    }
-
-    let pacingTurn = false;
-    if (!hint && !(typeof UN_shouldSuppressPlotTwist === "function" && UN_shouldSuppressPlotTwist())) {
-      const pacing = Library.effectivePacing(cfg, c);
-      pacingTurn = (c.turn % pacing === 0);
-      if (pacingTurn) {
-        const seedThread = Library.pickForeshadowThread(c, cfg);
-        if (seedThread) {
-          hint = Library.foreshadowHint(seedThread);
-          hintEntities = [seedThread.entity];
-          c.pendingSeedId = seedThread.id;
-          Library.safeLog("[Twists and Turns] foreshadowing: " + seedThread.entity + " (" + seedThread.seedTouches + " touches so far)");
-        }
-      }
-    }
-
-    if (!hint && !cfg.strictLogic && cfg.allowWildcard && pacingTurn &&
-        !(typeof UN_shouldSuppressPlotTwist === "function" && UN_shouldSuppressPlotTwist()) &&
-        (c.turn - c.lastPayoffTurn) >= cfg.payoffCooldown &&
-        (c.turn - c.lastPayoffAttemptTurn) >= cfg.twistRetryCooldown &&
-        Math.random() < Library.CP_WILDCARD_CHANCE) {
-      const candidate = Library.pickWildcardEntity(scanText, c, cfg);
-      if (candidate) {
-        const wildThread = Library.createThread(c, candidate, null, c.turn, cfg, scanText);
-        if (wildThread) {
-          wildThread.seedTouches = cfg.minSeedsForPayoff;
-          wildThread.status = "ready";
-          wildThread.wildcard = true;
-          hint = Library.payoffHint(wildThread);
-          hintEntities = [wildThread.entity];
-          c.pendingPayoffId = wildThread.id;
-          c.pendingPayoffId2 = null;
-          c.lastPayoffAttemptTurn = c.turn;
-          Library.safeLog("[Twists and Turns] wildcard payoff: " + wildThread.entity);
-        }
-      }
-    }
-
-    c.lastContextHint = hint || "";
-    if (cacheEfficient && hint && typeof CE_appendCompleteContextSuffix === "function") {
-      const reserve = typeof UN_contextReserveChars === "function" ? UN_contextReserveChars() : 0;
-      const delivered = CE_appendCompleteContextSuffix(text, "\n\n" + hint, reserve);
-      if (delivered.appended) {
-        text = delivered.text;
-        directTwistDelivered = true;
-        // Avoid duplicate emphasis: current-turn delivery is already at the
-        // dynamic suffix, which is exactly where optimized context wants it.
-        syncTwistFrontMemoryHint("");
-      } else {
-        syncTwistFrontMemoryHint(hint);
-      }
-    } else {
-      syncTwistFrontMemoryHint(hint || "");
-    }
-    c.hintActive = !!hint;
-    } catch (e) {
-      if (typeof log === "function") log("Context/Twists inner error: " + (e && e.message));
-    }
-
-    Library.updateNudgeCard(cacheEfficient && !directTwistDelivered, hint, hintEntities);
-    Library.updateConfigCard(cfg, c);
-    Library.updateTwistLogCard(c, cfg);
-  } catch (e) {
-    if (typeof utRecordRuntimeError === "function") utRecordRuntimeError("Context/Twists", e);
-    if (typeof log === "function") log("Context/Twists error: " + (e && e.message));
+    state.unsaid.codex.pendingNames=[];state.unsaid.codex.pendingForced=false;state.unsaid.codex.pendingRefreshNames=[];
+    if(owner){state.unsaid.pending=null;if(typeof updateUnsaidBackupCard==="function")updateUnsaidBackupCard(cache,"");return text;}
+    var eligible=active.filter(function(n){var m=state.unsaid.minds[n];return !m||!m.lastTurn||(state.unsaid.turn-m.lastTurn)>=cfg.cooldown;});var action=typeof getLastActionType==="function"?getLastActionType():"";var playerAction=action==="do"||action==="say";var chance=typeof unsaidEffectiveRevealChance==="function"?unsaidEffectiveRevealChance(cfg,eligible,state.unsaid.turn,playerAction):cfg.chance;
+    if(eligible.length&&Math.random()<chance){var chosen="",bestWait=-1;try{eligible.forEach(function(n){var m=state.unsaid.minds[n]||{},p=state.unsaid.scenePresence[n]||{},last=(m.lastTurn!=null&&Number.isFinite(Number(m.lastTurn)))?Number(m.lastTurn):Number(p.firstSeenTurn||state.unsaid.turn),wait=state.unsaid.turn-last;if(Number(p.firstSeenTurn||state.unsaid.turn)<=state.unsaid.turn-8&&wait>bestWait){bestWait=wait;chosen=n;}});}catch(_){}if(!chosen)chosen=typeof pickUnsaidThinker==="function"?pickUnsaidThinker(eligible,state.unsaid.turn,recent):eligible[0];var ti=buildAndFitThoughtInstruction(chosen,active,text,cfg.allowCoreShift,cfg);if(ti){state.unsaid.pending=chosen;state.unsaid.pendingCoreShiftAllowed=naturalCoreShiftEligible(state.unsaid.minds[chosen],cfg.allowCoreShift,chosen);state.unsaid.pendingCoreCheck=false;state.unsaid.pendingRevealForced=false;if(typeof updateUnsaidBackupCard==="function")updateUnsaidBackupCard(cache,ti);return text+ti;}}
+    state.unsaid.pending=null;if(typeof updateUnsaidBackupCard==="function")updateUnsaidBackupCard(cache,"");return text;
+  }catch(e){try{if(typeof utRecordRuntimeError==="function")utRecordRuntimeError("Context/UNSAID",e);}catch(_){}return original;}
+}
+function CE_CTX_twistsLight(text){try{var x=Library.initState();Library.applyEntryConfig(x.cfg);var control=String(state.unsaid&&state.unsaid.controlRequest||"");Library.beginContextTurn(x.c,text,!(control==="peek"||control==="card"));Library.updateScenarioProfile(x.c,x.cfg,text);x.c.hintActive=false;x.c.lastContextHint="";if(typeof syncTwistFrontMemoryHint==="function")syncTwistFrontMemoryHint("");}catch(_){}return text;}
+function CE_CTX_touchUnsaid(text){try{initUnsaid();if(isNewStoryTurn(text))state.unsaid.turn++;state.unsaid.pending=null;state.unsaid.pendingCoreShiftAllowed=false;state.unsaid.pendingCoreCheck=false;state.unsaid.pendingRevealForced=false;}catch(_){}return text;}
+var modifier = (text) => {var original=text;try{
+  if(typeof UN_resetHookCaches==="function")UN_resetHookCaches("context");
+  if(typeof CE_reconcilePlayerIdentityState==="function")CE_reconcilePlayerIdentityState();
+  if(typeof CE_bootstrapRequiredConfigCards==="function")CE_bootstrapRequiredConfigCards("context");
+  if(typeof initUnsaid==="function")initUnsaid();
+  var control=String(state.unsaid&&state.unsaid.controlRequest||""),forceTwist=!!(state.contingency&&(state.contingency.forceEntity||state.contingency.forcePlant));
+  var action=0;try{action=Math.abs(Number(info&&info.actionCount||0));}catch(_){}
+  var mindLane=(action%2===0);
+  try{var uu=state.unsaid||{},ut=Number(uu.turn||0),mm=uu.minds||{},sp=uu.scenePresence||{};if(Object.keys(mm).some(function(n){var m=mm[n]||{},p=sp[n]||{};var last=Number.isFinite(Number(m.lastTurn))&&m.lastTurn!=null?Number(m.lastTurn):Number(p.firstSeenTurn||ut);return Number(p.lastSeenTurn||-999)>=ut-2&&ut-last>=8;}))mindLane=true;}catch(_){}
+  if(control==="peek"||control==="card")mindLane=true;if(forceTwist)mindLane=false;
+  var working=original;
+  if(mindLane){
+    working=typeof CE_runTurnFeature==="function"?CE_runTurnFeature("twists","context",function(){return CE_CTX_twistsLight(working);},working,true):CE_CTX_twistsLight(working);
+    working=typeof CE_runTurnFeature==="function"?CE_runTurnFeature("unsaid","context",function(){return CE_CTX_unsaid(working);},working,true):CE_CTX_unsaid(working);
+  }else{
+    working=typeof CE_runTurnFeature==="function"?CE_runTurnFeature("twists","context",function(){return CE_CTX_twists(working);},working,true):CE_CTX_twists(working);
+    if(typeof CE_runTurnFeature==="function")CE_runTurnFeature("unsaid","context",function(){CE_CTX_touchUnsaid(original);return true;},true,true);else CE_CTX_touchUnsaid(original);
   }
-
-  return { text };
-};
-
-var unsaidModifier = (text) => {
-  const originalText = text;
-  try {
-    const cfg = readUnsaidConfig();
-    text = stripConfigNoise(text);
-
-    // Same platform limitation TWISTS AND TURNS already works around for
-    // its own hint (see updateNudgeCard) — computed here too since this is
-    // a separate function from twistsModifier and doesn't share its local
-    // variables.
-    const cacheEfficient = !!(typeof info !== "undefined" && info && info.useCacheEfficient);
-
-    const forcedPeek = state.unsaid.forcedPeek;
-    const forcedPeekCore = state.unsaid.forcedPeekCore;
-    state.unsaid.forcedPeek = null;
-    state.unsaid.forcedPeekCore = null;
-
-    const forcedCodex = state.unsaid.forcedCodex;
-    state.unsaid.forcedCodex = null;
-
-    if (!cfg.enabled) {
-      state.unsaid.pending = null;
-      state.unsaid.pendingCoreShiftAllowed = false;
-      state.unsaid.pendingCoreCheck = false;
-      state.unsaid.pendingRevealForced = false;
-      state.unsaid.controlRequest = "";
-      state.unsaid.codex.pendingNames = [];
-    state.unsaid.codex.pendingForced = false;
-    state.unsaid.codex.pendingRefreshNames = [];
-      syncFrontMemoryHint(false);
-      updateUnsaidBackupCard(cacheEfficient, "");
-      return { text };
-    }
-
-    const controlRequest = String(state.unsaid.controlRequest || "");
-    const manualControlTurn = controlRequest === "peek" || controlRequest === "card";
-    const storyAdvanced = isNewStoryTurn(text);
-    if (!storyAdvanced && !forcedPeek && !forcedCodex) {
-      state.unsaid.pending = null;
-      state.unsaid.pendingCoreShiftAllowed = false;
-      state.unsaid.pendingCoreCheck = false;
-      state.unsaid.pendingRevealForced = false;
-      state.unsaid.codex.pendingNames = [];
-    state.unsaid.codex.pendingForced = false;
-    state.unsaid.codex.pendingRefreshNames = [];
-      updateUnsaidBackupCard(cacheEfficient, "");
-      return { text };
-    }
-
-    if (!manualControlTurn) state.unsaid.turn++;
-
-    const recent = recentTurnsText(text, cfg.recentTurnsWindow);
-    const latestSceneText = recentTurnsText(text, 1);
-    const active = (typeof activeUnsaidCharacters === "function")
-      ? activeUnsaidCharacters(cfg.cast, recent, latestSceneText)
-      : cfg.cast.filter(name => nameAppears(name, recent));
-
-    active.forEach(seedMindIfKnown);
-    if (forcedPeek) seedMindIfKnown(forcedPeek);
-
-    // One high-complexity side task per generation. If TWISTS AND TURNS has
-    // already asked the model to seed/pay off a thread, defer automatic Codex,
-    // private-thought and behavioral-continuity instructions until the next
-    // turn. This makes each hidden protocol dramatically easier for different
-    // AI Dungeon models to follow and prevents subsystems from fighting over
-    // the same output. Manual /peek and /card are exempt because the Twists
-    // hook above yields to them before setting hintActive.
-    const twistInstructionActive = !!(state.contingency && state.contingency.hintActive) ||
-      (typeof UN_structuredOwnerActive === "function" && UN_structuredOwnerActive());
-    if (twistInstructionActive && !forcedPeek && !forcedCodex) {
-      state.unsaid.pending = null;
-      state.unsaid.pendingCoreShiftAllowed = false;
-      state.unsaid.pendingCoreCheck = false;
-      state.unsaid.pendingRevealForced = false;
-      state.unsaid.codex.pendingNames = [];
-      state.unsaid.codex.pendingForced = false;
-      state.unsaid.codex.pendingRefreshNames = [];
-      updateUnsaidBackupCard(cacheEfficient, "");
-      if (typeof utSkipRuntimeTask === "function") utSkipRuntimeTask("single-control-owner-twist");
-      return { text };
-    }
-
-    if (forcedPeek && forcedPeekCore && !cfg.allowCoreShift) {
-      pushMessage(`🌗 Core-shift checks are off — turn on "Allow major events to rewrite a core truth" in the config card first.`);
-      state.unsaid.pending = null;
-      state.unsaid.pendingCoreShiftAllowed = false;
-      state.unsaid.pendingCoreCheck = false;
-      state.unsaid.pendingRevealForced = false;
-      state.unsaid.codex.pendingNames = [];
-    state.unsaid.codex.pendingForced = false;
-    state.unsaid.codex.pendingRefreshNames = [];
-      updateUnsaidBackupCard(cacheEfficient, "");
-      return { text };
-    }
-
-    if (forcedPeek && forcedPeekCore) {
-      const instruction = buildCoreCheckInstruction(forcedPeek, state.unsaid.minds[forcedPeek]);
-      const fitted = fitInstructionToBudget(text, instruction);
-      if (fitted) {
-        state.unsaid.pending = forcedPeek;
-        state.unsaid.pendingCoreShiftAllowed = true;
-        state.unsaid.pendingCoreCheck = true;
-        state.unsaid.pendingRevealForced = true;
-        state.unsaid.codex.pendingNames = [];
-    state.unsaid.codex.pendingForced = false;
-    state.unsaid.codex.pendingRefreshNames = [];
-        updateUnsaidBackupCard(cacheEfficient, fitted);
-        return { text: text + fitted };
-      }
-      pushMessage(`🌗 Not enough room left in context to check ${forcedPeek} this turn — try again once the story frees up some space.`);
-      state.unsaid.controlRequest = "";
-      updateUnsaidBackupCard(cacheEfficient, "");
-      return { text };
-    } else if (forcedPeek) {
-      const fitted = buildAndFitThoughtInstruction(forcedPeek, active, text, cfg.allowCoreShift, cfg);
-      if (fitted) {
-        state.unsaid.pending = forcedPeek;
-        state.unsaid.pendingCoreShiftAllowed = naturalCoreShiftEligible(state.unsaid.minds[forcedPeek], cfg.allowCoreShift, forcedPeek);
-        state.unsaid.pendingCoreCheck = false;
-        state.unsaid.pendingRevealForced = true;
-        state.unsaid.codex.pendingNames = [];
-    state.unsaid.codex.pendingForced = false;
-    state.unsaid.codex.pendingRefreshNames = [];
-        updateUnsaidBackupCard(cacheEfficient, fitted);
-        return { text: text + fitted };
-      }
-      pushMessage(`👁️ Not enough room left in context to peek at ${forcedPeek} this turn — try again once the story frees up some space.`);
-      state.unsaid.controlRequest = "";
-      updateUnsaidBackupCard(cacheEfficient, "");
-      return { text };
-    }
-
-    if (forcedCodex) {
-      const type = reconcileCodexEntityType(forcedCodex, text) ||
-        resolveCodexEntityType(forcedCodex, text) ||
-        classifyCodexEntry(forcedCodex, text);
-      const priorFailures = state.unsaid.codex.attempts[forcedCodex] || 0;
-      const fitted = buildAndFitCodexInstruction([forcedCodex], text, true, priorFailures, true);
-      if (fitted) {
-        state.unsaid.codex.attempts[forcedCodex] = (state.unsaid.codex.attempts[forcedCodex] || 0) + 1;
-        state.unsaid.codex.lastAttemptTurn[forcedCodex] = state.unsaid.turn;
-        state.unsaid.codex.pendingNames = [forcedCodex];
-        state.unsaid.codex.pendingTypes = { [forcedCodex]: type };
-        state.unsaid.codex.pendingForced = true;
-        state.unsaid.codex.pendingRefreshNames = [];
-        state.unsaid.codex.lastTriggerTurn = state.unsaid.turn;
-        state.unsaid.pending = null;
-        state.unsaid.pendingCoreShiftAllowed = false;
-        state.unsaid.pendingCoreCheck = false;
-        updateUnsaidBackupCard(cacheEfficient, fitted);
-        return { text: text + fitted };
-      }
-      pushMessage(`📇 Not enough room left in context to card ${forcedCodex} this turn — try again once the story frees up some space.`);
-      state.unsaid.controlRequest = "";
-      updateUnsaidBackupCard(cacheEfficient, "");
-      return { text };
-    }
-
-    const sinceLastCodex = state.unsaid.turn - (state.unsaid.codex.lastTriggerTurn || 0);
-
-    const codexAutoPaused = !!(state.unsaid.codex &&
-      state.unsaid.turn < (state.unsaid.codex.autoPauseUntil || 0));
-
-    if (cfg.codexEnabled && !codexAutoPaused) {
-      // Keep Context maintenance deliberately bounded. Input/Output perform
-      // the full candidate scan on real actions; Context only needs a small
-      // rotating cleanup slice so it can never spend its entire VM budget on
-      // old persisted candidates before generating the actual story context.
-      if (typeof utHasRuntimeBudget !== "function" || utHasRuntimeBudget(360)) {
-        pruneMentionCounts(CODEX_CONTEXT_PRUNE_BATCH);
-      } else if (typeof utSkipRuntimeTask === "function") {
-        utSkipRuntimeTask("codex-prune");
-      }
-
-      const codexRecent = recentTurnsText(
-        text,
-        Math.max(
-          cfg.recentTurnsWindow || 3,
-          cfg.codexCharacterDeadline || 5,
-          (cfg.codexCharacterMinTurns || 3) + 1
-        )
-      );
-
-      // Legacy migration is only needed for the old sticky character flags
-      // that have NO introduction timestamp. Previous code reclassified every
-      // tracked name (up to ~150) against the same recent context on every
-      // Context pass — the main source of the timeout seen in the screenshot.
-      // Repair a small rotating batch instead; current/new entities are already
-      // handled by trackMentions in Input/Output.
-      const codexState = state.unsaid.codex;
-
-      // Authoritative scenario declarations were already captured and one
-      // bounded scaffold was attempted at the top of this Context hook. Do not
-      // repeat the same 26k scan/classification here; one recovered card per
-      // turn is deliberate so CODEX cannot starve TWISTS/UNSAID/ECHO.
-
-      const legacyNames = Object.keys(codexState.mentionCounts || {}).filter(name =>
-        !!codexState.likelyCharacters[name] &&
-        typeof codexState.introducedTurn[name] !== "number"
-      );
-
-      if (legacyNames.length > 0 && (typeof utHasRuntimeBudget !== "function" || utHasRuntimeBudget(300))) {
-        const batchSize = Math.max(1, CODEX_CONTEXT_MIGRATION_BATCH || 8);
-        const cursor = Math.max(0, Math.floor(codexState.legacyMigrationCursor || 0)) % legacyNames.length;
-        const migrationBatch = [];
-        for (let i = 0; i < Math.min(batchSize, legacyNames.length); i++) {
-          migrationBatch.push(legacyNames[(cursor + i) % legacyNames.length]);
-        }
-        codexState.legacyMigrationCursor = (cursor + migrationBatch.length) % legacyNames.length;
-
-        migrationBatch.forEach(name => {
-          const existingLegacyMatches = typeof storyCardMatchesForEntity === "function"
-            ? storyCardMatchesForEntity(name)
-            : [];
-          if (existingLegacyMatches.length > 0) return;
-
-          if (typeof codexState.firstSeenTurn[name] !== "number") {
-            codexState.firstSeenTurn[name] = state.unsaid.turn;
-          }
-
-          const repairedType = reconcileCodexEntityType(name, codexRecent);
-          const directlyIntroduced = repairedType === "character" &&
-            isLikelyCharacterIntroduction(name, codexRecent);
-
-          if (directlyIntroduced) {
-            codexState.likelyCharacters[name] = true;
-            codexState.observedTypes[name] = "character";
-            codexState.introducedTurn[name] = state.unsaid.turn;
-            if (codexAppearanceCount(name) === 0) {
-              recordCodexEvidence(name, codexRecent, true);
-            }
-          } else {
-            delete codexState.likelyCharacters[name];
-            codexState.observedTypes[name] = codexState.observedTypes[name] || "character";
-          }
-        });
-      } else if (legacyNames.length === 0) {
-        codexState.legacyMigrationCursor = 0;
-      } else if (typeof utSkipRuntimeTask === "function") {
-        utSkipRuntimeTask("codex-legacy-migration");
-      }
-
-      const canAutoCodex = typeof utHasRuntimeBudget !== "function" || utHasRuntimeBudget(220);
-      const available = canAutoCodex
-        ? findCodexCandidates(
-            cfg.mentionThreshold,
-            excludedNames(cfg),
-            cfg.codexMaxAttempts
-          ).filter(name => (state.unsaid.codex.lastAttemptTurn[name] || -999999) < state.unsaid.turn)
-        : [];
-      if (!canAutoCodex && typeof utSkipRuntimeTask === "function") {
-        utSkipRuntimeTask("codex-auto-scheduling");
-      }
-
-      const minObserve = Math.max(0, cfg.codexCharacterMinTurns || 0);
-      const minAppearances = Math.max(1, cfg.codexCharacterMinAppearances || 1);
-      const deadline = Math.max(minObserve, cfg.codexCharacterDeadline || 5);
-
-      const characterCandidates = available.filter(name =>
-        !!state.unsaid.codex.likelyCharacters[name] &&
-        typeof state.unsaid.codex.introducedTurn[name] === "number"
-      );
-
-      // The normal path needs BOTH enough elapsed story time and enough
-      // distinct on-screen appearances. The hard deadline is deliberately
-      // time-only so a recurring character cannot get stranded forever
-      // because they stepped out of the scene after a strong introduction.
-      const deadlineCharacters = characterCandidates.filter(name => {
-        const age = state.unsaid.turn - state.unsaid.codex.introducedTurn[name];
-        return age >= deadline;
-      });
-      const matureCharacters = characterCandidates.filter(name => {
-        if (typeof codexCharacterGateReady === "function") return codexCharacterGateReady(name, cfg);
-        const age = state.unsaid.turn - state.unsaid.codex.introducedTurn[name];
-        return age >= minObserve && codexAppearanceCount(name) >= minAppearances;
-      });
-
-      const nonCharacters = available.filter(name => !state.unsaid.codex.likelyCharacters[name]);
-      const canRefreshCodex = canAutoCodex && (typeof utHasRuntimeBudget !== "function" || utHasRuntimeBudget(170));
-      const refreshPreview = (canRefreshCodex && cfg.codexAutoRefresh && sinceLastCodex >= cfg.codexCooldown)
-        ? pickCodexRefreshCandidate(cfg)
-        : null;
-      if (canAutoCodex && !canRefreshCodex && cfg.codexAutoRefresh && typeof utSkipRuntimeTask === "function") {
-        utSkipRuntimeTask("codex-refresh-preview");
-      }
-      const refreshVeryOverdue = !!refreshPreview &&
-        refreshPreview.since >= Math.max(1, cfg.codexRefreshInterval || 20) * 2;
-
-      // Automatic character generation is intentionally one profile at a
-      // time. Introduced characters always outrank maintenance. A refresh
-      // that has been waiting for twice its configured interval may outrank
-      // a new non-character card so long-running busy scenarios cannot starve
-      // existing cards forever.
-      let candidates = [];
-      let hardDeadline = false;
-      // Strong direct-scaffold candidates may bypass the ordinary Codex task
-      // cooldown. They have already passed the strict entity/type gates and
-      // creating the first evidence-only card does not require a model call.
-      // This is what makes an explicitly introduced character, location,
-      // item or faction reliably appear as a Story Card instead of waiting
-      // for the model to repeat the name several turns later.
-      const directScaffoldCandidates = (cfg.codexDirectScaffold !== false && typeof codexDirectScaffoldEligibility === "function")
-        ? available.filter(function(name){
-            const t = reconcileCodexEntityType(name, text) || resolveCodexEntityType(name, text) ||
-              (state.unsaid.codex.likelyCharacters[name] ? "character" : dominantCodexType(name));
-            return codexDirectScaffoldEligibility(name, t, cfg, codexRecent);
-          })
-        : [];
-      if (deadlineCharacters.length > 0) {
-        candidates = deadlineCharacters.slice(0, 1);
-        hardDeadline = true;
-      } else if (matureCharacters.length > 0) {
-        candidates = matureCharacters.slice(0, 1);
-      } else if (directScaffoldCandidates.length > 0) {
-        candidates = directScaffoldCandidates.slice(0, 1);
-      } else if (sinceLastCodex >= cfg.codexCooldown && !refreshVeryOverdue) {
-        // One automatic card task per story turn. Multiple hidden profiles in
-        // the same model response substantially increase the chance that the
-        // model outputs only metadata and forgets the visible story.
-        candidates = nonCharacters.slice(0, 1);
-      }
-
-      // ULTIMATE CODEX RELIABILITY: high-confidence entities no longer depend
-      // on the model obeying a hidden [CARD] formatting request. Build a
-      // conservative evidence-only scaffold immediately, then let normal
-      // refresh/enrichment improve it after more story evidence accumulates.
-      // This keeps automatic card creation reliable while the junk/entity
-      // gates remain responsible for deciding whether a name is safe.
-      if (candidates.length > 0 && cfg.codexDirectScaffold !== false && typeof createCodexDirectScaffoldCard === "function") {
-        const scaffoldName = candidates[0];
-        const scaffold = createCodexDirectScaffoldCard(scaffoldName, cfg, codexRecent);
-        if (scaffold) {
-          state.unsaid.codex.lastTriggerTurn = state.unsaid.turn;
-          state.unsaid.codex.pendingNames = [];
-          state.unsaid.codex.pendingTypes = {};
-          state.unsaid.codex.pendingForced = false;
-          state.unsaid.codex.pendingRefreshNames = [];
-          if (typeof pushMessage === "function") {
-            pushMessage("📇 CODEX created a provisional " + String(scaffold.type || "Story") + " card for " + String(scaffoldName) + ". It will enrich itself as new evidence appears.");
-          }
-          candidates = [];
-        }
-      }
-
-      if (candidates.length > 0) {
-        const priorFailures = candidates.reduce(
-          (max, name) => Math.max(max, state.unsaid.codex.attempts[name] || 0),
-          0
-        );
-
-        const fitted = buildAndFitCodexInstruction(
-          candidates,
-          text,
-          false,
-          priorFailures,
-          hardDeadline
-        );
-
-        if (fitted) {
-          const types = {};
-          candidates.forEach(name => {
-            state.unsaid.codex.attempts[name] = (state.unsaid.codex.attempts[name] || 0) + 1;
-            state.unsaid.codex.lastAttemptTurn[name] = state.unsaid.turn;
-            types[name] = reconcileCodexEntityType(name, text) ||
-              resolveCodexEntityType(name, text) ||
-              state.unsaid.codex.observedTypes[name] ||
-              classifyCodexEntry(name, text);
-          });
-          state.unsaid.codex.pendingNames = candidates;
-          state.unsaid.codex.pendingTypes = types;
-          state.unsaid.codex.pendingForced = false;
-      state.unsaid.codex.pendingRefreshNames = [];
-          state.unsaid.codex.lastTriggerTurn = state.unsaid.turn;
-          state.unsaid.pending = null;
-          state.unsaid.pendingCoreShiftAllowed = false;
-          state.unsaid.pendingCoreCheck = false;
-          state.unsaid.pendingRevealForced = false;
-          updateUnsaidBackupCard(cacheEfficient, fitted);
-          return { text: text + fitted };
-        }
-
-        // Context-budget failures do not consume an attempt. Mature
-        // characters remain eligible next turn; non-characters wait for
-        // their normal scheduling opportunity.
-        if (typeof utSkipRuntimeTask === "function") utSkipRuntimeTask("codex-context-fit");
-      }
-
-      // Periodic refreshes are intentionally lower priority than creating a
-      // genuinely new card. They run only when no new-card candidate was due
-      // this turn, respect the normal Codex task cooldown, and refresh at most
-      // one existing Codex-made card at a time.
-      if (candidates.length === 0 && sinceLastCodex >= cfg.codexCooldown && cfg.codexAutoRefresh && canRefreshCodex) {
-        const refresh = refreshPreview || pickCodexRefreshCandidate(cfg);
-        if (refresh && refresh.name) {
-          const card = findStoryCardForEntity(refresh.name);
-          const refreshType = card
-            ? (reconcileCodexEntityType(refresh.name, codexUpdateEvidenceTextFor(refresh.name, false)) ||
-               codexKindFromExistingCard(card, refresh.name))
-            : refresh.type;
-          const fitted = buildAndFitCodexInstruction(
-            [refresh.name],
-            text,
-            false,
-            0,
-            false,
-            true
-          );
-
-          if (fitted) {
-            state.unsaid.codex.pendingNames = [refresh.name];
-            state.unsaid.codex.pendingTypes = { [refresh.name]: refreshType || refresh.type || "character" };
-            state.unsaid.codex.pendingForced = false;
-            state.unsaid.codex.pendingRefreshNames = [refresh.name];
-            state.unsaid.codex.lastTriggerTurn = state.unsaid.turn;
-            state.unsaid.codex.lastRefreshTriggerTurn = state.unsaid.turn;
-            if (card && typeof ensureCodexCardMeta === "function") {
-              const refreshMeta = ensureCodexCardMeta(refresh.name, card, refreshType || refresh.type);
-              if (refreshMeta) refreshMeta.lastRefreshAttemptTurn = state.unsaid.turn;
-            }
-            state.unsaid.pending = null;
-            state.unsaid.pendingCoreShiftAllowed = false;
-            state.unsaid.pendingCoreCheck = false;
-            updateUnsaidBackupCard(cacheEfficient, fitted);
-            return { text: text + fitted };
-          }
-        }
-      }
-    }
-
-    if (cfg.codexEnabled && codexAutoPaused && typeof utSkipRuntimeTask === "function") {
-      utSkipRuntimeTask("codex-delivery-backoff");
-    }
-
-    state.unsaid.codex.pendingNames = [];
-    state.unsaid.codex.pendingForced = false;
-    state.unsaid.codex.pendingRefreshNames = [];
-
-    // REFORGED: original CODEX above remains fully intact. From this point
-    // forward the deep character kernel owns private cognition and relationship
-    // continuity so the legacy UNSAID scheduler cannot issue a second competing
-    // hidden task on the same generation.
-    if (typeof CE_R2_context === "function") {
-      state.unsaid.pending = null;
-      state.unsaid.pendingCoreShiftAllowed = false;
-      state.unsaid.pendingCoreCheck = false;
-      state.unsaid.pendingRevealForced = false;
-      const reforgedText = CE_R2_context(text, cfg, active, cacheEfficient);
-      const reforgedSuffix = typeof reforgedText === "string" && reforgedText.indexOf(text) === 0 ? reforgedText.slice(text.length) : "";
-      updateUnsaidBackupCard(cacheEfficient, reforgedSuffix);
-      return { text: typeof reforgedText === "string" ? reforgedText : text };
-    }
-
-    if (cfg.cast.length > 0) {
-      const eligible = active.filter(name => {
-        const mind = state.unsaid.minds[name];
-        return !mind || !mind.lastTurn || (state.unsaid.turn - mind.lastTurn) >= cfg.cooldown;
-      });
-
-      const actionType = getLastActionType();
-      const isPlayerAction = actionType === "do" || actionType === "say";
-      const effectiveChance = (typeof unsaidEffectiveRevealChance === "function")
-        ? unsaidEffectiveRevealChance(cfg, eligible, state.unsaid.turn, isPlayerAction)
-        : ((cfg.reduceDuringActions && isPlayerAction) ? cfg.chance * 0.5 : cfg.chance);
-
-      const revealBackoffActive = state.unsaid.turn < (state.unsaid.revealBackoffUntil || 0);
-      if (!revealBackoffActive && eligible.length > 0 && Math.random() < effectiveChance) {
-        const chosen = (typeof pickUnsaidThinker === "function")
-          ? pickUnsaidThinker(eligible, state.unsaid.turn, recent)
-          : pickBySilence(eligible, state.unsaid.turn);
-        const fitted = buildAndFitThoughtInstruction(chosen, active, text, cfg.allowCoreShift, cfg);
-        if (fitted) {
-          state.unsaid.pending = chosen;
-          state.unsaid.pendingCoreShiftAllowed = naturalCoreShiftEligible(state.unsaid.minds[chosen], cfg.allowCoreShift, chosen);
-          state.unsaid.pendingCoreCheck = false;
-          state.unsaid.pendingRevealForced = false;
-          updateUnsaidBackupCard(cacheEfficient, fitted);
-          return { text: text + fitted };
-        }
-      }
-    }
-
-    state.unsaid.pending = null;
-    state.unsaid.pendingCoreShiftAllowed = false;
-    state.unsaid.pendingCoreCheck = false;
-    state.unsaid.pendingRevealForced = false;
-
-    // Even when this turn does not reveal a private thought, established
-    // goals/plans can keep shaping visible behavior. This is intentionally
-    // lower priority than Codex or thought-generation work and yields first
-    // when the runtime governor is getting tight.
-    let continuityFitted = null;
-    if (cfg.behavioralContinuity !== false && active.length > 0 &&
-        (typeof utHasRuntimeBudget !== "function" || utHasRuntimeBudget(110))) {
-      const continuityInstruction = typeof buildBehaviorContinuityInstruction === "function"
-        ? buildBehaviorContinuityInstruction(active, text, cfg)
-        : "";
-      if (continuityInstruction) continuityFitted = fitInstructionToBudget(text, continuityInstruction);
-    } else if (cfg.behavioralContinuity !== false && active.length > 0 && typeof utSkipRuntimeTask === "function") {
-      utSkipRuntimeTask("behavioral-continuity");
-    }
-    updateUnsaidBackupCard(cacheEfficient, continuityFitted || "");
-    return { text: continuityFitted ? text + continuityFitted : text };
-  } catch (e) {
-    if (typeof utRecordRuntimeError === "function") utRecordRuntimeError("Context/UNSAID", e);
-    if (typeof log === "function") log("UNSAID Context error: " + (e && e.message));
-    try {
-      if (state.unsaid && state.unsaid.codex) {
-        state.unsaid.codex.pendingNames = [];
-        state.unsaid.codex.pendingTypes = {};
-        state.unsaid.codex.pendingForced = false;
-        state.unsaid.codex.pendingRefreshNames = [];
-      }
-      state.unsaid.pending = null;
-      state.unsaid.pendingCoreShiftAllowed = false;
-      state.unsaid.pendingCoreCheck = false;
-      state.unsaid.pendingRevealForced = false;
-      state.unsaid.controlRequest = "";
-    } catch (_) {}
-    return { text: originalText };
-  }
-};
-
-var modifier = (text) => {
-  var originalText = text;
-  try {
-    if (typeof CE_runTurnFeature === "function") CE_runTurnFeature("coordinator", "context", function(){ if (typeof UN_resetHookCaches === "function") UN_resetHookCaches("context"); }, null, typeof UN_resetHookCaches === "function");
-    else if (typeof UN_resetHookCaches === "function") UN_resetHookCaches("context");
-    var runFeature = function(name, fn, fallback, available) {
-      if (typeof CE_runTurnFeature === "function") return CE_runTurnFeature(name, "context", fn, fallback, available);
-      if (available === false || typeof fn !== "function") return fallback;
-      try { var v=fn(); return typeof v === "undefined" ? fallback : v; } catch (_) { return fallback; }
-    };
-
-    runFeature("full_hardening", function(){ if (typeof CEFH_prepareContext === "function") CEFH_prepareContext(originalText); }, null, typeof CEFH_prepareContext === "function");
-    runFeature("canon_sentinel", function(){ if (typeof CE_captureAuthoritativeEntityLocks === "function") CE_captureAuthoritativeEntityLocks(originalText); }, null, typeof CE_captureAuthoritativeEntityLocks === "function");
-    // Live repair path: Context contains the authoritative creator instructions
-    // plus recent story. Repair directly mentioned NPC Notes here as well as on
-    // Output so a stale/failed Output presentation queue cannot leave active
-    // Character cards permanently blank after an upgrade.
-    try { if (typeof CE_syncDirectStoryCardPresentation === "function") CE_syncDirectStoryCardPresentation(originalText, 4); } catch (_) {}
-
-    // Manual UNSAID/Codex generations own the whole model call. They are
-    // administrative workers, not story turns, so skip the other directors.
-    var manualControl = !!(state.unsaid && (state.unsaid.controlRequest === "peek" || state.unsaid.controlRequest === "card"));
-    if (manualControl) {
-      var manualTwists = runFeature("twists", function(){ return twistsModifier(originalText); }, {text:originalText}, typeof twistsModifier === "function");
-      var manualText = manualTwists && typeof manualTwists.text !== "undefined" ? manualTwists.text : originalText;
-      return runFeature("unsaid", function(){ return unsaidModifier(manualText); }, {text:manualText}, typeof unsaidModifier === "function");
-    }
-
-    // Every enabled specialist observes every narrative Context turn. Director
-    // ownership only suppresses competing HEAVY guidance; it no longer skips a
-    // subsystem's evidence/state maintenance pass. A forced /spark therefore
-    // lets TWISTS scan/age safely while Crossed Wires owns the structured beat.
-    if (typeof UN_crossedForcedPending === "function" && UN_crossedForcedPending()) {
-      runFeature("coordinator", function(){ if (typeof UN_setOwner === "function") UN_setOwner("crossed_forced", "player-forced relationship spark", true); }, null, typeof UN_setOwner === "function");
-      try { if (state.contingency) state.contingency.hintActive = false; } catch (_) {}
-    }
-
-    var afterTwists = runFeature("twists", function(){ return twistsModifier(originalText); }, { text: originalText }, typeof twistsModifier === "function");
-    runFeature("coordinator", function(){ if (typeof UN_markOwnerFromTwists === "function") UN_markOwnerFromTwists(); }, null, typeof UN_markOwnerFromTwists === "function");
-
-    var working = afterTwists && typeof afterTwists.text !== "undefined" ? afterTwists.text : originalText;
-    working = runFeature("echo_veil", function(){ return (typeof ECHO_VEIL !== "undefined" && ECHO_VEIL.context) ? ECHO_VEIL.context(working) : working; }, working, typeof ECHO_VEIL !== "undefined" && !!ECHO_VEIL.context);
-    working = runFeature("crossed_wires", function(){ return typeof CW_onContext === "function" ? CW_onContext(working) : working; }, working, typeof CW_onContext === "function");
-    runFeature("coordinator", function(){ if (typeof UN_markOwnerFromCrossed === "function") UN_markOwnerFromCrossed(); }, null, typeof UN_markOwnerFromCrossed === "function");
-
-    // WORLD ENGINE runs after evidence/relationship maintenance and before the
-    // fusion packet. It can yield its packet for headroom, but the engine itself
-    // is still called every narrative turn.
-    var worldPacket = runFeature("world_engine", function(){ return typeof CEW_onContext === "function" ? CEW_onContext(working) : ""; }, "", typeof CEW_onContext === "function");
-    if (worldPacket) {
-      working = runFeature("coordinator", function(){
-        var canonTailReserve = typeof CE_contextSafetyTailReserve === "function" ? CE_contextSafetyTailReserve() : 0;
-        if (typeof CE_appendCompleteContextSuffix === "function") {
-          var worldAppend = CE_appendCompleteContextSuffix(working, worldPacket, canonTailReserve);
-          if (worldAppend.appended) return worldAppend.text;
-          if (typeof utSkipRuntimeTask === "function") utSkipRuntimeTask("world-engine-canon-headroom");
-          return working;
-        }
-        return working + worldPacket;
-      }, working, true);
-    }
-
-    var bridgePacket = runFeature("coordinator", function(){ return typeof UN_contextPacket === "function" ? UN_contextPacket(working) : ""; }, "", typeof UN_contextPacket === "function");
-    if (bridgePacket) {
-      working = runFeature("coordinator", function(){
-        var canonTailReserve2 = typeof CE_contextSafetyTailReserve === "function" ? CE_contextSafetyTailReserve() : 0;
-        if (typeof CE_appendCompleteContextSuffix === "function") {
-          var bridgeAppend = CE_appendCompleteContextSuffix(working, bridgePacket, canonTailReserve2);
-          if (bridgeAppend.appended) return bridgeAppend.text;
-          if (typeof utSkipRuntimeTask === "function") utSkipRuntimeTask("fusion-canon-headroom");
-          return working;
-        }
-        return working + bridgePacket;
-      }, working, true);
-    }
-
-    var finalResult = runFeature("unsaid", function(){ return unsaidModifier(working); }, {text:working}, typeof unsaidModifier === "function");
-    if (!finalResult || typeof finalResult.text === "undefined") finalResult={text:working};
-    finalResult.text = runFeature("coordinator", function(){ return typeof CE_appendManagedContextHints === "function" ? CE_appendManagedContextHints(finalResult.text) : finalResult.text; }, finalResult.text, typeof CE_appendManagedContextHints === "function");
-
-    // Canon Sentinel is deliberately LAST. Every established director keeps its
-    // reserved budget first; Sentinel uses only true remaining headroom and can
-    // shrink/yield without starving the other specialists.
-    var canonPacket = runFeature("canon_sentinel", function(){ return typeof CECS_onContext === "function" ? CECS_onContext(originalText) : ""; }, "", typeof CECS_onContext === "function");
-    if (canonPacket) {
-      finalResult.text = runFeature("canon_sentinel", function(){
-        var fitted = canonPacket;
-        var canonBudget = fitted.length + 4;
-        try {
-          if (typeof info !== "undefined" && info && Number.isFinite(Number(info.maxChars))) {
-            canonBudget = Math.max(0, Math.floor(Number(info.maxChars)) - String(finalResult.text || "").length);
-          }
-        } catch (_) {}
-        if (typeof CECS_fitPacketToBudget === "function") fitted = CECS_fitPacketToBudget(fitted, canonBudget);
-        if (fitted) return String(finalResult.text || "") + fitted;
-        if (typeof utSkipRuntimeTask === "function") utSkipRuntimeTask("canon-sentinel-no-final-headroom");
-        return finalResult.text;
-      }, finalResult.text, true);
-    }
-
-    runFeature("full_hardening", function(){ if (typeof CEFH_maintenance === "function") CEFH_maintenance("context-final", finalResult.text); }, null, typeof CEFH_maintenance === "function");
-
-    // Second live Notes pass happens AFTER relationship/world/canon maintenance.
-    // The early pass guarantees a blank active Character card gets repaired even
-    // if a later specialist fails; this late pass guarantees same-turn creator
-    // canon (friendship, boundaries, role changes, etc.) is reflected immediately
-    // rather than one Output/turn later. The writer is no-op aware, so unchanged
-    // cards do not incur another host replacement.
-    try { if (typeof CE_syncDirectStoryCardPresentation === "function") CE_syncDirectStoryCardPresentation(originalText, 6); } catch (_) {}
-    return finalResult;
-  } catch (e) {
-    if (typeof utRecordRuntimeError === "function") utRecordRuntimeError("Context/unified", e);
-    if (typeof UN_error === "function") UN_error("Context", e);
-    if (typeof log === "function") log("CROSSED ECHOES Context wrapper error: " + (e && e.message));
-    return { text: originalText };
-  } finally {
-    if (typeof utEndRuntimePhase === "function") utEndRuntimePhase(contextRuntimeToken);
-  }
-};
-
+  working=typeof CE_runTurnFeature==="function"?CE_runTurnFeature("crossed_wires","context",function(){return CW_onContext(working);},working,typeof CW_onContext==="function"):(typeof CW_onContext==="function"?CW_onContext(working):working);
+  working=typeof CE_runTurnFeature==="function"?CE_runTurnFeature("echo_veil","context",function(){return EV_onContext(working);},working,typeof EV_onContext==="function"):(typeof EV_onContext==="function"?EV_onContext(working):working);
+  if(typeof CE_runTurnFeature==="function")CE_runTurnFeature("world_engine","context",function(){return CEW_onContext(working,false);},"",typeof CEW_onContext==="function");else if(typeof CEW_onContext==="function")CEW_onContext(working,false);
+  if(typeof CE_markFeatureActivation==="function")CE_markFeatureActivation("codex","context","ok","CODEX maintenance scheduled in Input/Output");
+  working=typeof CE_runTurnFeature==="function"?CE_runTurnFeature("coordinator","context",function(){return CE_COORD_onContext(working);},working,typeof CE_COORD_onContext==="function"):(typeof CE_COORD_onContext==="function"?CE_COORD_onContext(working):working);
+  working=typeof CE_runTurnFeature==="function"?CE_runTurnFeature("canon_sentinel","context",function(){return CECS_onContext(working);},working,typeof CECS_onContext==="function"):(typeof CECS_onContext==="function"?CECS_onContext(working):working);
+  working=typeof CE_runTurnFeature==="function"?CE_runTurnFeature("full_hardening","context",function(){return CEFH_onContext(working);},working,typeof CEFH_onContext==="function"):(typeof CEFH_onContext==="function"?CEFH_onContext(working):working);
+  return {text:working};
+}catch(e){try{if(typeof utRecordRuntimeError==="function")utRecordRuntimeError("Context/unified",e);}catch(_){}return {text:original};}finally{if(typeof utEndRuntimePhase==="function")utEndRuntimePhase(contextRuntimeToken);}};
 modifier(text);

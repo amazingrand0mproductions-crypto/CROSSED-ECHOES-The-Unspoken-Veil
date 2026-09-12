@@ -1,28 +1,22 @@
 var outputRuntimeToken = typeof utBeginRuntimePhase === "function" ? utBeginRuntimePhase("output") : null;
-
 try {
   if (typeof CE_reconcilePlayerIdentityState === "function") CE_reconcilePlayerIdentityState();
 } catch (e) {
   if (typeof log === "function") log("CROSSED ECHOES player identity/Output error: " + (e && e.message));
 }
-
 try {
-  if (typeof CE_runTurnFeature === "function") CE_runTurnFeature("codex", "output", function(){ if (typeof CE_bootstrapRequiredConfigCards === "function") CE_bootstrapRequiredConfigCards("output"); }, null, typeof CE_bootstrapRequiredConfigCards === "function");
-  else if (typeof CE_bootstrapRequiredConfigCards === "function") CE_bootstrapRequiredConfigCards("output");
+  if (typeof CE_bootstrapRequiredConfigCards === "function") {
+    if (typeof CE_runTurnFeature === "function") CE_runTurnFeature("codex", "output", function(){ CE_bootstrapRequiredConfigCards("output"); }, null, true);
+    else CE_bootstrapRequiredConfigCards("output");
+  } else if (typeof CE_markFeatureActivation === "function") CE_markFeatureActivation("codex", "output", "ok", "lazy CODEX initialization");
   initUnsaid();
 } catch (e) {
   if (typeof log === "function") log("UNSAID init/Output error: " + (e && e.message));
 }
-
 var twistsModifier = (text) => {
   try {
     const { c, cfg } = Library.initState();
     const hadPendingTwistWork = !!(c.pendingPayoffId || c.pendingSeedId);
-
-    // Twist/seed hints now ask the model for a tiny hidden confirmation
-    // marker. The marker is stripped here before the player sees anything.
-    // This prevents a missed AI instruction from being logged as settled
-    // canon just because the request was sent.
     const markerPattern = /(?:【|〖|\[|<)\s*UT-(TWIST|SEED)\s*:\s*([A-Za-z0-9_-]+)\s*(?:】|〗|\]|>)/gi;
     const confirmedTwists = new Set();
     const confirmedSeeds = new Set();
@@ -34,7 +28,6 @@ var twistsModifier = (text) => {
       if (kind === "SEED") confirmedSeeds.add(id);
     }
     text = String(text || "").replace(markerPattern, "").replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n");
-
     function resolveThread(thread, partnerName) {
       if (!thread) return;
       thread.status = "resolved";
@@ -54,10 +47,6 @@ var twistsModifier = (text) => {
         fact: revealedFact || ""
       });
       Library.createTwistStoryCard(c, cfg, thread, partnerName || null);
-
-      // Feed confirmed plot consequences back into UNSAID. This happens only
-      // after the model supplied the twist confirmation marker, so private
-      // psychology never reacts to an event that did not actually occur.
       try {
         if (Library.applyTwistImpactToMind) {
           const impacted = Library.applyTwistImpactToMind(thread.entity, thread.category, thread.tier, partnerName || null);
@@ -72,11 +61,6 @@ var twistsModifier = (text) => {
             typeof recordCodexEvidence === "function") {
           recordCodexEvidence(thread.entity, text, false);
         }
-
-        // A confirmed twist is high-value new canon for an existing Codex
-        // card. Feed the visible payoff prose into that card's refresh bank
-        // so relationships/status/weaknesses/significance can catch up later.
-        // The hidden twist category itself is not exposed as card evidence.
         if (typeof recordCodexCardUpdateEvidence === "function") {
           const impactedCard = findStoryCardForEntity(thread.entity);
           if (impactedCard) {
@@ -88,22 +72,17 @@ var twistsModifier = (text) => {
         }
       } catch (e) {}
     }
-
     if (c.pendingPayoffId) {
       const thread = c.threads.find(t => t.id === c.pendingPayoffId);
       const partner = c.pendingPayoffId2 ? c.threads.find(t => t.id === c.pendingPayoffId2) : null;
       const firstConfirmed = !!thread && confirmedTwists.has(thread.id);
       const secondConfirmed = !c.pendingPayoffId2 || (!!partner && confirmedTwists.has(partner.id));
       const confirmed = firstConfirmed && secondConfirmed;
-
       if (confirmed) {
         resolveThread(thread, partner ? partner.entity : null);
         resolveThread(partner, thread ? thread.entity : null);
         c.lastPayoffTurn = c.turn;
         c.lastPayoffAttemptTurn = c.turn;
-
-        // Prime a private-thought check only after the twist was actually
-        // confirmed in the generated response.
         if (typeof linkTwistPayoffToReveal === "function") {
           const linkCandidates = [thread, partner].filter(Boolean);
           if (linkCandidates.length > 0) {
@@ -111,7 +90,6 @@ var twistsModifier = (text) => {
             linkTwistPayoffToReveal(chosen.entity, chosen.tier);
           }
         }
-
         c.threads = c.threads.filter(t => t.status !== "resolved");
         if (c.twistLog.length > 2000) c.twistLog = c.twistLog.slice(-2000);
       } else {
@@ -126,18 +104,13 @@ var twistsModifier = (text) => {
           pushMessage(`🌀 The model skipped the requested twist${names ? " for " + names : ""} ${worstMiss} times. It was NOT logged as canon and stays ready to retry.`);
         }
       }
-
       c.pendingPayoffId = null;
       c.pendingPayoffId2 = null;
     }
-
     if (c.pendingSeedId) {
       const thread = c.threads.find(t => t.id === c.pendingSeedId);
       if (thread && thread.status === "brewing") {
         if (confirmedSeeds.has(thread.id)) {
-          // The marker proves the model rendered a setup beat, but repeating
-          // the same beat is still not a second clue. Reuse the evidence
-          // signature model before increasing maturity.
           const added = Library.rememberTwistEvidence ? Library.rememberTwistEvidence(thread, text, c, {}) : true;
           if (added) {
             thread.seedTouches = Math.min(200, Number(thread.seedTouches || 1) + 1);
@@ -154,10 +127,6 @@ var twistsModifier = (text) => {
       }
       c.pendingSeedId = null;
     }
-
-    // Ordinary Output turns do not change twist config/log state. Avoid two
-    // needless Story Card maintenance passes unless this response was actually
-    // resolving/confirming a pending twist task.
     if (hadPendingTwistWork) {
       Library.updateConfigCard(cfg, c);
       Library.updateTwistLogCard(c, cfg);
@@ -165,26 +134,14 @@ var twistsModifier = (text) => {
   } catch (e) {
     if (typeof log === "function") log("Output/Twists error: " + (e && e.message));
   }
-
   return { text };
 };
-
 var unsaidModifier = (text) => {
   const originalText = text;
-  // Keep this outside the try block so the recovery path can safely decide
-  // whether a failed /peek or /card worker turn should suppress prose.  A
-  // block-scoped declaration here used to throw a second ReferenceError from
-  // the catch path, which could abort the unified Output wrapper and prevent
-  // Crossed Wires/ECHO/Story Card diagnostics from completing their turn.
   let controlRequest = "";
   try {
     const cfg = readUnsaidConfig();
     controlRequest = String((state.unsaid && state.unsaid.controlRequest) || "");
-
-    // Accept the exact markers requested by this version plus the two
-    // common bracket variants models sometimes substitute on their own.
-    // This is only evaluated while Codex has pending names, so broadening
-    // the marker spelling cannot eat ordinary story text by itself.
     const cardOpenSource = "(?:【CARD】|〖CARD〗|\\[+\\s*CARD\\s*\\]+|<\\s*CARD\\s*>)";
     const cardCloseSource = "(?:【\\/CARD】|〖\\/CARD〗|\\[+\\s*\\/\\s*CARD\\s*\\]+|<\\s*\\/\\s*CARD\\s*>)";
     const blockPattern = new RegExp(cardOpenSource + "([\\s\\S]*?)" + cardCloseSource, "gi");
@@ -197,10 +154,6 @@ var unsaidModifier = (text) => {
     const rawExpectedNames = Array.isArray(state.unsaid.codex.pendingNames)
       ? state.unsaid.codex.pendingNames.slice()
       : [];
-    // Manual `/card <name>` is an explicit user override and may intentionally
-    // use an unusual name. Automatic Codex output is revalidated one final
-    // time here so stale pending state from older builds cannot still create
-    // a junk Story Card after the new scanner has been installed.
     const expectedNames = pendingForcedCodex
       ? rawExpectedNames
       : rawExpectedNames.filter(name => {
@@ -214,9 +167,6 @@ var unsaidModifier = (text) => {
     const maxFieldLength = 420;
     function codexSafeCardTriggers(name, fields, evidence, existingKeys) {
       const values = [String(name || "").trim()];
-      // Explicit aliases learned directly from story text are stronger than a
-      // profile generator's inferred Aliases field. Carry them into the card
-      // triggers even if the model omits the Aliases line on this generation.
       try {
         const canonical = typeof canonicalUnsaidName === "function" ? canonicalUnsaidName(name) : String(name || "").trim();
         const learned = state.unsaid && state.unsaid.aliases && state.unsaid.aliases[canonical];
@@ -225,9 +175,6 @@ var unsaidModifier = (text) => {
       const aliasText = fields && fields["Aliases"] ? String(fields["Aliases"]) : "";
       aliasText.split(/[,;|/]/).map(v => v.trim()).filter(Boolean).forEach(alias => {
         if (alias.length < 2 || alias.length > 60) return;
-        // Generated aliases become retrieval triggers only when corroborated by
-        // story evidence or an already-existing trigger. This avoids a model
-        // guess silently changing future card retrieval.
         const corroborated = (evidence && nameAppears(alias, evidence)) ||
           (existingKeys && String(existingKeys).toLowerCase().split(/[,;|]/).some(k => k.trim() === alias.toLowerCase()));
         if (!corroborated) return;
@@ -236,41 +183,16 @@ var unsaidModifier = (text) => {
       });
       const out=[];
       values.forEach(v => { const k=String(v||"").trim().toLowerCase(); if(k && !out.includes(k)) out.push(k); });
-      // AI Dungeon treats trigger whitespace literally. Emit comma-separated triggers with no
-      // padding so an alias never becomes a different trigger just because it starts with a space.
       return out.slice(0,8).join(",");
     }
-    // Never strip arbitrary CARD-looking prose unless this turn actually
-    // requested Codex output. This keeps user-authored bracketed text safe.
     const hadCodexRequest = rawExpectedNames.length > 0;
     const blockMatches = hadCodexRequest ? [...text.matchAll(blockPattern)] : [];
     const succeededNames = new Set();
     const cardWasNew = {};
     const builtTypes = {};
-
-    // Tolerant of the markdown a real model very commonly wraps structured
-    // "field: value" output in — bullets, numbering, headers, bold/italic
-    // around the label and/or value — none of which the original strict
-    // `^\s*([A-Za-z ]+):\s*(.+)$` accepted at all. Confirmed directly: the
-    // exact instruction text this project sends (verified against a real
-    // captured prompt) is correct and does reach the model, but a model
-    // that answers "**Name:** Silas" instead of "Name: Silas" — an
-    // extremely ordinary thing for a model to do when asked to fill out a
-    // labeled template — hit the old regex's total blind spot: fields["Name"]
-    // never got set, tryBuildCard returned false immediately, and every
-    // single field failed the same way regardless of which field or which
-    // name, which is exactly the "systemic, not bad luck on a few names"
-    // failure pattern real captured evidence showed (a status report
-    // listing clean, legitimate names — Silas, Rielle, Kyle, Thornhaven —
-    // still exhausting every retry with zero cards created).
     function matchFieldLine(line) {
       return line.match(/^\s*(?:#{1,6}\s*|[-*•+]\s*|\d+[.)]\s*)?[*_]{0,3}\s*["'“”]?([A-Za-z][A-Za-z ]+?)["'“”]?\s*[*_]{0,3}\s*[:=]\s*[*_]{0,3}\s*(.+?)\s*[*_]{0,3}\s*$/);
     }
-
-    // A quick, non-committal peek at just the Name field of a raw block —
-    // deliberately much lighter than the full tryBuildCard parse below,
-    // since this only needs to answer "which candidate does this block
-    // claim to be," not fully validate or score it.
     function peekBlockName(blockContent) {
       let found = null;
       const lines = blockContent.split("\n");
@@ -283,29 +205,19 @@ var unsaidModifier = (text) => {
       }
       return found;
     }
-
     function buildBoundedCardEntry(order, fields) {
       const entryLimit = typeof codexCardEntryLimit === "function" ? codexCardEntryLimit(cfg) : 950;
       const fieldOrder = order.filter(f => fields[f]);
       if (fieldOrder.length === 0) return "";
-
       const renderWithCap = (cap) => fieldOrder.map(field => {
         let value = String(fields[field] || "").trim();
-        // Name is the identity lock and should remain exact. Other values are
-        // compacted evenly only when the complete card would exceed the
-        // platform's entry-size budget.
         if (field !== "Name" && cap && value.length > cap) {
           value = value.slice(0, Math.max(1, cap - 1)).trimEnd() + "…";
         }
         return `${field}: ${value}`;
       }).join("\n");
-
       const full = renderWithCap(null);
       if (full.length <= entryLimit) return full;
-
-      // Binary-search the largest per-field value cap that keeps every field
-      // represented instead of bluntly chopping the final Relationships /
-      // Significance line off the card.
       let low = 24;
       let high = maxFieldLength;
       let best = renderWithCap(low);
@@ -319,14 +231,10 @@ var unsaidModifier = (text) => {
           high = mid - 1;
         }
       }
-
-      // This should be unreachable with the current templates, but keep a
-      // final hard guard for platform safety if fields are added later.
       return best.length <= entryLimit
         ? best
         : best.slice(0, entryLimit - 1).trimEnd() + "…";
     }
-
     function tryBuildCard(blockContent, name, upfrontType) {
       try {
         const isRefresh = pendingRefreshNames.has(name);
@@ -430,7 +338,6 @@ var unsaidModifier = (text) => {
           "importance": "Significance",
           "role": "Significance"
         };
-
         function cleanFieldValue(value) {
           return String(value || "")
             .replace(/^["“”'‘’]+|["“”'‘’]+$/g, "")
@@ -440,16 +347,10 @@ var unsaidModifier = (text) => {
             .trim()
             .slice(0, maxFieldLength);
         }
-
-        // A model occasionally compresses the template onto one line with
-        // pipes/semicolons. Expand only when a separator is followed by
-        // another label-shaped "Field:" token, so punctuation inside a
-        // normal value is left alone.
         const expandedBlock = blockContent.replace(
           /\s*[|;]\s*(?=["'“”]?[A-Za-z][A-Za-z ]{1,28}["'“”]?\s*[:=])/g,
           "\n"
         );
-
         let lastCanonical = null;
         expandedBlock.split("\n").forEach(line => {
           const fieldMatch = matchFieldLine(line);
@@ -463,19 +364,10 @@ var unsaidModifier = (text) => {
               return;
             }
           }
-
-          // If a model wraps a long field onto an indented continuation line,
-          // fold it back into that field instead of failing the whole card.
           if (lastCanonical && /^\s{2,}\S/.test(line) && !/【|〖|\[\/?CARD\]|<\/?CARD>/i.test(line)) {
             fields[lastCanonical] = cleanFieldValue(`${fields[lastCanonical]} ${line.trim()}`);
           }
         });
-
-        // For automatic Codex, require the model to identify the exact entity
-        // it is profiling. Positional fallback is not enough for non-character
-        // entities: if a prompt is about one dish/item and the model writes
-        // details for another nearby thing, silently forcing Name back to the
-        // expected value creates a convincing but wrong Story Card.
         const modelClaimedName = fields["Name"] ? cleanFieldValue(fields["Name"]) : "";
         const comparableName = (value) => String(value || "")
           .toLowerCase()
@@ -489,9 +381,6 @@ var unsaidModifier = (text) => {
           (isRefresh && findStoryCardForEntity(name) ? findStoryCardForEntity(name).entry : ""),
           blockContent
         ].filter(Boolean).join(" ");
-        // Final safety gate: even if stale pending state survived from an older
-        // build, a one-word brand used only as a tech-product modifier must not
-        // be saved as a Character (or any automatic card at all).
         if (!pendingForcedCodex && !isRefresh &&
             typeof codexOnlyAttributiveTechModifier === "function" &&
             codexOnlyAttributiveTechModifier(name, evidenceForType)) {
@@ -503,11 +392,6 @@ var unsaidModifier = (text) => {
           (typeof resolveCodexEntityType === "function" ? resolveCodexEntityType(name, evidenceForType) : null);
         const expectedKind = reconciledExpectedKind || upstreamExpectedKind || "character";
         type = expectedKind;
-        // A non-character type chosen before generation came from actual story
-        // evidence. The generated CARD block is not allowed to talk itself into
-        // becoming a Character merely by filling a Character-shaped template.
-        // Strong pre-existing person evidence may still recover an unusual real
-        // character later through explicitPersonLock below.
         const upstreamNonCharacterLock = upstreamExpectedKind && upstreamExpectedKind !== "character"
           ? upstreamExpectedKind
           : null;
@@ -515,64 +399,24 @@ var unsaidModifier = (text) => {
           comparableName(modelClaimedName) === comparableName(name);
         const safeCharacterAliasMatch = expectedKind === "character" &&
           modelClaimedName && isSameCardEntity(name, modelClaimedName);
-
         if (!pendingForcedCodex) {
           if (!modelClaimedName) return false;
           if (!exactNameMatch && !safeCharacterAliasMatch) return false;
         } else if (modelClaimedName && !exactNameMatch && !safeCharacterAliasMatch) {
-          // Even a manual /card request should not silently save a block that
-          // explicitly says it belongs to a different entity.
           return false;
         }
-
-        // The requested entity remains canonical after identity validation.
         fields["Name"] = name;
-
-        // Weigh the actual evidence with a proper scoring comparison rather
-        // than a chain of single-condition overrides — a real transcript
-        // showed exactly the failure mode this guards against: "Ella" (a
-        // sixteen-year-old girl with a dagger and journal) got reclassified
-        // as a location purely because the model's response happened to
-        // include a "Location: Saltmarsh Quay" field — noting where she
-        // was introduced, not what she is — while the actual content was
-        // unmistakably about a person and no other location-shaped field
-        // was present.
-        //
-        // A person-signal in the description contributes weight rather
-        // than deciding things outright — a genuine location can quite
-        // normally mention a person in passing ("guarded by an old man"),
-        // and that shouldn't out-vote two or three real location fields.
-        // Faction has no distinguishing field of its own (Type/Description/
-        // Significance overlaps with every other type's generic fields),
-        // so a name that clearly reads as an organization ("the Ashen
-        // Order") needs its own signal too, independent of whichever type
-        // was guessed upfront (which can itself be wrong) — otherwise a
-        // founder mentioned by gender in the description ties evenly
-        // against a bare "Type:" field and incorrectly favors "character"
-        // by coincidence of ordering, not evidence.
         const characterFieldCount = ["Role", "Race", "Age", "Pronouns", "Strength Level", "Personality", "Background", "Appearance", "Abilities", "Weaknesses", "Goals", "Relationships", "Affiliations", "Status"].filter(f => fields[f]).length;
         const locationFieldCount = ["Region", "Atmosphere", "Layout", "Key Locations", "People & Factions", "Features & Resources", "Hazards", "Historical Events", "Current State", "Connections"].filter(f => fields[f]).length;
         const itemFieldCount = ["Appearance", "Properties", "Abilities", "Limitations", "Origin", "Owner", "Condition", "History"].filter(f => fields[f]).length;
         const factionShapeScore = ["Purpose", "Leadership", "Members", "Territory", "Resources", "Allies", "Rivals", "Reputation", "Current Activity", "History"].filter(f => fields[f]).length;
         const personSignal = /\b(girl|boy|woman|man|person|lady|gentlemen|gentleman|teenager|teens?|child|kids?|elderly|toddler|infant|maiden|youth|android|robot|synthetic|alien|spirit|ghost|sapient|sentient|human|elf|dwarf|orc|fae|vampire|werewolf)\b|\byears?[\s-]old\b/i;
-        // A person mentioned via "led by a scarred man" or "founded by a
-        // young woman" is describing someone associated with the entity,
-        // not the entity itself.
         const attributionPattern = /\b(?:led|founded|formed|created|ruled|run|owned|operated|guarded|watched over|managed|built|established)\s+by\s+[^.!?]*/gi;
         const readsLikeAPerson = [fields["Description"], fields["Background"], fields["Personality"], fields["Appearance"], fields["Race"]]
           .some(value => value && personSignal.test(value.replace(attributionPattern, "")));
-
-        // Template mistakes can be semantically obvious even when the model
-        // filled every requested field. The real failure that motivated this
-        // guard was a place receiving:
-        //   Race: Human settlement
-        //   Background: A remote village...
-        // which previously scored as a "character" simply because eight
-        // character-template labels were present.
         const placeKindSignal = /\b(?:settlement|village|town|city|hamlet|place|location|district|region|kingdom|realm|country|nation|province|colony|outpost|tavern|inn|hotel|castle|fortress|temple|school|campus|station|port|harbou?r|forest|woods|island|mountain|valley|building|neighbou?rhood|suburb|farm|ranch|arena|stadium|hospital|clinic)\b/i;
         const itemKindSignal = /\b(?:item|object|artifact|relic|device|weapon|tool|sword|blade|gun|rifle|pistol|staff|wand|amulet|ring|key|book|ship|vehicle|car|truck|robot|mech|phone|computer|document|map|medicine|dish|drink|recipe)\b/i;
         const factionKindSignal = /\b(?:faction|organization|organisation|guild|order|company|corporation|agency|group|gang|cult|society|team|club|league|union|association|government|department|business|restaurant|brand|band|crew|fleet)\b/i;
-
         const raceLooksLikePlace = !!fields["Race"] && placeKindSignal.test(fields["Race"]);
         const typeLooksLikePlace = !!fields["Type"] && placeKindSignal.test(fields["Type"]);
         const typeLooksLikeItem = !!fields["Type"] && itemKindSignal.test(fields["Type"]);
@@ -582,20 +426,15 @@ var unsaidModifier = (text) => {
             /^\s*(?:a|an|the)?\s*(?:remote|small|large|ancient|old|modern|isolated|coastal|mountain|rural|urban|walled|hidden|quiet|grim|prosperous|ruined|abandoned|sprawling|clustered|cluster of|collection of)?\s*(?:settlement|village|town|city|hamlet|district|region|kingdom|realm|colony|outpost|tavern|inn|forest|woods|island|station|port|building)\b/i.test(value) ||
             /\b(?:cluster|collection)\s+of\s+[^.!?]{0,60}\b(?:buildings?|houses?|structures?)\b/i.test(value)
           ));
-
-        // Independent, direct re-check of the name itself against the same
-        // hint patterns classifyCodexEntry uses upfront.
         const nameLocationHint = (CODEX_LOCATION_HINTS.test(name) || CODEX_LOCATION_SUFFIX_HINTS.test(name)) ? 1 : 0;
         const nameItemHint = CODEX_ITEM_HINTS.test(name) ? 1 : 0;
         const nameFactionHint = CODEX_FACTION_HINTS.test(name) ? 1 : 0;
-
         const scores = {
           character: characterFieldCount + (readsLikeAPerson ? 2 : 0) - (raceLooksLikePlace ? 6 : 0),
           location: locationFieldCount + nameLocationHint + (raceLooksLikePlace ? 6 : 0) + (typeLooksLikePlace ? 4 : 0) + (descriptionLooksLikePlace ? 3 : 0),
           item: itemFieldCount + nameItemHint + (typeLooksLikeItem ? 4 : 0),
           faction: factionShapeScore + nameFactionHint + (typeLooksLikeFaction ? 4 : 0)
         };
-
         const externalEvidence = [
           (typeof codexEvidenceTextFor === "function" ? codexEvidenceTextFor(name) : ""),
           (isRefresh && typeof codexUpdateEvidenceTextFor === "function" ? codexUpdateEvidenceTextFor(name, false) : "")
@@ -605,7 +444,6 @@ var unsaidModifier = (text) => {
         const strongExternalNonCharacter = typeof strongCodexNonCharacterEvidence === "function"
           ? strongCodexNonCharacterEvidence(name, externalEvidence)
           : null;
-
         if (explicitPersonLock) {
           type = "character";
         } else if (strongExternalNonCharacter) {
@@ -616,22 +454,12 @@ var unsaidModifier = (text) => {
           const best = Object.keys(scores).reduce((a, b) => (scores[b] > scores[a] ? b : a));
           if (scores[best] > 0) type = best;
         }
-
-        // A copied template full of "..." is not a successful card. Require
-        // every field in the chosen template to contain a concrete value so
-        // Codex keeps retrying until the model has actually generated the
-        // details the player asked for.
         const requiredOrder = CARD_TEMPLATES[type] || CHARACTER_CARD_FIELDS;
         const placeholderValue = (value) => {
           if (!value || !value.trim()) return true;
           const v = value.trim();
           return /^(?:\.{2,}|\?|[-—]+|unknown|not known|not yet known|unspecified|unclear|n\/?a|tbd|none|none given|not specified|<[^>]+>|\[[^\]]+\])$/i.test(v);
         };
-        // Resolve the existing card before deciding whether a partial block is
-        // usable. Refresh/manual-update blocks are allowed to send only the
-        // fields that actually changed; unchanged structured fields are merged
-        // from the existing card so a concise model response cannot erase good
-        // information.
         const existingMatches = typeof storyCardMatchesForEntity === "function"
           ? storyCardMatchesForEntity(name)
           : [];
@@ -643,7 +471,6 @@ var unsaidModifier = (text) => {
           ? compatibleMatches[0]
           : findStoryCardForEntity(name);
         if (card && typeof codexCardIdentityCompatible === "function" && !codexCardIdentityCompatible(card, name, type)) card = null;
-
         if (card && (isRefresh || pendingForcedCodex) && card.entry) {
           String(card.entry).split("\n").forEach(line => {
             const oldMatch = matchFieldLine(line);
@@ -658,7 +485,6 @@ var unsaidModifier = (text) => {
             }
           });
         }
-
         const usefulFields = requiredOrder.filter(f => f !== "Name" && !placeholderValue(fields[f]));
         const minimumUseful = type === "character" ? 4 : 3;
         const anchorFields = type === "character"
@@ -669,34 +495,18 @@ var unsaidModifier = (text) => {
               ? ["Type", "Description", "Properties", "Condition", "Significance"]
               : ["Type", "Description", "Purpose", "Current Activity", "Significance"];
         const hasAnchor = anchorFields.some(f => !placeholderValue(fields[f]));
-
-        // New cards no longer require every template field. That old all-or-
-        // nothing rule was the main reason otherwise-good CARD blocks were
-        // discarded. A small, useful, evidence-backed profile is better than
-        // repeated hidden retries; later refreshes can deepen it.
         if (!card && (usefulFields.length < minimumUseful || !hasAnchor)) return false;
         if (card && (isRefresh || pendingForcedCodex) && usefulFields.length < 1) return false;
-
         const isNewCard = !card;
         if (isNewCard) {
           card = createOrFindCard(name.toLowerCase(), " ", platformType(type), name);
           if (!card) return false;
         }
-
-        // Automatic refresh protects player edits. A card generated by older
-        // builds is first adopted with its current entry as the baseline; any
-        // later manual entry edit pauses future automatic refreshes. Manual
-        // /card is an explicit overwrite request and intentionally bypasses
-        // this protection.
         if (isRefresh && !isNewCard &&
             typeof codexCardHasManualEdit === "function" &&
             codexCardHasManualEdit(name, card, cfg)) {
           return false;
         }
-
-        // New cards receive the detected standard type. Existing custom card
-        // types are preserved. For Codex-managed standard cards, a refresh may
-        // repair a proven old misclassification (e.g. Character -> Location).
         const rawExistingType = String(card.type || "").trim().toLowerCase();
         const standardExistingType = /^(?:character|location|item|faction)$/.test(rawExistingType);
         let finalType = card.type;
@@ -704,10 +514,8 @@ var unsaidModifier = (text) => {
             ((isRefresh || pendingForcedCodex) && standardExistingType)) {
           finalType = platformType(type);
         }
-
         const order = CARD_TEMPLATES[type] || CHARACTER_CARD_FIELDS;
         const builtEntry = buildBoundedCardEntry(order, fields);
-
         const finalEntry = (isNewCard || !card.entry || !card.entry.trim() || isRefresh || pendingForcedCodex)
           ? builtEntry
           : card.entry;
@@ -721,15 +529,9 @@ var unsaidModifier = (text) => {
         } else {
           if (!CE_updateStoryCardCompat(card, finalKeys, finalEntry, finalType || platformType(type), name, card.description || card.notes).ok) return false;
         }
-
         cardWasNew[name] = isNewCard;
         builtTypes[name] = type;
         succeededNames.add(name);
-
-        // Let TWISTS AND TURNS react immediately, but only to evidence that
-        // existed *before* the model filled the card. Inferred Codex fields
-        // become useful continuity once saved, but they must not instantly
-        // bootstrap a new twist and amplify one model guess into another.
         try {
           const { c: tc, cfg: tcfg } = Library.initState();
           const bridgeEvidence = (typeof codexEvidenceTextFor === "function")
@@ -739,7 +541,6 @@ var unsaidModifier = (text) => {
             Library.bridgeCodexEvidenceToTwists(tc, tcfg, name, type, bridgeEvidence);
           }
         } catch (e) {}
-
         if (typeof markCodexCardGenerated === "function") {
           markCodexCardGenerated(name, type, builtEntry, isRefresh || (!isNewCard && pendingForcedCodex));
         }
@@ -750,15 +551,10 @@ var unsaidModifier = (text) => {
           isRefresh || (!isNewCard && pendingForcedCodex)
         );
         forgetMentionTracking(name);
-
         if (type === "character") {
           const excluded = excludedNames(cfg);
           const shouldJoinUnsaid = !excluded.some(ex => isSameCardEntity(ex, name));
           if (shouldJoinUnsaid) {
-            // Add directly to bounded persistent cast state. Older builds
-            // briefly appended generated names into the Config Notes and
-            // consumed them on the next turn, which made the documentation
-            // visibly flicker and created needless config writes.
             if (!Array.isArray(state.unsaid.castRegistry)) state.unsaid.castRegistry = [];
             if (!state.unsaid.castRegistry.some(existing => isSameCardEntity(existing, name))) {
               state.unsaid.castRegistry.push(name);
@@ -777,7 +573,6 @@ var unsaidModifier = (text) => {
         return false;
       }
     }
-
     function createEvidenceFallbackCard(name, upfrontType) {
       try {
         if (!name || pendingRefreshNames.has(name)) return false;
@@ -789,16 +584,12 @@ var unsaidModifier = (text) => {
           : matches;
         if (compatible.length > 1) return false;
         const existing = compatible.length === 1 ? compatible[0] : null;
-        // A weak fallback must never overwrite an existing curated/generated
-        // card. Manual refresh failure simply leaves the good card untouched.
         if (existing) return false;
-
         const evidenceSource = [
           typeof codexEvidenceTextFor === "function" ? codexEvidenceTextFor(name) : "",
           String(text || "")
         ].filter(Boolean).join(" ").replace(/\s+/g, " ").trim();
         if (evidenceSource.length < 50) return false;
-
         const aliases = typeof aliasesForUnsaidCharacter === "function"
           ? aliasesForUnsaidCharacter(name)
           : [name];
@@ -813,16 +604,9 @@ var unsaidModifier = (text) => {
         let evidence = picked.join(" ").replace(/\[[\s\S]*?\]/g, " ").replace(/\s+/g, " ").trim();
         if (evidence.length > 620) evidence = evidence.slice(0, 617).trimEnd() + "…";
         if (evidence.length < 35) return false;
-
         const type = (typeof reconcileCodexEntityType === "function" ? reconcileCodexEntityType(name, evidenceSource) : null) ||
           (typeof resolveCodexEntityType === "function" ? resolveCodexEntityType(name, evidenceSource) : null) ||
           upfrontType || "character";
-
-        // Evidence rescue is a deterministic safety net, not a second model
-        // guess. It is allowed automatically only for already-confirmed people
-        // or strongly/explicitly typed non-characters. This prevents the common
-        // Auto-Cards failure mode where a good entity is detected but the model
-        // ignores CARD formatting, forcing several Continue presses or /card.
         if (!pendingForcedCodex) {
           if (cfg.codexEvidenceRescue === false) return false;
           const strongScore = state.unsaid.codex.strongScores && state.unsaid.codex.strongScores[name] || 0;
@@ -835,7 +619,6 @@ var unsaidModifier = (text) => {
           if (type === "character" && !likelyCharacter) return false;
           if (type !== "character" && !safeNonCharacter) return false;
         }
-
         let entry;
         const compactEvidence = evidence.length > 360 ? evidence.slice(0, 357).trimEnd() + "…" : evidence;
         if (type === "character") {
@@ -856,14 +639,12 @@ var unsaidModifier = (text) => {
         } else {
           if (!CE_updateStoryCardCompat(card, name.toLowerCase(), entry, platformType(type), name, card.description || card.notes).ok) return false;
         }
-
         cardWasNew[name] = true;
         builtTypes[name] = type;
         succeededNames.add(name);
         if (typeof markCodexCardGenerated === "function") markCodexCardGenerated(name, type, entry, false);
         logCodexCard(name, type, state.unsaid.codex.mentionCounts[name] || 0, false);
         forgetMentionTracking(name);
-
         if (type === "character") {
           const excluded = excludedNames(cfg);
           if (!excluded.some(ex => isSameCardEntity(ex, name))) {
@@ -883,26 +664,6 @@ var unsaidModifier = (text) => {
         return false;
       }
     }
-
-    // Positional order (block i -> expectedNames[i]) was the only signal
-    // ever used to decide which candidate a block belonged to — no check
-    // that the block's own stated Name actually matched. Confirmed this
-    // is reachable, not just theoretical: multiple candidates go out in
-    // one batch (up to 3 at a time, by design), and a model that skips
-    // one candidate entirely, or simply writes its blocks in a different
-    // order than the profiles were listed in — an ordinary thing for a
-    // model to do, especially under the cache-efficient-mode backup
-    // delivery path where the instruction arrives as ordinary card text
-    // rather than a direct request — would silently shift every block
-    // after that point onto the wrong name, exactly the kind of junk-card
-    // cross-assignment (one person's card fields saved under a different
-    // person's title) this round's testing was specifically checking
-    // for. Matching each block against its own claimed Name field first,
-    // falling back to strict position only when that can't be read or
-    // doesn't correspond to anything actually expected this turn,
-    // preserves identical behavior for the common case (one candidate
-    // straightforwardly self-identifying) while no longer trusting order
-    // alone when there's a better signal sitting right there in the text.
     const remainingExpected = expectedNames.slice();
     function claimBlockName(blockContent) {
       const claimed = peekBlockName(blockContent);
@@ -910,22 +671,16 @@ var unsaidModifier = (text) => {
         const idx = remainingExpected.findIndex(n =>
           n.toLowerCase() === claimed.toLowerCase() || isSameCardEntity(n, claimed)
         );
-        // A block that explicitly names an unexpected entity must never be
-        // assigned positionally to somebody else. That was a source of
-        // cross-wired cards when a model hallucinated or reordered profiles.
         if (idx === -1) return null;
         return remainingExpected.splice(idx, 1)[0];
       }
-      // Positional fallback is safe only when the model omitted Name.
       return remainingExpected.shift() || null;
     }
-
     blockMatches.forEach((match) => {
       const name = claimBlockName(match[1]);
       if (!name) return;
       tryBuildCard(match[1], name, expectedTypes[name]);
     });
-
     if (blockMatches.length > 0) {
       text = text.replace(blockPattern, "").replace(/\n{3,}/g, "\n\n");
     }
@@ -938,12 +693,6 @@ var unsaidModifier = (text) => {
       }
       text = text.replace(remainingOpenPattern, "").replace(/\n{3,}/g, "\n\n").trimEnd();
     }
-
-    // If the model ignored/garbled a CARD request, do not get trapped in an
-    // endless retry loop. Manual /card gets one conservative evidence-only
-    // fallback for a new entity; high-confidence introduced characters get the
-    // same fallback after two failed automatic attempts. No unsupported facts
-    // are invented, and non-character automatic candidates remain conservative.
     expectedNames.forEach(name => {
       if (succeededNames.has(name) || pendingRefreshNames.has(name)) return;
       const attempts = (state.unsaid.codex.attempts && state.unsaid.codex.attempts[name]) || 0;
@@ -956,26 +705,19 @@ var unsaidModifier = (text) => {
       const strongNonCharacter = upfrontType !== "character" && trustedType === upfrontType &&
         strongScore >= CODEX_FAST_TRACK_NONCHAR_SCORE &&
         (reasons.indexOf("typed-" + upfrontType) >= 0 || reasons.some(r=>/^explicit-input-/.test(r)));
-      // Strongly established entities get a deterministic rescue immediately
-      // after the first malformed/ignored CARD response. Ordinary characters
-      // retain one retry; weak non-characters never get an automatic fallback.
       const rescueAt = (strongCharacter || strongNonCharacter) ? 1 : 2;
       if (pendingForcedCodex || ((likelyCharacter || strongNonCharacter) && attempts >= rescueAt)) {
         createEvidenceFallbackCard(name, upfrontType);
       }
     });
-
-    // Only clean possible marker-adjacent markdown when Codex actually ran.
     if (expectedNames.length > 0) {
       text = text.replace(/^\s*[*_]{2,}\s*$/gm, "").replace(/\n{3,}/g, "\n\n").trimEnd();
     }
-
     const messageParts = [];
     if (succeededNames.size > 0) {
       const names = [...succeededNames];
       const refreshed = names.filter(n => pendingRefreshNames.has(n) || (!cardWasNew[n] && pendingForcedCodex));
       const created = names.filter(n => cardWasNew[n]);
-
       if (names.length === 1) {
         const n = names[0];
         if (cardWasNew[n]) {
@@ -992,11 +734,7 @@ var unsaidModifier = (text) => {
         if (refreshed.length > 0) messageParts.push(`📇 Codex refreshed ${refreshed.length} card(s): ${refreshed.join(", ")}.`);
       }
     }
-
-    // Periodic refresh misses are not "new entity" failures and should not
-    // consume retry budgets or pollute the consecutive-failure diagnostic.
     const failureTrackedNames = expectedNames.filter(name => !pendingRefreshNames.has(name));
-
     const exhausted = failureTrackedNames.filter(name => {
       if (succeededNames.has(name)) return false;
       if (state.unsaid.codex.likelyCharacters && state.unsaid.codex.likelyCharacters[name]) return false;
@@ -1008,7 +746,6 @@ var unsaidModifier = (text) => {
       state.unsaid.codex.likelyCharacters[name] &&
       (state.unsaid.codex.attempts[name] || 0) === cfg.codexMaxAttempts
     );
-
     if (!state.unsaid.codex.consecutiveFailedNames) state.unsaid.codex.consecutiveFailedNames = [];
     if (failureTrackedNames.length > 0 && succeededNames.size === 0) {
       failureTrackedNames.forEach(n => {
@@ -1022,7 +759,6 @@ var unsaidModifier = (text) => {
     } else if (succeededNames.size > 0) {
       state.unsaid.codex.consecutiveFailedNames = [];
     }
-
     pendingRefreshNames.forEach(name => {
       if (succeededNames.has(name)) return;
       const refreshCard = findStoryCardForEntity(name);
@@ -1033,17 +769,9 @@ var unsaidModifier = (text) => {
       if (meta) {
         meta.refreshFailures = (meta.refreshFailures || 0) + 1;
         meta.lastRefreshAttemptTurn = state.unsaid.turn;
-        // Keep evidence, but use per-card backoff so a stubborn malformed
-        // response cannot consume the Codex slot every cooldown forever.
       }
     });
-
     const strugglingCount = state.unsaid.codex.consecutiveFailedNames.length;
-
-    // Global delivery circuit breaker: if several different automatic CARD
-    // tasks fail in succession, stop spending context/model attention on the
-    // format for a while. Manual /card always bypasses this pause. Successful
-    // structured or evidence-fallback creation resets the circuit immediately.
     if (succeededNames.size > 0) {
       state.unsaid.codex.globalMissStreak = 0;
       state.unsaid.codex.autoPauseUntil = 0;
@@ -1058,11 +786,6 @@ var unsaidModifier = (text) => {
         );
       }
     }
-
-    // Automatic delivery trouble is deliberately quiet. The old build could
-    // flood the player with escalating warnings even though there was nothing
-    // actionable to do mid-scene. /unsaid status and /unsaid health retain the
-    // diagnostics. Explicit /card still gets one clear result message.
     if (pendingForcedCodex && failureTrackedNames.length > 0 && succeededNames.size === 0) {
       const n = failureTrackedNames[0];
       const rawExisting = findStoryCardForEntity(n);
@@ -1072,28 +795,37 @@ var unsaidModifier = (text) => {
         : `📇 Codex couldn't produce a safe usable card for ${n} this turn. Nothing was invented or saved; try /card ${n} again after more story evidence exists.`);
     }
     if (messageParts.length > 0) pushMessage(messageParts.join(" "));
-
     state.unsaid.codex.pendingNames = [];
     state.unsaid.codex.pendingTypes = {};
     state.unsaid.codex.pendingForced = false;
     state.unsaid.codex.pendingRefreshNames = [];
-
-    if (typeof CE_runTurnFeature === "function") CE_runTurnFeature("codex", "output", function(){ trackMentions(text, true); }, null, typeof trackMentions === "function");
-    else trackMentions(text, true);
-
-    // CODEX RECALL GUARANTEE: deterministic first-card creation runs on the
-    // authoritative visible Output pass, not only inside Context scheduling.
-    // This means a mystery-heavy turn can let TWISTS/UNSPOKEN own hidden
-    // Context without starving an explicitly established company, place,
-    // project or unit class of its Story Card. One scaffold maximum per Output.
-    if (!controlRequest && cfg.codexEnabled && cfg.codexDirectScaffold !== false &&
+    const codexAtHardCapacity = (typeof CE_storyCardCount === "function" ? CE_storyCardCount() : ((typeof storyCards!=="undefined"&&Array.isArray(storyCards))?storyCards.length:0)) >= 5000;
+    if (!codexAtHardCapacity) {
+      // Large-library Input defers ordinary mention accumulation so explicit scaffolding
+      // gets the Input hook's memory budget. Consume that user-authored evidence here,
+      // preserving its original non-confirming semantics before observing AI output.
+      var deferredInputEvidence = state.unsaid && state.unsaid.codex ? String(state.unsaid.codex.deferredInputEvidence || "") : "";
+      if (deferredInputEvidence) {
+        try {
+          if (typeof trackMentionsMemorySafe === "function" && typeof codexUseMemorySafeTracking === "function" && codexUseMemorySafeTracking())
+            trackMentionsMemorySafe(deferredInputEvidence, false, cfg);
+          else if (typeof trackMentions === "function") trackMentions(deferredInputEvidence, false, cfg);
+        } catch (e) { if (typeof utRecordRuntimeError === "function") utRecordRuntimeError("Output/Codex-deferred-input", e); }
+        state.unsaid.codex.deferredInputEvidence = "";
+        state.unsaid.codex.deferredInputTurn = null;
+      }
+      if (typeof trackMentions === "function") {
+        if (typeof CE_runTurnFeature === "function") CE_runTurnFeature("codex", "output", function(){ trackMentions(text, true, cfg); }, null, true);
+        else trackMentions(text, true, cfg);
+      }
+    }
+    if (!codexAtHardCapacity && !controlRequest && cfg.codexEnabled && cfg.codexDirectScaffold !== false &&
         typeof createCodexDirectScaffoldFromOutput === "function") {
       const directScaffold = createCodexDirectScaffoldFromOutput(text, cfg);
       if (directScaffold && typeof pushMessage === "function") {
         pushMessage("📇 CODEX created a provisional " + String(directScaffold.type || "Story") + " card for " + String(directScaffold.name || "the new entity") + ". It will enrich itself as new evidence appears.");
       }
     }
-
     const revealWasRequested = !!state.unsaid.pending;
     const revealWasForced = !!state.unsaid.pendingRevealForced;
     const revealWasCoreCheck = !!state.unsaid.pendingCoreCheck;
@@ -1109,15 +841,10 @@ var unsaidModifier = (text) => {
         `《${revealNameSource},\\s*([a-zA-Z][a-zA-Z-]*)(?:,\\s*(about\\s+[^:》]+|core-shift))?:\\s*([^》]*)》`,
         "i"
       );
-      // New builds ask for a plain-ASCII machine tag. Several AI Dungeon
-      // models are much more reliable with [[...]] than with uncommon Unicode
-      // brackets. Keep every legacy parser below so old/in-flight requests are
-      // still accepted after an update.
       const asciiPattern = /(?:\[\[?|<)\s*UNSAID\s*\|\s*([^|\]\r\n>]+)\s*\|\s*([a-zA-Z][a-zA-Z-]*)\s*\|\s*(?:(core-shift|about\s*(?:=|:)?\s*[^|\]\r\n>]+)\s*\|\s*)?([\s\S]*?)\s*(?:\]\]?|>)/i;
       let matchedPattern = strictPattern;
       let thoughtMatch = null;
       let feeling, modifier2, thought, usedFallback = false;
-
       const asciiMatch = text.match(asciiPattern);
       if (asciiMatch) {
         const markerName = String(asciiMatch[1] || "").trim();
@@ -1139,7 +866,6 @@ var unsaidModifier = (text) => {
           thought = String(asciiMatch[4] || "").trim();
         }
       }
-
       if (!thoughtMatch) {
         const legacyMatch = text.match(strictPattern);
         if (legacyMatch) {
@@ -1156,7 +882,6 @@ var unsaidModifier = (text) => {
             thought = looseMatch[1].trim().replace(/^feeling\s+/i, "");
             usedFallback = true;
           } else {
-            // Final legacy fallback still requires the expected character's name.
             const barePattern = new RegExp(
               `(^|\\n)\\s*${revealNameSource},\\s*([a-zA-Z][a-zA-Z-]*)(?:,\\s*(about\\s+[^:\\n]+|core-shift))?:\\s*([^\\n]+)`,
               "i"
@@ -1174,14 +899,12 @@ var unsaidModifier = (text) => {
           }
         }
       }
-
       if (!thoughtMatch && !usedFallback && text.indexOf("《") !== -1) {
         text = text.replace(/《[\s\S]*$/, "").replace(/\n{3,}/g, "\n\n").trimEnd();
       }
       if (!thoughtMatch && !usedFallback && /(?:\[\[?|<)\s*UNSAID\b/i.test(text)) {
         text = text.replace(/(?:\[\[?|<)\s*UNSAID[\s\S]*$/i, "").replace(/\n{3,}/g, "\n\n").trimEnd();
       }
-
       if (thoughtMatch || (usedFallback && thought)) {
         if (!feeling) {
           const existingMind = state.unsaid.minds[name];
@@ -1193,48 +916,24 @@ var unsaidModifier = (text) => {
           isCoreShift = true;
           thought = thought.replace(/^core-shift\s*[:,]?\s*/i, "");
         }
-
-        // The model is not allowed to rewrite a core truth merely because it
-        // emitted the words "core-shift". Context explicitly records whether
-        // this particular reveal was authorized to shift the anchor.
         const coreShiftAuthorized = !!state.unsaid.pendingCoreShiftAllowed && !!cfg.allowCoreShift;
         if (isCoreShift && !coreShiftAuthorized) {
           isCoreShift = false;
           about = null;
         }
-
-        // Relationship history is character-to-character state. Do not let a
-        // malformed reveal create durable feelings toward "the door", a
-        // location, an item, the player, or an ambiguous surname.
         if (!isCoreShift && about && typeof resolveUnsaidRelationTarget === "function") {
           about = resolveUnsaidRelationTarget(name, about, cfg);
         }
-
         const { wantSentence } = splitThoughtSentences(thought);
-
-        // Replace by exact match position rather than a plain regex
-        // .replace() — the instruction only tells the model to write
-        // "italicized" sentences without ever showing it how, so some
-        // models wrap their own reveal in "**" trying to comply. Since
-        // that "**" sits just outside whatever the bracket pattern
-        // actually captured, a plain replace on the pattern alone left it
-        // behind as dangling, content-less asterisks in the visible story.
-        // Finding the real match bounds and trimming any asterisks
-        // immediately touching them (from either side) avoids that
-        // regardless of which pattern matched or what the model added.
         const revealMatch = matchedPattern.exec(text);
         if (revealMatch) {
           const start = revealMatch.index;
           const end = start + revealMatch[0].length;
           const before = text.slice(0, start).replace(/\*+\s*$/, "");
           const after = text.slice(end).replace(/^\s*\*+/, "");
-          // Shown in-story as the clean extracted thought itself, not the
-          // raw internal 《Name, feeling: ...》 markup — a reader shouldn't
-          // ever see the formatting brackets the AI was instructed to use.
           const replacement = cfg.showThoughtsInStory ? `*${thought}*` : "";
           text = (before + replacement + after).replace(/\n{3,}/g, "\n\n").trimEnd();
         }
-
         seedMindIfKnown(name);
         if (!state.unsaid.minds[name]) state.unsaid.minds[name] = createMind();
         const mind = state.unsaid.minds[name];
@@ -1251,10 +950,6 @@ var unsaidModifier = (text) => {
           mind.coreSetTurn = state.unsaid.turn;
           mind.tensionLevel = 0;
           justShifted = true;
-          // Feed this back into the twist half: a character's fundamental
-          // self just genuinely changed, which is exactly the kind of thing
-          // a twist thread should build on — never the private content
-          // itself, just the fact that it happened and to whom.
           try {
             const { c: tc, cfg: tcfg } = Library.initState();
             Library.reinforceFromCoreShift(tc, tcfg, name);
@@ -1273,7 +968,6 @@ var unsaidModifier = (text) => {
           if (!mind.feelingHistory) mind.feelingHistory = [];
           pushCapped(mind.feelingHistory, feeling, FEELING_HISTORY_LIMIT);
         }
-
         let tensionJustCrossed = false;
         if (!justShifted && !isStaleRepeat) {
           if (typeof mind.tensionLevel !== "number") mind.tensionLevel = 0;
@@ -1286,11 +980,9 @@ var unsaidModifier = (text) => {
           }
           tensionJustCrossed = cfg.allowCoreShift && wasBelowThreshold && mind.tensionLevel >= TENSION_THRESHOLD;
         }
-
         if (about) {
           recordRelation(name, about, feeling);
         }
-
         if (!isStaleRepeat && typeof rememberAdaptiveThought === "function") {
           rememberAdaptiveThought(mind, thought, about, isCoreShift, feeling, cfg);
           const reflectionInterval = Math.max(2, Math.min(20, Number(cfg.adaptiveReflectionInterval) || 4));
@@ -1298,11 +990,6 @@ var unsaidModifier = (text) => {
             mind.lastReflectionTurn = state.unsaid.turn;
           }
         }
-
-        // Let established private psychology reinforce an already-existing
-        // compatible story thread. The bridge never creates a betrayal or
-        // secret from a mere fear/suspicion; ordinary core-shift creation is
-        // still handled separately by reinforceFromCoreShift above.
         if (!isStaleRepeat) {
           try {
             const { c: tc, cfg: tcfg } = Library.initState();
@@ -1311,9 +998,7 @@ var unsaidModifier = (text) => {
             }
           } catch (e) {}
         }
-
         const synced = syncMindToCard(name, cfg.allowCoreShift, cfg.jsonNotes);
-
         if (!synced) {
           pushMessage(`⚠️ ${name} had a private thought, but no matching Story Card was found to save it on — try "/card ${name}" to create one, or check "/unsaid status".`);
         } else if (isCoreShift && cfg.allowCoreShift) {
@@ -1330,21 +1015,13 @@ var unsaidModifier = (text) => {
         state.unsaid.consecutiveRevealMisses = 0;
         state.unsaid.revealBackoffUntil = 0;
       } else if (revealWasCoreCheck) {
-        // A core check explicitly allows "no tag" to mean that the character's
-        // deep identity did NOT change. Older builds counted this valid outcome
-        // as a formatting failure, inflating the miss counter for no reason.
         if (revealWasForced) pushMessage(`🌗 ${name}'s core truth held steady — no lasting identity shift was saved.`);
       } else {
         const misses = Math.min(8, (state.unsaid.consecutiveRevealMisses || 0) + 1);
         state.unsaid.consecutiveRevealMisses = misses;
         if (revealWasForced) {
-          // Manual/forced checks should report the problem once, but never save
-          // a fabricated thought just to make the command look successful.
           pushMessage(`👁️ The thought check ran for ${name}, but this model omitted the hidden UNSAID tag. No false thought was saved. You can retry /peek ${name}; automatic requests will self-throttle if the model keeps ignoring the tag.`);
         } else {
-          // Exponential, bounded backoff prevents the old 20/40/67-miss spam.
-          // The player's configured chance remains untouched; this is purely a
-          // delivery-health guard and manual /peek always bypasses it.
           const delay = Math.min(20, Math.pow(2, Math.min(5, misses)));
           state.unsaid.revealBackoffUntil = Math.max(state.unsaid.revealBackoffUntil || 0, state.unsaid.turn + delay);
         }
@@ -1354,7 +1031,6 @@ var unsaidModifier = (text) => {
       state.unsaid.pendingCoreCheck = false;
       state.unsaid.pendingRevealForced = false;
     }
-
     if (revealWasRequested) {
       text = text
         .replace(/《[^》]*》?/g, "")
@@ -1363,43 +1039,26 @@ var unsaidModifier = (text) => {
         .replace(/\n{3,}/g, "\n\n")
         .trimEnd();
     }
-
     if (!revealWasRequested) {
       state.unsaid.pendingCoreShiftAllowed = false;
       state.unsaid.pendingCoreCheck = false;
       state.unsaid.pendingRevealForced = false;
     }
-
     syncFrontMemoryHint(cfg.enabled && cfg.subtleHints && cfg.cast.length > 0);
-
-    // /peek and /card are control operations, not narrative actions. The model
-    // call is used only as a hidden worker for structured data; suppress any
-    // incidental prose it generated so issuing a command does not advance the
-    // scene. Script messages/cards carry the visible result instead.
     if (controlRequest === "peek" || controlRequest === "card") {
       text = "\u200B";
     }
     if (state.unsaid) state.unsaid.controlRequest = "";
-
     if (!text || !text.trim()) {
-      // Never inject synthetic narration into the adventure just because the
-      // model returned only hidden metadata. Automatic prompts now demand
-      // visible story prose first; this zero-width fallback merely keeps the
-      // Output hook valid if a model still ignores that requirement.
       if (typeof log === "function") {
         log("UNSAID Output: model returned only hidden script metadata; suppressed synthetic quiet-moment narration.");
       }
       text = "\u200B";
     }
-
     return { text };
   } catch (e) {
     if (typeof utRecordRuntimeError === "function") utRecordRuntimeError("Output/UNSAID", e);
     if (typeof log === "function") log("UNSAID Output error: " + (e && e.message));
-    // Never let a parser/runtime exception leave a stale structured task
-    // attached to the next unrelated model response. Creation candidates
-    // remain discoverable and refresh evidence remains stored, so clearing
-    // only the pending envelope is safe and allows a clean retry later.
     try {
       if (state.unsaid) {
         state.unsaid.pending = null;
@@ -1418,66 +1077,60 @@ var unsaidModifier = (text) => {
     return { text: (controlRequest === "peek" || controlRequest === "card") ? "\u200B" : originalText };
   }
 };
-
-var modifier = (text) => {
-  var originalText = text;
-  try {
-    if (typeof CE_runTurnFeature === "function") CE_runTurnFeature("coordinator", "output", function(){ if (typeof UN_resetHookCaches === "function") UN_resetHookCaches("output"); }, null, typeof UN_resetHookCaches === "function");
-    else if (typeof UN_resetHookCaches === "function") UN_resetHookCaches("output");
-    var runFeature = function(name, fn, fallback, available) {
-      if (typeof CE_runTurnFeature === "function") return CE_runTurnFeature(name, "output", fn, fallback, available);
-      if (available === false || typeof fn !== "function") return fallback;
-      try { var v=fn(); return typeof v === "undefined" ? fallback : v; } catch (_) { return fallback; }
-    };
-
-    runFeature("full_hardening", function(){ if (typeof CEFH_prepareOutput === "function") CEFH_prepareOutput(originalText); }, null, typeof CEFH_prepareOutput === "function");
-
-    // /wire commands are local admin turns; only Crossed Wires should consume
-    // their generated placeholder response. Administrative turns intentionally
-    // do not count as complete narrative activation cycles.
-    if (state.crossedWires && state.crossedWires.command) {
-      return { text: runFeature("crossed_wires", function(){ return typeof CW_onOutput === "function" ? CW_onOutput(originalText) : originalText; }, originalText, typeof CW_onOutput === "function") };
+function CE_OUT_unsaidAtHardCapacity(text){
+  var visible=String(text||""),u=state&&state.unsaid;if(!u)return {text:visible};
+  var pending=String(u.pending||"").trim();
+  if(!pending){u.pendingCoreShiftAllowed=false;u.pendingCoreCheck=false;u.pendingRevealForced=false;u.controlRequest="";return {text:visible};}
+  var open="[[UNSAID|",start=visible.indexOf(open),end=start>=0?visible.indexOf("]]",start+open.length):-1;
+  if(start>=0&&end>start){
+    var raw=visible.slice(start+open.length,end),parts=raw.split("|"),marker=String(parts[0]||"").trim();
+    var same=false;try{same=typeof isSameCardEntity==="function"?isSameCardEntity(marker,pending):marker.toLowerCase()===pending.toLowerCase();}catch(_){same=marker.toLowerCase()===pending.toLowerCase();}
+    if(same&&parts.length>=3){
+      var feeling=String(parts[1]||"conflicted").trim().toLowerCase(),modifier="",thought="";
+      if(parts.length>=4&&(String(parts[2]||"").indexOf("about=")===0||String(parts[2]||"")==="core-shift")){modifier=String(parts[2]||"").trim();thought=parts.slice(3).join("|").trim();}
+      else thought=parts.slice(2).join("|").trim();
+      if(thought){
+        if(!u.minds)u.minds={};if(!u.minds[pending])u.minds[pending]=createMind();var mind=u.minds[pending];
+        mind.feeling=feeling||mind.feeling||"conflicted";mind.lastTurn=u.turn||0;mind.lastThoughtText=thought;mind.revealCount=(mind.revealCount||0)+1;
+        try{if(typeof recordThoughtHistory==="function")recordThoughtHistory(mind,thought);}catch(_){ }
+        var about=modifier.indexOf("about=")===0?modifier.slice(6).trim():null,isCore=modifier==="core-shift"&&!!u.pendingCoreShiftAllowed;
+        if(isCore&&thought){if(!mind.coreHistory)mind.coreHistory=[];if(mind.core&&typeof pushCapped==="function")pushCapped(mind.coreHistory,mind.core,2);mind.core=thought;mind.coreSetTurn=u.turn||0;mind.tensionLevel=0;}else if(!mind.core&&!about)mind.core=thought;
+        try{if(typeof rememberAdaptiveThought==="function")rememberAdaptiveThought(mind,thought,about,isCore,feeling,Object.assign({},UNSAID_DEFAULTS,{adaptiveMindEnabled:true}));}catch(_){ }
+        try{if(about&&typeof recordRelation==="function")recordRelation(pending,about,feeling);}catch(_){ }
+        u.consecutiveRevealMisses=0;u.revealBackoffUntil=0;
+      }
     }
-
-    runFeature("coordinator", function(){ if (typeof UN_beforeOutput === "function") UN_beforeOutput(); }, null, typeof UN_beforeOutput === "function");
-
-    // Each parser gets an isolated failure boundary. One broken specialist can
-    // no longer abort every subsystem that follows it on the same Output turn.
-    var afterTwists = runFeature("twists", function(){ return twistsModifier(originalText); }, {text:originalText}, typeof twistsModifier === "function");
-    var twistText = afterTwists && typeof afterTwists.text !== "undefined" ? afterTwists.text : originalText;
-    if (typeof CE_R2_onOutput === "function") {
-      twistText = runFeature("unsaid", function(){ return CE_R2_onOutput(twistText); }, twistText, true);
-    }
-    var afterUnsaid = runFeature("unsaid", function(){ return unsaidModifier(twistText); }, {text:twistText}, typeof unsaidModifier === "function");
-    var visible = afterUnsaid && typeof afterUnsaid.text !== "undefined" ? afterUnsaid.text : twistText;
-
-    visible = runFeature("crossed_wires", function(){ return typeof CW_onOutput === "function" ? CW_onOutput(visible) : visible; }, visible, typeof CW_onOutput === "function");
-    visible = runFeature("full_hardening", function(){ return typeof CEFH_repairPlayerAgency === "function" ? CEFH_repairPlayerAgency(visible) : visible; }, visible, typeof CEFH_repairPlayerAgency === "function");
-
-    // Salvage only explicit, visible NPC behaviour when the private UNSAID
-    // protocol is absent. This never infers or writes hidden feelings/motives.
-    runFeature("unsaid", function(){ if (typeof observeUnsaidVisibleBehavior === "function") observeUnsaidVisibleBehavior(visible); }, null, typeof observeUnsaidVisibleBehavior === "function");
-
-    visible = runFeature("echo_veil", function(){ return (typeof ECHO_VEIL !== "undefined" && ECHO_VEIL.output) ? ECHO_VEIL.output(visible) : visible; }, visible, typeof ECHO_VEIL !== "undefined" && !!ECHO_VEIL.output);
-    visible = runFeature("coordinator", function(){ return typeof CE_stripVisibleScriptArtifacts === "function" ? CE_stripVisibleScriptArtifacts(visible) : visible; }, visible, typeof CE_stripVisibleScriptArtifacts === "function");
-
-    runFeature("world_engine", function(){ if (typeof CEW_onOutput === "function") CEW_onOutput(visible); }, null, typeof CEW_onOutput === "function");
-    runFeature("canon_sentinel", function(){ if (typeof CECS_auditOutput === "function") CECS_auditOutput(visible); }, null, typeof CECS_auditOutput === "function");
-    runFeature("canon_sentinel", function(){ if (typeof CECS_onOutput === "function") CECS_onOutput(visible); }, null, typeof CECS_onOutput === "function");
-    runFeature("coordinator", function(){ if (typeof UN_afterOutput === "function") UN_afterOutput(visible); }, null, typeof UN_afterOutput === "function");
-    runFeature("full_hardening", function(){ if (typeof CEFH_finishOutput === "function") CEFH_finishOutput(visible); }, null, typeof CEFH_finishOutput === "function");
-    runFeature("coordinator", function(){ if (typeof CE_bridgeEchoThreadsToTwists === "function") CE_bridgeEchoThreadsToTwists(); }, null, typeof CE_bridgeEchoThreadsToTwists === "function");
-    runFeature("storycard_presentation", function(){ if (typeof CE_syncStoryCardPresentation === "function") CE_syncStoryCardPresentation(visible); }, null, typeof CE_syncStoryCardPresentation === "function");
-    if (typeof CE_activationCompleteOutputTurn === "function") CE_activationCompleteOutputTurn();
-    return { text: visible };
-  } catch (e) {
-    if (typeof utRecordRuntimeError === "function") utRecordRuntimeError("Output/unified", e);
-    if (typeof UN_error === "function") UN_error("Output", e);
-    if (typeof log === "function") log("CROSSED ECHOES Output wrapper error: " + (e && e.message));
-    return { text: originalText };
-  } finally {
-    if (typeof utEndRuntimePhase === "function") utEndRuntimePhase(outputRuntimeToken);
+    visible=(visible.slice(0,start)+visible.slice(end+2)).replace(/\n{3,}/g,"\n\n").trimEnd();
+  }else{
+    u.consecutiveRevealMisses=Math.min(8,Number(u.consecutiveRevealMisses||0)+1);
+    if(!u.pendingRevealForced)u.revealBackoffUntil=Math.max(Number(u.revealBackoffUntil||0),Number(u.turn||0)+Math.min(20,Math.pow(2,Math.min(5,u.consecutiveRevealMisses))));
   }
+  u.pending=null;u.pendingCoreShiftAllowed=false;u.pendingCoreCheck=false;u.pendingRevealForced=false;u.controlRequest="";
+  return {text:visible||"\u200B"};
+}
+var modifier = (text) => {
+  var originalText=text;
+  try {
+    if(typeof UN_resetHookCaches==="function")UN_resetHookCaches("output");
+    if(state.crossedWires&&state.crossedWires.command)return {text:typeof CW_onOutput==="function"?CW_onOutput(originalText):originalText};
+    var t=originalText;
+    var hardCapacity=(typeof CE_storyCardCount==="function"?CE_storyCardCount():((typeof storyCards!=="undefined"&&Array.isArray(storyCards))?storyCards.length:0))>=5000;
+    var tw=typeof CE_runTurnFeature==="function"?CE_runTurnFeature("twists","output",function(){return typeof twistsModifier==="function"?twistsModifier(t):{text:t};},{text:t},typeof twistsModifier==="function"):(typeof twistsModifier==="function"?twistsModifier(t):{text:t});if(tw&&typeof tw.text!=="undefined")t=tw.text;
+    var un=typeof CE_runTurnFeature==="function"?CE_runTurnFeature("unsaid","output",function(){return hardCapacity?CE_OUT_unsaidAtHardCapacity(t):(typeof unsaidModifier==="function"?unsaidModifier(t):{text:t});},{text:t},hardCapacity||typeof unsaidModifier==="function"):(hardCapacity?CE_OUT_unsaidAtHardCapacity(t):(typeof unsaidModifier==="function"?unsaidModifier(t):{text:t}));if(un&&typeof un.text!=="undefined")t=un.text;
+    t=typeof CE_runTurnFeature==="function"?CE_runTurnFeature("crossed_wires","output",function(){return CW_onOutput(t);},t,typeof CW_onOutput==="function"):(typeof CW_onOutput==="function"?CW_onOutput(t):t);
+    if(typeof CE_R2_onOutput==="function"){try{t=CE_R2_onOutput(t);}catch(_){}}
+    t=typeof CE_runTurnFeature==="function"?CE_runTurnFeature("echo_veil","output",function(){return EV_onOutput(t);},t,typeof EV_onOutput==="function"):(typeof EV_onOutput==="function"?EV_onOutput(t):t);
+    if(typeof CE_runTurnFeature==="function")CE_runTurnFeature("world_engine","output",function(){return CEW_onOutput(t);},t,typeof CEW_onOutput==="function");else if(typeof CEW_onOutput==="function")CEW_onOutput(t);
+    t=typeof CE_runTurnFeature==="function"?CE_runTurnFeature("canon_sentinel","output",function(){return CECS_onOutput(t);},t,typeof CECS_onOutput==="function"):(typeof CECS_onOutput==="function"?CECS_onOutput(t):t);
+    t=typeof CE_runTurnFeature==="function"?CE_runTurnFeature("full_hardening","output",function(){return CEFH_onOutput(t);},t,typeof CEFH_onOutput==="function"):(typeof CEFH_onOutput==="function"?CEFH_onOutput(t):t);
+    t=typeof CE_runTurnFeature==="function"?CE_runTurnFeature("coordinator","output",function(){return CE_COORD_onOutput(t);},t,typeof CE_COORD_onOutput==="function"):(typeof CE_COORD_onOutput==="function"?CE_COORD_onOutput(t):t);
+    if(typeof CE_runTurnFeature==="function")CE_runTurnFeature("storycard_presentation","output",function(){return CE_storyCardPresentationTick();},true,typeof CE_storyCardPresentationTick==="function");else if(typeof CE_storyCardPresentationTick==="function")CE_storyCardPresentationTick();
+    if(!hardCapacity&&typeof observeUnsaidVisibleBehavior==="function")observeUnsaidVisibleBehavior(t);
+    if(typeof CE_activationCompleteOutputTurn==="function")CE_activationCompleteOutputTurn();
+    return {text:t};
+  } catch(e) {
+    try{if(typeof utRecordRuntimeError==="function")utRecordRuntimeError("Output/unified",e);}catch(_){}
+    return {text:originalText};
+  } finally { if(typeof utEndRuntimePhase==="function")utEndRuntimePhase(outputRuntimeToken); }
 };
-
 modifier(text);

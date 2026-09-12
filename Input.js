@@ -1,60 +1,46 @@
 state.message = "";
 var inputRuntimeToken = typeof utBeginRuntimePhase === "function" ? utBeginRuntimePhase("input") : null;
-
 try {
   if (typeof CE_reconcilePlayerIdentityState === "function") CE_reconcilePlayerIdentityState();
 } catch (e) {
   if (typeof log === "function") log("CROSSED ECHOES player identity/Input error: " + (e && e.message));
 }
-
 try {
-  if (typeof CE_runTurnFeature === "function") {
-    CE_runTurnFeature("codex", "input", function(){
-      if (typeof CE_bootstrapRequiredConfigCards === "function") CE_bootstrapRequiredConfigCards("input");
-    }, null, typeof CE_bootstrapRequiredConfigCards === "function");
-  } else if (typeof CE_bootstrapRequiredConfigCards === "function") CE_bootstrapRequiredConfigCards("input");
+  if (typeof CE_bootstrapRequiredConfigCards === "function") {
+    if (typeof CE_runTurnFeature === "function") CE_runTurnFeature("codex", "input", function(){ CE_bootstrapRequiredConfigCards("input"); }, null, true);
+    else CE_bootstrapRequiredConfigCards("input");
+  } else if (typeof CE_markFeatureActivation === "function") CE_markFeatureActivation("codex", "input", "ok", "lazy CODEX initialization");
 } catch (e) {
   if (typeof log === "function") log("CROSSED ECHOES config bootstrap/Input error: " + (e && e.message));
 }
-
 try {
   initUnsaid();
 } catch (e) {
   if (typeof log === "function") log("UNSAID init/Input error: " + (e && e.message));
 }
-
 var cleanCommandEntity = (raw, maxLen) => {
   let name = String(raw || "").trim();
   name = name.replace(/^["'“”‘’]+/, "").replace(/["'“”‘’.!?]+$/, "").trim();
   name = name.replace(/\s+/g, " ");
   return name.slice(0, typeof maxLen === "number" ? maxLen : 80);
 };
-
 var resolveControlEntityName = (enteredName, expectedType) => {
   const entered = cleanCommandEntity(enteredName, 80);
   if (!entered || typeof resolveUnsaidCanonicalName !== "function") return entered;
   const resolved = resolveUnsaidCanonicalName(entered) || entered;
   if (String(resolved).toLowerCase() === String(entered).toLowerCase()) return resolved;
-  // A trigger on an Event/Plot/manual lore card is retrieval overlap, not
-  // proof that the command named that card's identity. Preserve the literal
-  // command target unless at least one compatible entity card supports the
-  // alias resolution.
   if (typeof storyCardMatchesForEntity === "function" && typeof codexCardIdentityCompatible === "function") {
     const matches = storyCardMatchesForEntity(entered);
     if (!matches.some(card => codexCardIdentityCompatible(card, entered, expectedType || ""))) return entered;
   }
   return resolved;
 };
-
-// Command input must fail closed. If an internal error happens while handling
-// an administrative command, never leak `/card`, `/peek`, etc. to the story
-// model as ordinary prose.
 var ownedControlCommand = (raw) => {
   try {
     if (typeof Library !== "undefined" && Library.extractCommand) return Library.extractCommand(raw);
   } catch (e) {}
   const t = String(raw || "").replace(/\r/g, "").trim();
-  const owned = "(?:help|status|crossedechoesstatus|crossedechoes|cestatus|ce|threadboundstatus|threadbound|tbstatus|unifiedstatus|unified|worldengine|world|unsaid|pe(?:e|a)k|card|alias|unalias|twistcategories|twisttypes|twistlog|twisthelp|twist|plant|mature|scenario|synergy|link|intensity|threads|rescan|twists|wiremerge|wireforget|wireprofile|wirestatus|wiretwists|wirehelp|wirerole|wireage|wires|wire|spark)";
+  const owned = "(?:help|status|crossedechoesstatus|crossedechoes|cestatus|ce|threadboundstatus|threadbound|tbstatus|unifiedstatus|unified|unsaid|pe(?:e|a)k|card|alias|unalias|twistcategories|twisttypes|twistlog|twisthelp|twist|plant|mature|scenario|synergy|link|intensity|threads|rescan|twists|wiremerge|wireforget|wireprofile|wirestatus|wiretwists|wirehelp|wirerole|wireage|wires|wire|spark)";
   const direct = new RegExp(`^[!/:]${owned}\\b`, "i");
   const normalize = value => {
     let v = String(value || "").trim();
@@ -63,11 +49,9 @@ var ownedControlCommand = (raw) => {
     else if (/^\/status\s*$/i.test(v)) v = "/crossedechoes";
     else if (/^\/status\s+(?:unsaid|codex)\s*$/i.test(v)) v = "/unsaid status";
     else if (/^\/status\s+(?:wire|wires|crossed\s+wires)\s*$/i.test(v)) v = "/wire status";
-    else if (/^\/status\s+(?:world|worldengine|world\s+engine)\s*$/i.test(v)) v = "/world status";
     else if (/^\/status\s+(?:twist|twists)\s*$/i.test(v)) v = "/threads";
     else if (/^\/help\s+(?:unsaid|codex)\s*$/i.test(v)) v = "/unsaid";
     else if (/^\/help\s+(?:wire|wires|crossed\s+wires)\s*$/i.test(v)) v = "/wire help";
-    else if (/^\/help\s+(?:world|worldengine|world\s+engine)\s*$/i.test(v)) v = "/world";
     else if (/^\/help\s+(?:twist|twists)\s*$/i.test(v)) v = "/twists";
     return v;
   };
@@ -75,12 +59,11 @@ var ownedControlCommand = (raw) => {
   const labeled = t.match(new RegExp(`^(?:story|do|say|see|guide)\\s*[:=-]\\s*["“‘']?([!/:]${owned}\\b[\\s\\S]*?)["”’']?\\s*[.!]?\\s*$`, "i"));
   return labeled ? normalize(labeled[1]) : null;
 };
-
 var crossedEchoesCommandHelp = () => [
   "🌒 CROSSED ECHOES COMMANDS",
   "/help — this command overview",
-  "/status — coordinator status; /status unsaid, /status wire, /status world also work",
-  "/crossedechoes — coordinator status",
+  "/status — CROSSED ECHOES status; /status unsaid and /status wire also work",
+  "/crossedechoes — CROSSED ECHOES status",
   "/crossedechoes help — command overview",
   "/wire help — Crossed Wires commands",
   "/unsaid — UNSPOKEN TURNS / CODEX commands",
@@ -88,7 +71,6 @@ var crossedEchoesCommandHelp = () => [
   "",
   "Quick controls: /peek <name> • /card <name> • /wire <name> • /spark [small|medium|major] • /threads • /twist [name]"
 ].join("\n");
-
 var controlCommandFailedSafely = (raw, where, knownCommand) => {
   const command = knownCommand || ownedControlCommand(raw);
   if (!command) return null;
@@ -97,7 +79,6 @@ var controlCommandFailedSafely = (raw, where, knownCommand) => {
   } catch (e) {}
   return { text: null, stop: true };
 };
-
 var twistsModifier = (text) => {
   var detectedControlCommand = ownedControlCommand(text);
   try {
@@ -106,11 +87,9 @@ var twistsModifier = (text) => {
     const cmd = Library.extractCommand(text);
     detectedControlCommand = cmd;
     const stopControl = () => ({ text: null, stop: true });
-
     if (cmd) {
       const parts = cmd.slice(1).trim().split(/\s+/);
       const head = (parts[0] || "").toLowerCase();
-
       if (head === "twist") {
         if (!cfg.enabled) {
           pushMessage("🌀 TWISTS AND TURNS is currently disabled — turn on \"Enable Twists and Turns\" on the config card first, or nothing will actually happen this turn.");
@@ -122,10 +101,6 @@ var twistsModifier = (text) => {
             .filter(t => isSameCardEntity(t.entity, name) && Library.isThreadAllowed(t, cfg))
             .sort((a,b) => Library.twistGroundingScore(b) - Library.twistGroundingScore(a) || b.seedTouches - a.seedTouches);
           let thread = candidates[0] || null;
-
-          // In strict mode /twist is a pacing override, not a canon-invention
-          // command. The player can reveal a supported thread early, but the
-          // command cannot manufacture a secret that has zero story evidence.
           if (cfg.strictLogic !== false && (!thread || Library.twistGroundingScore(thread) < 0.90)) {
             pushMessage(`🌀 Strict Logic blocked an unsupported forced twist around ${name}. Plant/develop the thread first, or turn strictLogic off if you intentionally want a wildcard reveal.`);
             return stopControl();
@@ -134,7 +109,6 @@ var twistsModifier = (text) => {
             thread = Library.createThread(c, name, null, c.turn - cfg.minTurnsForPayoff, cfg);
             if (thread) { thread.source = "forced"; thread.wildcard = true; }
           }
-
           if (!thread) {
             pushMessage(`🌀 I couldn't prepare another allowed twist thread for ${name}. They may already be at the per-entity thread cap, or only have disabled mature threads waiting.`);
           } else {
@@ -247,18 +221,6 @@ var twistsModifier = (text) => {
       } else if (head === "twistlog") {
         cfg.showTwistLog = !cfg.showTwistLog;
         Library.updateTwistLogCard(c, cfg);
-        // Every other setting-changing command here (see /intensity right
-        // below) writes its new value back to the actual config card text
-        // via updateConfigCard — this one never did, meaning the toggle
-        // only ever lived in memory for the current turn. Since the next
-        // turn's applyEntryConfig always re-parses cfg.showTwistLog fresh
-        // from the card's own rendered text, and that text was never
-        // updated, the very next turn silently reverted the toggle right
-        // back to whatever it was before — confirmed directly via a real
-        // captured transcript and reproduced in the sandbox: the
-        // confirmation message correctly said "now visible," but the
-        // config card's own text still read "false" immediately
-        // afterward, before a single further turn had even passed.
         Library.updateConfigCard(cfg, c);
         pushMessage(cfg.showTwistLog
           ? "📜 Twist log now visible — check the \"Twists and Turns — Twist Log\" card."
@@ -298,10 +260,8 @@ var twistsModifier = (text) => {
       if (failed) return failed;
     }
   }
-
   return { text };
 };
-
 var unsaidModifier = (text) => {
   const originalText = text;
   var detectedControlCommand = ownedControlCommand(originalText);
@@ -314,27 +274,32 @@ var unsaidModifier = (text) => {
     const isUnsaidCommand = /^\/(?:unsaid|pe(?:e|a)k|card|alias|unalias)\b/i.test(commandText);
     if (isUnsaidCommand) detectedControlCommand = commandText;
     const stopControl = () => ({ text: null, stop: true });
-
-    // Commands are control input, not story evidence. Ordinary Say/Do/Story
-    // input still contributes mention tracking, but "/card Mirelle" should
-    // not itself make Mirelle look more established.
     if (!isUnsaidCommand) {
-      if (typeof CE_runTurnFeature === "function") CE_runTurnFeature("codex", "input", function(){ trackMentions(text, false); }, null, typeof trackMentions === "function");
-      else trackMentions(text, false);
+      var CE_inputCardCount = (typeof CE_storyCardCount === "function")
+        ? CE_storyCardCount()
+        : ((typeof storyCards !== "undefined" && Array.isArray(storyCards)) ? storyCards.length : 0);
+      if (CE_inputCardCount > 300) {
+        // Large-library path: keep the explicit scaffold below in this hook, but defer
+        // ordinary mention accumulation so Input never performs two archive-sensitive
+        // CODEX passes in the same 16 MB sandbox. Output consumes this evidence.
+        if (state.unsaid && state.unsaid.codex) {
+          state.unsaid.codex.deferredInputEvidence = String(text || "").slice(-2400);
+          state.unsaid.codex.deferredInputTurn = (typeof info !== "undefined" && info && Number.isInteger(info.actionCount))
+            ? info.actionCount
+            : Number(state.unsaid.turn || 0);
+        }
+      } else {
+        if (typeof trackMentions === "function") {
+          if (typeof CE_runTurnFeature === "function") CE_runTurnFeature("codex", "input", function(){ trackMentions(text, false); }, null, true);
+          else trackMentions(text, false);
+        }
+      }
     }
-
     const cfg = readUnsaidConfig();
-    // Strong explicit player introductions are authoritative story evidence.
-    // Create a conservative CODEX scaffold here so a new entity cannot starve
-    // merely because the model fails to repeat its name in the next Output.
     if (!isUnsaidCommand && cfg && cfg.codexEnabled !== false && cfg.codexDirectScaffold !== false && typeof createCodexDirectScaffoldFromInput === "function") {
       try { createCodexDirectScaffoldFromInput(originalText, cfg); } catch (e) { if (typeof utRecordRuntimeError === "function") utRecordRuntimeError("Input/Codex-direct", e); }
     }
-    // Control-task mode is single-flight. Every new player input starts clean;
-    // /peek and /card set it again below when they intentionally need a model
-    // call. This prevents a stale failed command from suppressing later prose.
     state.unsaid.controlRequest = "";
-
     if (/^\/unsaid\s+status\s*$/i.test(commandText)) {
       const report = buildStatusReport(cfg);
       const statusKey = "__crossed_echoes_unsaid_status__";
@@ -356,7 +321,6 @@ var unsaidModifier = (text) => {
       }
       return stopControl();
     }
-
     if (/^\/unsaid\s+health\s*$/i.test(commandText)) {
       const report = typeof utRuntimeHealthReport === "function"
         ? utRuntimeHealthReport()
@@ -378,21 +342,16 @@ var unsaidModifier = (text) => {
       }
       return stopControl();
     }
-
     if (/^\/unsaid(?:\s+(?:help|commands?|guide))?\s*$/i.test(commandText)) {
       ensureSharedConfigCard();
       pushMessage("📖 Commands are active. They work from Story, Do, Say, and third-person input: /peek <name>, /peek <name> core, /card <name>, /alias <character> = <alias>, /unalias <character> = <alias>, /unsaid status, /unsaid health, /unsaid resetcodex. Full settings are on the \"CROSSED ECHOES — Config — UNSPOKEN TURNS\" card.");
       return stopControl();
     }
-
     if (/^\/unsaid\s+resetcodex\s*$/i.test(commandText)) {
       resetCodexTrackingState();
       const sharedCard = ensureSharedConfigCard();
       const codexCard = ensureCodexConfigCard(sharedCard);
       if (codexCard) {
-        // Re-render the dedicated CODEX card through the durable writer. Keep
-        // its inert sentinel key: clearing that key made the card temporarily
-        // lose cross-hook ownership and could cause a duplicate bootstrap later.
         const currentCfg = readUnsaidConfig();
         const committed = CE_updateStoryCardCompat(
           codexCard, CE_CONFIG_KEY_CODEX, renderCodexSection(currentCfg), CE_CONFIG_CATEGORY,
@@ -403,7 +362,6 @@ var unsaidModifier = (text) => {
       pushMessage("♻️ Codex tracking reset. Existing Story Cards were left untouched.");
       return stopControl();
     }
-
     const aliasAddMatch = commandText.match(/^\/alias\s+(.+?)\s*(?:=|->)\s*(.+?)\s*$/i);
     if (aliasAddMatch) {
       const requestedCharacter = cleanCommandEntity(aliasAddMatch[1], 80);
@@ -454,7 +412,6 @@ var unsaidModifier = (text) => {
       else pushMessage("🏷️ I couldn't save that alias. Check both names and try again.");
       return stopControl();
     }
-
     const aliasListMatch = commandText.match(/^\/alias\s+(.+?)\s*$/i);
     if (aliasListMatch) {
       const requestedCharacter = cleanCommandEntity(aliasListMatch[1], 80);
@@ -467,7 +424,6 @@ var unsaidModifier = (text) => {
       pushMessage(`🏷️ ${canonical}: ${aliases.length ? aliases.join(", ") : "no aliases found"}. Story Card triggers are included automatically.`);
       return stopControl();
     }
-
     const aliasRemoveMatch = commandText.match(/^\/unalias\s+(.+?)\s*(?:=|->)\s*(.+?)\s*$/i);
     if (aliasRemoveMatch) {
       const requestedCharacter = cleanCommandEntity(aliasRemoveMatch[1], 80);
@@ -481,7 +437,6 @@ var unsaidModifier = (text) => {
         : `🏷️ "${alias}" is not a manual alias for ${canonical}. If it comes from that Story Card's triggers, edit the trigger list on the card itself.`);
       return stopControl();
     }
-
     const peekMatch = commandText.match(/^\/pe(?:e|a)k\b\s*(.*?)\s*$/i);
     if (peekMatch) {
       let rawName = peekMatch[1] || "";
@@ -489,7 +444,6 @@ var unsaidModifier = (text) => {
       if (coreRequested) rawName = rawName.replace(/\s+core\s*$/i, "");
       const enteredName = cleanCommandEntity(rawName, 60);
       const name = resolveControlEntityName(enteredName, "character");
-
       if (!name) {
         pushMessage("👁️ /peek needs a character name — try \"/peek Elara\" or \"/peek Elara core\".");
         return stopControl();
@@ -498,7 +452,6 @@ var unsaidModifier = (text) => {
         pushMessage(`👁️ UNSAID is currently disabled — turn on "Enable UNSAID" on the config card first, or ${name} won't actually be peeked at this turn.`);
         return stopControl();
       }
-
       const peekMatches = typeof storyCardMatchesForEntity === "function"
         ? storyCardMatchesForEntity(name)
         : [];
@@ -521,12 +474,8 @@ var unsaidModifier = (text) => {
       pushMessage(coreRequested
         ? `🌗 Checking whether this moment has changed ${matchedIdentity || name}...`
         : `👁️ Peeking into ${matchedIdentity || name}'s thoughts...`);
-      // This must reach Context/Output, but it is an admin/control turn rather
-      // than a request to advance the scene. Output suppresses any incidental
-      // story prose after extracting the hidden result.
       return { text: "[UNSPOKEN TURNS CONTROL REQUEST]" };
     }
-
     const cardMatch = commandText.match(/^\/card\b\s*(.*?)\s*$/i);
     if (cardMatch) {
       const enteredName = cleanCommandEntity(cardMatch[1], 60);
@@ -556,7 +505,6 @@ var unsaidModifier = (text) => {
       pushMessage(`📇 Writing a Story Card for ${name}...`);
       return { text: "[UNSPOKEN TURNS CONTROL REQUEST]" };
     }
-
     if (isUnsaidCommand) {
       const head = (commandText.slice(1).trim().split(/\s+/)[0] || "").toLowerCase();
       if (head === "alias") pushMessage("🏷️ Use /alias <character> to list aliases, or /alias <character> = <alias> to add one.");
@@ -565,7 +513,6 @@ var unsaidModifier = (text) => {
       else pushMessage("📖 That control command could not be parsed. Use /unsaid or /crossedechoes help for command syntax.");
       return stopControl();
     }
-
     return { text };
   } catch (e) {
     if (typeof utRecordRuntimeError === "function") utRecordRuntimeError("Input/UNSAID", e);
@@ -577,53 +524,34 @@ var unsaidModifier = (text) => {
     return { text: originalText };
   }
 };
-
 var modifier = (text) => {
   var originalText = text;
   try {
-    if (typeof CE_runTurnFeature === "function") CE_runTurnFeature("coordinator", "input", function(){ if (typeof UN_resetHookCaches === "function") UN_resetHookCaches("input"); }, null, typeof UN_resetHookCaches === "function");
-    else if (typeof UN_resetHookCaches === "function") UN_resetHookCaches("input");
-    if (typeof CE_runTurnFeature === "function") {
-      CE_runTurnFeature("full_hardening", "input", function(){ if (typeof CEFH_prepareInput === "function") CEFH_prepareInput(originalText); }, null, typeof CEFH_prepareInput === "function");
-    } else if (typeof CEFH_prepareInput === "function") CEFH_prepareInput(originalText);
-
+    if (typeof UN_resetHookCaches === "function") UN_resetHookCaches("input");
+    if (typeof CEFH_prepareInput === "function") CEFH_prepareInput(originalText);
     var coordinatorCommand = ownedControlCommand(originalText);
-    if (coordinatorCommand && /^\/(?:crossedechoes(?:status)?|cestatus|ce|threadbound(?:status)?|tbstatus|unified(?:status)?|world(?:engine)?)\b/i.test(coordinatorCommand)) {
+    if (coordinatorCommand && /^\/(?:crossedechoes(?:status)?|cestatus|ce|threadbound(?:status)?|tbstatus|unified(?:status)?)\b/i.test(coordinatorCommand)) {
       try {
-        if (/^\/(?:world|worldengine)(?:\s+status)?\s*$/i.test(coordinatorCommand)) {
-          pushMessage(typeof CEW_statusText === "function" ? CEW_statusText() : "WORLD ENGINE unavailable.");
-        } else if (/^\/(?:world|worldengine)\s+doctor\s*$/i.test(coordinatorCommand)) {
-          pushMessage(typeof CEW_doctor === "function" ? CEW_doctor() : "WORLD ENGINE doctor unavailable.");
-        } else if (/^\/(?:world|worldengine)\s+pulse\s*$/i.test(coordinatorCommand)) {
-          var pulse = typeof CEW_forcePulse === "function" ? CEW_forcePulse() : null;
-          pushMessage(pulse ? ("🌍 WORLD ENGINE pulse candidate — "+pulse.entity+": "+pulse.basis) : "🌍 No evidence-backed off-screen pulse is currently eligible.");
-        } else if (/^\/(?:crossedechoes|ce)\s+doctor\s*$/i.test(coordinatorCommand)) {
-          pushMessage(typeof CEFH_doctor === "function" ? CEFH_doctor() : (typeof CEDS_doctor === "function" ? CEDS_doctor() : "Full-system doctor unavailable."));
+        if (/^\/(?:crossedechoes|ce)\s+doctor\s*$/i.test(coordinatorCommand)) {
+          pushMessage(typeof CEFH_doctor === "function" ? CEFH_doctor() : "CROSSED ECHOES doctor unavailable.");
         } else if (/^\/(?:crossedechoes|ce)\s+(?:help|commands?|guide)\s*$/i.test(coordinatorCommand)) {
-          pushMessage(crossedEchoesCommandHelp()+"\n/crossedechoes doctor — full relationships/UNSAID/twists/integrity diagnostic\n\nWORLD ENGINE: /world, /world doctor, /world pulse");
+          pushMessage(crossedEchoesCommandHelp()+"\n/crossedechoes doctor — CODEX/UNSAID/TWISTS/relationships diagnostic");
         } else if (/^\/(?:crossedechoes(?:status)?|cestatus|ce|threadbound(?:status)?|tbstatus|unified(?:status)?)(?:\s+status)?\s*$/i.test(coordinatorCommand)) {
           pushMessage(UN_statusText());
         } else {
-          pushMessage("🌒 Unknown CROSSED ECHOES coordinator option. Use /crossedechoes for status, /world for WORLD ENGINE status, or /crossedechoes help for commands.");
+          pushMessage("🌒 Unknown CROSSED ECHOES option. Use /crossedechoes, /crossedechoes doctor, or /crossedechoes help.");
         }
       } catch (_) {}
-      if (typeof CE_markActivationControlTurn === "function") CE_markActivationControlTurn(coordinatorCommand || "coordinator command");
+      if (typeof CE_markActivationControlTurn === "function") CE_markActivationControlTurn(coordinatorCommand || "CROSSED ECHOES command");
       return { text: null, stop: true };
     }
-
-    // Crossed Wires uses the /wire command family. Keep those turns local
-    // so ECHO/UNSAID do not learn from a synthetic zero-width command action.
     var cwCommand = null;
     try { cwCommand = typeof CW_readCommand === "function" ? CW_readCommand(originalText) : null; } catch (_) {}
     if (cwCommand) {
+      try { if (typeof CW_onInput === "function") CW_onInput(originalText); } catch (_) {}
       if (typeof CE_markActivationControlTurn === "function") CE_markActivationControlTurn("/wire control");
-      return { text: CW_onInput(originalText) };
+      return { text: null, stop: true };
     }
-
-    // UNSPOKEN/TWISTS slash commands get first refusal. Local commands stop
-    // immediately; model-backed /peek, /card, /twist and /plant intentionally
-    // skip the other engines' Input analyzers so command scaffolding is never
-    // mistaken for story evidence.
     var owned = ownedControlCommand(originalText);
     var afterTwists = typeof CE_runTurnFeature === "function"
       ? CE_runTurnFeature("twists", "input", function(){ return twistsModifier(originalText); }, { text: originalText }, typeof twistsModifier === "function")
@@ -644,26 +572,20 @@ var modifier = (text) => {
       if (typeof CE_markActivationControlTurn === "function") CE_markActivationControlTurn(owned);
       return afterUnsaid;
     }
-
     var visible = afterUnsaid && typeof afterUnsaid.text !== "undefined" ? afterUnsaid.text : originalText;
     if (typeof CE_R2_onInput === "function") {
       try { CE_R2_onInput(originalText); } catch (e) { if (typeof log === "function") log("CROSSED ECHOES Reforged Input: " + (e && e.message)); }
     }
-    if (typeof CE_runTurnFeature === "function") {
-      CE_runTurnFeature("coordinator", "input", function(){ if (typeof UN_capturePlayerIntent === "function") UN_capturePlayerIntent(originalText); }, null, typeof UN_capturePlayerIntent === "function");
-      visible = CE_runTurnFeature("crossed_wires", "input", function(){ return typeof CW_onInput === "function" ? CW_onInput(visible) : visible; }, visible, typeof CW_onInput === "function");
-      visible = CE_runTurnFeature("echo_veil", "input", function(){ return (typeof ECHO_VEIL !== "undefined" && ECHO_VEIL.input) ? ECHO_VEIL.input(visible) : visible; }, visible, typeof ECHO_VEIL !== "undefined" && !!ECHO_VEIL.input);
-      CE_runTurnFeature("world_engine", "input", function(){ if (typeof CEW_onInput === "function") CEW_onInput(visible); }, null, typeof CEW_onInput === "function");
-      CE_runTurnFeature("canon_sentinel", "input", function(){ if (typeof CECS_onInput === "function") CECS_onInput(originalText); }, null, typeof CECS_onInput === "function");
-      CE_runTurnFeature("coordinator", "input", function(){ if (typeof UN_profileConsensus === "function") UN_profileConsensus(); }, null, typeof UN_profileConsensus === "function");
-    } else {
-      if (typeof UN_capturePlayerIntent === "function") UN_capturePlayerIntent(originalText);
-      if (typeof CW_onInput === "function") visible = CW_onInput(visible);
-      if (typeof ECHO_VEIL !== "undefined" && ECHO_VEIL.input) visible = ECHO_VEIL.input(visible);
-      if (typeof CEW_onInput === "function") CEW_onInput(visible);
-      if (typeof CECS_onInput === "function") CECS_onInput(originalText);
-      if (typeof UN_profileConsensus === "function") UN_profileConsensus();
-    }
+    if (typeof UN_capturePlayerIntent === "function") UN_capturePlayerIntent(originalText);
+    if (typeof CE_runTurnFeature === "function") visible = CE_runTurnFeature("crossed_wires", "input", function(){ return typeof CW_onInput === "function" ? CW_onInput(visible) : visible; }, visible, typeof CW_onInput === "function");
+    else if (typeof CW_onInput === "function") visible = CW_onInput(visible);
+    if (typeof CE_R2_syncFromCW === "function") { try { CE_R2_syncFromCW(); } catch (_) {} }
+    if (typeof CE_runTurnFeature === "function") visible = CE_runTurnFeature("echo_veil", "input", function(){ return typeof EV_onInput === "function" ? EV_onInput(visible) : visible; }, visible, typeof EV_onInput === "function"); else if(typeof EV_onInput==="function")visible=EV_onInput(visible);
+    if (typeof CE_runTurnFeature === "function") CE_runTurnFeature("world_engine", "input", function(){ return CEW_onInput(visible); }, null, typeof CEW_onInput === "function"); else if(typeof CEW_onInput==="function")CEW_onInput(visible);
+    if (typeof CE_runTurnFeature === "function") visible = CE_runTurnFeature("canon_sentinel", "input", function(){ return CECS_onInput(visible); }, visible, typeof CECS_onInput === "function"); else if(typeof CECS_onInput==="function")visible=CECS_onInput(visible);
+    if (typeof CE_runTurnFeature === "function") visible = CE_runTurnFeature("full_hardening", "input", function(){ return CEFH_prepareInput(visible); }, visible, typeof CEFH_prepareInput === "function"); else if(typeof CEFH_prepareInput==="function")visible=CEFH_prepareInput(visible);
+    if (typeof CE_runTurnFeature === "function") visible = CE_runTurnFeature("coordinator", "input", function(){ return CE_COORD_onInput(visible); }, visible, typeof CE_COORD_onInput === "function"); else if(typeof CE_COORD_onInput==="function")visible=CE_COORD_onInput(visible);
+    if (typeof UN_profileConsensus === "function") UN_profileConsensus();
     return { text: visible };
   } catch (e) {
     if (typeof utRecordRuntimeError === "function") utRecordRuntimeError("Input/unified", e);
@@ -676,5 +598,4 @@ var modifier = (text) => {
     if (typeof utEndRuntimePhase === "function") utEndRuntimePhase(inputRuntimeToken);
   }
 };
-
 modifier(text);
