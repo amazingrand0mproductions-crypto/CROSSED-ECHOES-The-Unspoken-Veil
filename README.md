@@ -14,6 +14,12 @@ CODEX watches the story for genuinely established people, locations, items and f
 
 It is designed to distinguish real entities from ordinary prose, headings and throwaway words. Repeated mentions, explicit introductions, aliases, dialogue cues, scene relevance and cross-system agreement all contribute to confidence before a card is created.
 
+### 🧱 Junk Firewall
+
+Automatic cards now pass a multi-stage evidence firewall. **Capitalization or “looks like a name” is never sufficient on its own.** Unknown candidates must prove both identity and entity type through character behaviour, explicit naming, location grammar, item use/ownership, faction behaviour, scenario declarations, or independent system confirmation. Dialogue openers, pronouns, headings, field labels, ordinary verbs/adjectives, technical prose, clause fragments and generic phrases are rejected before card creation.
+
+The same strict gate applies to very large Story Card libraries. CODEX also re-audits its own provisional cards and can remove a generated false positive later, while protected/manual lore remains untouched. Explicit introductions still allow unusual real names and intentionally generic named projects.
+
 CODEX can preserve supported details such as:
 
 - identity, aliases and role

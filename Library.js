@@ -5021,6 +5021,7 @@ function isClearlyJunkCodexName(name) {
   if (!raw) return true;
   const evidenceText = codexEvidenceTextFor(raw);
   if (codexStrongNamingCanRescueGeneric(raw, evidenceText)) return false;
+  try { if (codexFirewallLooksLikeClauseFragment(raw, evidenceText)) return true; } catch (_) {}
   if (isGenericCodexCommonNounCandidate(raw, evidenceText)) return true;
   const words = raw.split(/\s+/).filter(Boolean);
   const keys = words.map(codexStopKey).filter(Boolean);
@@ -5041,7 +5042,162 @@ function isClearlyJunkCodexName(name) {
 }
 function isSafeTrackedCodexName(name) {
   const evidenceText = codexEvidenceTextFor(name);
-  return !!normalizeCodexCandidate(name, evidenceText);
+  const normalized = normalizeCodexCandidate(name, evidenceText);
+  if (!normalized) return false;
+  try {
+    if (codexFirewallLooksLikeClauseFragment(normalized, evidenceText) &&
+        !codexStrongNamingCanRescueGeneric(normalized, evidenceText)) return false;
+  } catch (_) {}
+  return true;
+}
+
+// CODEX JUNK FIREWALL ---------------------------------------------------------
+// Automatic Story Cards must be admitted by entity evidence, not capitalization.
+// This layer is intentionally independent from the ordinary stop-word lists so a
+// future detector/refactor cannot accidentally re-enable sentence-starter cards.
+var CODEX_JUNK_DISCOURSE_WORDS = new Set([
+  "before","after","while","when","whenever","where","wherever","why","how","if","unless","until","because","although","though","whether",
+  "however","therefore","meanwhile","instead","otherwise","then","now","later","soon","finally","eventually","suddenly","immediately","already","still",
+  "actually","apparently","obviously","clearly","maybe","perhaps","probably","possibly","certainly","fortunately","unfortunately","seriously","honestly",
+  "first","second","third","next","last","another","other","same","every","each","some","any","all","both","either","neither","none",
+  "come","go","give","tell","take","get","make","let","leave","keep","put","bring","show","help","move","turn","hold","stay","sit","stand","run","walk","open","close",
+  "answer","ask","say","speak","think","know","want","need","feel","remember","forget","try","watch","hear","see","read","write","check","follow","wait","look","listen","stop","start","continue","continued","continuing",
+  "preventative","preventive","maintenance"
+].map(function(w){return String(w).toLowerCase();}));
+var CODEX_JUNK_FUNCTION_WORDS = new Set([
+  "i","me","my","mine","you","your","yours","he","him","his","she","her","hers","it","its","we","us","our","ours","they","them","their","theirs",
+  "this","that","these","those","there","here","who","whom","whose","what","which","where","when","why","how",
+  "a","an","the","and","or","but","so","for","nor","yet","to","of","in","on","at","by","from","with","without","into","onto","upon","through","across","around","over","under",
+  "is","am","are","was","were","be","been","being","do","does","did","done","have","has","had","having","can","could","will","would","shall","should","may","might","must"
+].map(function(w){return String(w).toLowerCase();}));
+var CODEX_JUNK_FIELD_LABELS = new Set([
+  "name","names","background","personality","appearance","powers","power","abilities","ability","weaknesses","weakness","goals","goal","relationships","relationship",
+  "affiliations","affiliation","location","locations","status","significance","description","notes","note","details","detail","type","region","atmosphere","layout","history",
+  "current state","current scene","recent story","story summary","plot essentials","author notes","authors notes","ai instructions","world lore","character details","character profile",
+  "relationship notes","knowledge boundaries","current investigation","current evidence","current pressure","current endpoint","active threads","live threads"
+].map(function(w){return String(w).toLowerCase();}));
+
+function codexFirewallWords(name) {
+  return String(name || "")
+    .replace(/[—–:_/]+/g," ")
+    .replace(/^[\s"'“”‘’([{<]+|[\s"'“”‘’)\]}>.,;!?-]+$/g,"")
+    .replace(/\s+/g," ").trim().split(" ").filter(Boolean);
+}
+function codexFirewallEvidenceTurns(name) {
+  try {
+    var codex=state&&state.unsaid&&state.unsaid.codex||{}, turns=Object.create(null), list=codex.evidence&&codex.evidence[name]||[];
+    (Array.isArray(list)?list:[]).forEach(function(row){ if(row&&Number.isFinite(Number(row.turn))) turns[String(Number(row.turn))]=true; });
+    var apps=codex.appearanceTurns&&codex.appearanceTurns[name]||[];
+    (Array.isArray(apps)?apps:[]).forEach(function(t){ if(Number.isFinite(Number(t))) turns[String(Number(t))]=true; });
+    return Object.keys(turns).length;
+  } catch (_) { return 0; }
+}
+function codexFirewallScenarioDeclaration(name,type) {
+  try {
+    var decl=state&&state.unsaid&&state.unsaid.codex&&state.unsaid.codex.scenarioDeclarations||{};
+    var keys=Object.keys(decl);
+    for(var i=0;i<keys.length;i++){
+      var k=keys[i], rec=decl[k];
+      if(!rec)continue;
+      var same=false; try{same=isSameCardEntity(k,name);}catch(_){same=String(k).toLowerCase()===String(name).toLowerCase();}
+      if(same && (!type || String(rec.type||"").toLowerCase()===String(type).toLowerCase())) return rec;
+    }
+  } catch (_) {}
+  return null;
+}
+function codexFirewallExistingEntity(name) {
+  try {
+    var rec=codexLeanExistingIdentity(name);
+    if(rec&&rec.card)return true;
+  } catch (_) {}
+  return false;
+}
+function codexFirewallOnlySentenceInitial(name, source) {
+  var clean=String(name||"").trim(), s=String(source||"");
+  if(!clean||!s)return false;
+  var rx; try{rx=new RegExp(escapeForRegex(clean),"gi");}catch(_){return false;}
+  var m, hits=0, nonInitial=0;
+  while((m=rx.exec(s))!==null && hits<12){
+    hits++;
+    var before=s.slice(Math.max(0,m.index-32),m.index);
+    var initial=(m.index===0)||/(?:^|[.!?]\s*|\n\s*|["“'‘]\s*)$/i.test(before);
+    if(!initial)nonInitial++;
+    if(rx.lastIndex===m.index)rx.lastIndex++;
+  }
+  return hits>0 && nonInitial===0;
+}
+function codexFirewallLooksLikeClauseFragment(name, source) {
+  var clean=String(name||"").replace(/\s+/g," ").trim(), src=String(source||"");
+  if(!clean)return true;
+  if(codexStrongNamingCanRescueGeneric(clean,src)||hasStrongCodexBusinessOrNamedContext(clean,src))return false;
+  if(codexLooksLikeSystemHeadingNoise(clean,src))return true;
+  var low=clean.toLowerCase();
+  if(CODEX_JUNK_FIELD_LABELS.has(low)||CODEX_ULTIMATE_NOISE_PHRASES.has(low))return true;
+  var words=codexFirewallWords(clean), keys=words.map(codexStopKey).filter(Boolean);
+  if(!keys.length||keys.length>6)return true;
+  if(keys.length===1){
+    var k=keys[0];
+    if(CODEX_JUNK_DISCOURSE_WORDS.has(k)||CODEX_JUNK_FUNCTION_WORDS.has(k)||CODEX_NARRATIVE_NOISE_WORDS.has(k)||CODEX_STOPWORDS.has(k)||CODEX_TITLE_WORDS.has(k)||CODEX_GENERIC_COMMON_NOUNS.has(k)||CODEX_HARD_GENERIC_ENTITY_ROOTS.has(k)||CODEX_ULTIMATE_MORPH_NOISE_WORDS.has(k)||codexDerivedNoiseWord(k))return true;
+    if(codexLooksLikeSentenceStarterMorphology(clean,src))return true;
+    if(codexFirewallOnlySentenceInitial(clean,src) && !hasDirectCodexCharacterPresenceCue(clean,src) && !strongCodexNonCharacterEvidence(clean,src))return true;
+    return false;
+  }
+  if(CODEX_JUNK_DISCOURSE_WORDS.has(keys[0]))return true;
+  // Natural-language fragments almost always contain a pronoun, determiner or
+  // auxiliary verb. Proper entity names may contain "the/of"; those are rescued
+  // by explicit naming/type evidence before this guard is used for admission.
+  var functionHits=keys.filter(function(k){return CODEX_JUNK_FUNCTION_WORDS.has(k);}).length;
+  var genericHits=keys.filter(function(k){return CODEX_GENERIC_COMMON_NOUNS.has(k)||CODEX_GENERIC_DESCRIPTORS.has(k)||CODEX_HARD_GENERIC_ENTITY_ROOTS.has(k)||CODEX_NARRATIVE_NOISE_WORDS.has(k)||CODEX_ULTIMATE_MORPH_NOISE_WORDS.has(k)||codexDerivedNoiseWord(k);}).length;
+  if(functionHits>=2)return true;
+  if(functionHits>=1 && genericHits>=1)return true;
+  if(genericHits===keys.length)return true;
+  if(keys.length>=2 && genericHits/keys.length>=0.67)return true;
+  if(codexFirewallOnlySentenceInitial(clean,src) && (genericHits>0||functionHits>0))return true;
+  return false;
+}
+function codexAutomaticEntityAdmission(name, type, source, cfg, options) {
+  var clean=String(name||"").replace(/\s+/g," ").trim(), kind=String(type||"").toLowerCase(), opts=options||{};
+  if(!clean||["character","location","item","faction"].indexOf(kind)<0)return false;
+  var live=String(source||""), evidence="";
+  try{evidence=[codexEvidenceTextFor(clean),live].filter(Boolean).join(" ");}catch(_){evidence=live;}
+  if(evidence.length>4200)evidence=evidence.slice(-4200);
+  if(!opts.ignoreExisting && codexFirewallExistingEntity(clean))return true;
+  var decl=codexFirewallScenarioDeclaration(clean,kind); if(decl)return true;
+  var explicit=false; try{explicit=hasStrongExplicitCodexNamingCue(clean,evidence)||codexStrongNamingCanRescueGeneric(clean,evidence);}catch(_){}
+  if(explicit){
+    if(kind==="character"){
+      var nonExplicit=null; try{nonExplicit=strongCodexNonCharacterEvidence(clean,evidence);}catch(_){}
+      return !(nonExplicit&&Number(nonExplicit.score||0)>=8&&Number(nonExplicit.margin||0)>=3);
+    }
+    var opExplicit=null; try{opExplicit=codexOperationalExplicitType(clean,evidence);}catch(_){}
+    if(opExplicit&&opExplicit.type&&opExplicit.type!==kind)return false;
+    var semExplicit=null; try{semExplicit=strongCodexNonCharacterEvidence(clean,evidence);}catch(_){}
+    return !!((opExplicit&&opExplicit.type===kind)||(semExplicit&&semExplicit.type===kind&&Number(semExplicit.score||0)>=3));
+  }
+  if(codexFirewallLooksLikeClauseFragment(clean,evidence))return false;
+  if(kind==="character"){
+    var person=false;
+    try{person=explicitCodexCharacterCue(clean,evidence)||hasDirectCodexCharacterPresenceCue(clean,evidence);}catch(_){}
+    if(person)return true;
+    // Cross-system confirmation alone is deliberately not enough on first sight:
+    // two independent evidence turns prevent one bad capitalization guess from
+    // cascading from ECHO/CROSSED WIRES into CODEX.
+    try{
+      var consensus=codexCrossSystemConsensus(clean,"character");
+      if(consensus&&Number(consensus.typeVotes&&consensus.typeVotes.character||0)>=3&&codexFirewallEvidenceTurns(clean)>=2)return true;
+    }catch(_){}
+    return false;
+  }
+  var operational=null; try{operational=codexOperationalExplicitType(clean,evidence);}catch(_){}
+  if(operational&&operational.type===kind)return true;
+  var semantic=null; try{semantic=strongCodexNonCharacterEvidence(clean,evidence);}catch(_){}
+  if(semantic&&semantic.type===kind&&Number(semantic.score||0)>=5&&Number(semantic.margin||0)>=1)return true;
+  try{
+    var c=codexCrossSystemConsensus(clean,kind), votes=Number(c&&c.typeVotes&&c.typeVotes[kind]||0);
+    var mentions=Number(state&&state.unsaid&&state.unsaid.codex&&state.unsaid.codex.mentionCounts&&state.unsaid.codex.mentionCounts[clean]||0);
+    if(votes>=3&&mentions>=2&&codexFirewallEvidenceTurns(clean)>=2)return true;
+  }catch(_){}
+  return false;
 }
 var CHARACTER_CARD_FIELDS = ["Name", "Aliases", "Role", "Race", "Age", "Pronouns", "Strength Level", "Background", "Personality", "Appearance", "Abilities", "Weaknesses", "Goals", "Relationships", "Affiliations", "Location", "Status", "Significance"];
 var LOCATION_CARD_FIELDS = ["Name", "Aliases", "Type", "Region", "Description", "Atmosphere", "Layout", "Key Locations", "People & Factions", "Features & Resources", "Hazards", "Historical Events", "Current State", "Connections", "Significance"];
@@ -6311,6 +6467,11 @@ function renderCodexNotes() {
     "",
     "━━━━━━━━━━ 🧠 DETECTION SAFETY ━━━━━━━━━━",
     "Codex uses explicit naming cues, Unicode-aware proper-name parsing, quoted/codename discovery, Story Card aliases, repeated mentions, dialogue/action grammar, type-specific context, common-noun filters, sentence-starter filters, brand/product grammar, cross-system consensus and a large stop-word/noise lexicon. Explicit naming can still rescue unusual real names such as Summer, Rose, Six, Élodie or a stylized quoted callsign.",
+    "",
+    "🧱 JUNK FIREWALL",
+    "Capitalization alone is never enough to create an automatic Story Card. An unknown candidate must also prove what kind of entity it is through independent evidence: character speech/action or an explicit introduction; location grammar; item ownership/use; faction behaviour; a scenario declaration; or strong cross-system confirmation. Headings, field labels, pronouns, dialogue openers, common verbs, adjectives, time words, maintenance/technical prose, clause fragments and generic two-word phrases are rejected before they can become cards. The same admission gate is used in normal and large-library modes, so a 400+ card adventure does not fall back to looser name guessing.",
+    "",
+    "Script-generated provisional cards are reversible. CODEX periodically re-audits its own provisional Character, Location, Item and Faction cards and can remove them if later evidence cannot prove the entity class. Manual or protected lore cards are not swept. Explicit naming remains an escape hatch for unusual legitimate names or deliberately generic project names—for example a person called Summer or a project explicitly named Preventative Maintenance.",
     "",
     "Generated Triggers use the exact entity name plus safe aliases actually supplied by the profile; generic words are not invented as triggers.",
     "",
@@ -7609,9 +7770,33 @@ function trackMentionsMemorySafe(text, observeIntroductions, cfgForDetection) {
     }
     if (!leanType) {
       if (!canConfirm || deepNew >= 1) continue;
+      // Large libraries no longer have a "looks like a name" Character fallback.
+      // An unknown candidate must show actual person behaviour/speech/identity evidence.
+      var fallbackSafe = null;
+      try { fallbackSafe = normalizeCodexCandidate(key, source); } catch (_) {}
+      if (!fallbackSafe) continue;
+      var directPerson = false;
+      try {
+        directPerson = explicitCodexCharacterCue(fallbackSafe, source) ||
+          hasDirectCodexCharacterPresenceCue(fallbackSafe, source);
+      } catch (_) {}
+      key = fallbackSafe;
+      if (directPerson) {
+        leanType = "character";
+      } else {
+        // Explicitly named non-characters still need a type; do one bounded semantic
+        // check rather than defaulting every capitalized phrase to Character.
+        var explicitTyped = null, operationalTyped = null;
+        try { operationalTyped = codexOperationalExplicitType(fallbackSafe, source); } catch (_) {}
+        try { if (!operationalTyped && codexLeanExplicitContext(fallbackSafe, source)) explicitTyped = strongCodexNonCharacterEvidence(fallbackSafe, source); } catch (_) {}
+        leanType = operationalTyped && operationalTyped.type || explicitTyped && explicitTyped.type || null;
+        if (!leanType) continue;
+      }
       deepNew++;
-      leanType = "character"; // conservative fallback for proper multi-word names
     }
+    // Final admission firewall: capitalization, suffixes, and repeated guesses are
+    // not enough to promote a new automatic entity.
+    if (!codexAutomaticEntityAdmission(key, leanType, source, cfgForDetection || UNSAID_DEFAULTS)) continue;
     codex.observedTypes[key] = leanType;
     if (leanType === "character") {
       codex.likelyCharacters[key] = true;
@@ -7746,7 +7931,8 @@ function trackMentions(text, observeIntroductions, cfgOverride) {
           : cheapRepeatedType === "faction"
             ? CODEX_FACTION_HINTS.test(key)
             : false;
-      if (["location","item","faction"].indexOf(cheapRepeatedType) >= 0 && cheapRepeatedKind) {
+      if (["location","item","faction"].indexOf(cheapRepeatedType) >= 0 && cheapRepeatedKind &&
+          codexAutomaticEntityAdmission(key, cheapRepeatedType, source, cfgForDetection)) {
         if (!state.unsaid.codex.strongScores || typeof state.unsaid.codex.strongScores !== "object") state.unsaid.codex.strongScores = {};
         if (!state.unsaid.codex.strongReasons || typeof state.unsaid.codex.strongReasons !== "object") state.unsaid.codex.strongReasons = {};
         state.unsaid.codex.trustedEntities[key] = cheapRepeatedType;
@@ -7789,7 +7975,8 @@ function trackMentions(text, observeIntroductions, cfgOverride) {
       var cheapObserved = classifyCodexEntryAfterSemanticChecks(key, source);
       var kindByName = observedType === "location" ? (CODEX_LOCATION_HINTS.test(key) || CODEX_LOCATION_SUFFIX_HINTS.test(key)) :
         observedType === "item" ? CODEX_ITEM_HINTS.test(key) : CODEX_FACTION_HINTS.test(key);
-      if (cheapObserved === observedType && kindByName) {
+      if (cheapObserved === observedType && kindByName &&
+          codexAutomaticEntityAdmission(key, observedType, source, cfgForDetection)) {
         state.unsaid.codex.trustedEntities[key] = observedType;
         state.unsaid.codex.strongScores[key] = Math.max(Number(state.unsaid.codex.strongScores[key] || 0), 8);
         state.unsaid.codex.strongReasons[key] = Array.from(new Set((state.unsaid.codex.strongReasons[key] || []).concat(["repeat-typed-" + observedType, "typed-" + observedType]))).slice(0,8);
@@ -8679,6 +8866,7 @@ function findCodexCandidates(threshold, excludeNames, maxAttempts, maxCount) {
     if (!introducedCharacter && (state.unsaid.codex.attempts[name] || 0) >= cap) continue;
     var strongScore = (state.unsaid.codex.strongScores && state.unsaid.codex.strongScores[name]) || 0;
     const scheduledType = introducedCharacter ? "character" : (state.unsaid.codex.observedTypes[name] || dominantCodexType(name));
+    if (!codexAutomaticEntityAdmission(name, scheduledType, codexEvidenceTextFor(name), schedulingCfg)) continue;
     eligible.push({
       name,
       count: counts[name],
@@ -8852,6 +9040,7 @@ function codexPickScaffoldSentence(pool, regex, fallbackIndex) {
 function codexDirectScaffoldEligibility(name, type, cfg, source) {
   if (!name || !state.unsaid || !state.unsaid.codex || cfg.codexDirectScaffold === false) return false;
   if (!isSafeTrackedCodexName(name) || isClearlyJunkCodexName(name)) return false;
+  if (!codexAutomaticEntityAdmission(name, type, source || codexEvidenceTextFor(name), cfg)) return false;
   const codex = state.unsaid.codex;
   const strong = Number(codex.strongScores && codex.strongScores[name] || 0);
   const reasons = codex.strongReasons && codex.strongReasons[name] || [];
@@ -8984,6 +9173,7 @@ function codexDirectScaffoldBlockedByExisting(name, type, source) {
 }
 function codexLeanScaffoldEligible(name, type, cfg, source) {
   if (!name || !type || !cfg || cfg.codexDirectScaffold === false || !state.unsaid || !state.unsaid.codex) return false;
+  if (!codexAutomaticEntityAdmission(name, type, source || codexEvidenceTextFor(name), cfg)) return false;
   var codex=state.unsaid.codex;
   if (["character","location","item","faction"].indexOf(type) < 0) return false;
   var mentions=Number(codex.mentionCounts[name]||0), strong=Number(codex.strongScores&&codex.strongScores[name]||0);
@@ -8994,6 +9184,102 @@ function codexLeanScaffoldEligible(name, type, cfg, source) {
   if (type === "item" && CODEX_ITEM_HINTS.test(name)) return strong >= 7 || mentions >= 1;
   if (type === "faction" && CODEX_FACTION_HINTS.test(name)) return strong >= 7 || mentions >= 1;
   return false;
+}
+
+function codexManagedFalsePositiveReason(name, card, meta, cfg) {
+  try {
+    const clean = String(name || "").trim();
+    if (!clean || !card || !meta) return "";
+    if (meta.manualEditProtected) return "";
+    if (typeof codexCardHasManualEdit === "function" && codexCardHasManualEdit(clean, card, cfg || {})) return "";
+    const kind = String(meta.type || codexKindFromExistingCard(card, clean) || "character").toLowerCase();
+    if (["character","location","item","faction"].indexOf(kind) < 0) return "";
+    const evidence = [codexEvidenceTextFor(clean), String(meta.lastGeneratedEntry || ""), CE_cardEntryCore(card)].filter(Boolean).join(" ");
+    // Re-audit the generated card as though it did not already exist. A genuinely
+    // evidenced entity survives; a capitalization/clause-fragment scaffold does not.
+    if (codexAutomaticEntityAdmission(clean, kind, evidence, cfg || UNSAID_DEFAULTS, {ignoreExisting:true})) return "";
+    const words = codexLeanWords(clean), key = codexStopKey(clean);
+    if (!key || clean.length <= 1) return "pronoun/one-letter token";
+    if (codexFirewallLooksLikeClauseFragment(clean, evidence)) return "ordinary prose or clause fragment";
+    if (isClearlyJunkCodexName(clean)) return "generic/noise entity";
+    if (words.length === 1 && (CODEX_STOPWORDS.has(key) || CODEX_NARRATIVE_NOISE_WORDS.has(key) || CODEX_GENERIC_COMMON_NOUNS.has(key) ||
+        CODEX_HARD_GENERIC_ENTITY_ROOTS.has(key) || CODEX_ULTIMATE_MORPH_NOISE_WORDS.has(key) || codexDerivedNoiseWord(key))) {
+      return "ordinary prose token";
+    }
+    // Provisional cards are intentionally reversible. If the later evidence still
+    // cannot prove the entity class, purge the scaffold rather than let junk become
+    // permanent canon. Non-provisional managed cards are only removed by the stronger
+    // structural/noise tests above.
+    if (meta.provisionalScaffold) return "unsupported provisional " + kind + " scaffold";
+    return "";
+  } catch (_) { return ""; }
+}
+function codexForgetFalseNpcState(name) {
+  try { if (typeof forgetMentionTracking === "function") forgetMentionTracking(name); } catch (_) {}
+  try {
+    if (state && state.unsaid) {
+      if (Array.isArray(state.unsaid.castRegistry)) state.unsaid.castRegistry = state.unsaid.castRegistry.filter(function(n){ return !isSameCardEntity(n, name); });
+      if (state.unsaid.minds && typeof state.unsaid.minds === "object") {
+        Object.keys(state.unsaid.minds).forEach(function(k){ if (isSameCardEntity(k, name)) delete state.unsaid.minds[k]; });
+      }
+    }
+  } catch (_) {}
+  try {
+    var cw = state && state.crossedWires;
+    if (cw && typeof cw === "object") {
+      var nk = typeof CW_liteKey === "function" ? CW_liteKey(name) : String(name || "").toLowerCase();
+      if (cw.npcs && typeof cw.npcs === "object") delete cw.npcs[nk];
+      if (cw.roles && typeof cw.roles === "object") delete cw.roles[nk];
+      if (cw.links && typeof cw.links === "object") {
+        Object.keys(cw.links).forEach(function(k){ var l=cw.links[k]; if (l && (isSameCardEntity(l.from,name)||isSameCardEntity(l.to,name))) delete cw.links[k]; });
+      }
+    }
+  } catch (_) {}
+}
+function codexPurgeManagedFalsePositiveCards(cfg, limit) {
+  try {
+    if (!state || !state.unsaid || !state.unsaid.codex || typeof storyCards === "undefined" || !Array.isArray(storyCards)) return [];
+    const codex = state.unsaid.codex, removed = [], cap = Math.max(1, Math.min(8, Number(limit) || 6));
+    let total=storyCards.length;
+    if(!total)return removed;
+    // At ordinary library sizes sweep the entire archive so old junk disappears
+    // immediately. At pathological sizes use a rotating bounded sweep so cleanup can
+    // never consume the whole hook just because there are thousands of manual cards.
+    const scanBudget=total<=600?total:Math.min(total,260);
+    let cursor=Number(codex.junkCleanupCursor);
+    if(!Number.isInteger(cursor)||cursor<0||cursor>=total)cursor=total-1;
+    let scanned=0;
+    while(total>0 && scanned<scanBudget && removed.length<cap){
+      if(cursor<0||cursor>=total)cursor=total-1;
+      const i=cursor, card=storyCards[i];
+      scanned++;
+      cursor=i-1;
+      if (!card) { if(cursor<0)cursor=total-1; continue; }
+      const identity = String(CE_cardIdentityName(card) || "").trim();
+      if (!identity || isOwnCard(identity)) { if(cursor<0)cursor=total-1; continue; }
+      const metaKey = typeof codexManagedCardKey === "function" ? codexManagedCardKey(identity, card) : identity;
+      let meta = codex.cardMeta && (codex.cardMeta[metaKey] || codex.cardMeta[identity]);
+      // cardMeta is intentionally bounded, so an older provisional Character can
+      // outlive metadata. This status line is unique to CODEX scaffolds and lets the
+      // cleaner reconstruct just enough provenance without touching manual cards.
+      if (!meta && /Status:\s*Active story character; scaffold contains only directly observed or stated evidence\./i.test(CE_cardEntryCore(card))) {
+        meta = { name:identity, type:"character", lastGeneratedEntry:CE_cardEntryCore(card), lastGeneratedCardType:String(card.type || "Character"), manualEditProtected:false, provisionalScaffold:true };
+      }
+      const reason = codexManagedFalsePositiveReason(identity, card, meta, cfg);
+      if (!reason) { if(cursor<0)cursor=total-1; continue; }
+      try { removeStoryCard(i); } catch (_) { if(cursor<0)cursor=total-1; continue; }
+      removed.push(identity);
+      total=storyCards.length;
+      if(cursor>=total)cursor=total-1;
+      if (codex.cardMeta) { delete codex.cardMeta[metaKey]; delete codex.cardMeta[identity]; }
+      if (codex.cardUpdateEvidence) { delete codex.cardUpdateEvidence[metaKey]; delete codex.cardUpdateEvidence[identity]; }
+      if (codex.cardUpdateLastSeenTurn) { delete codex.cardUpdateLastSeenTurn[metaKey]; delete codex.cardUpdateLastSeenTurn[identity]; }
+      codexForgetFalseNpcState(identity);
+      if(cursor<0&&total>0)cursor=total-1;
+    }
+    codex.junkCleanupCursor=total>0?Math.max(0,Math.min(total-1,cursor)):0;
+    return removed;
+  } catch (_) { return []; }
 }
 function createCodexDirectScaffoldFromOutputMemorySafe(source,cfg) {
   try {

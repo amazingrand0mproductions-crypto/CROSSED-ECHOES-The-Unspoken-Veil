@@ -818,6 +818,12 @@ var unsaidModifier = (text) => {
         if (typeof CE_runTurnFeature === "function") CE_runTurnFeature("codex", "output", function(){ trackMentions(text, true, cfg); }, null, true);
         else trackMentions(text, true, cfg);
       }
+      if (typeof codexPurgeManagedFalsePositiveCards === "function") {
+        const cleanedJunkCards = codexPurgeManagedFalsePositiveCards(cfg, 8);
+        if (cleanedJunkCards && cleanedJunkCards.length && typeof pushMessage === "function") {
+          pushMessage("📇 CODEX removed false-positive Story Card" + (cleanedJunkCards.length === 1 ? "" : "s") + ": " + cleanedJunkCards.join(", ") + ".");
+        }
+      }
     }
     if (!codexAtHardCapacity && !controlRequest && cfg.codexEnabled && cfg.codexDirectScaffold !== false &&
         typeof createCodexDirectScaffoldFromOutput === "function") {
