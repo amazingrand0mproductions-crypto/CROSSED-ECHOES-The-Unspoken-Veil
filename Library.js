@@ -1059,11 +1059,44 @@ function CE_scanRequiredConfigPresence() {
 function CE_requiredConfigPresence(){CE_REQUIRED_CONFIG_PRESENCE_CACHE=null;return CE_scanRequiredConfigPresence();}
 function CE_configBootstrapState(){if(!state.crossedEchoesConfigBootstrap||typeof state.crossedEchoesConfigBootstrap!=="object")state.crossedEchoesConfigBootstrap={runs:0,failures:0,lastMissing:[],lastPhase:""};return state.crossedEchoesConfigBootstrap;}
 function CE_bootstrapLiteConfig(key,title,entry,notes){var cards=(typeof storyCards!=="undefined"&&Array.isArray(storyCards))?storyCards:[];var owned=cards.find(function(c){return c&&CE_isRequiredConfigCard(c,key);})||null;if(owned)return owned;var a=CE_tryAddStoryCard(key,entry,CE_CONFIG_CATEGORY,title,notes||"",{allowReserved:true});return a&&a.card?a.card:(cards.find(function(c){return c&&CE_isRequiredConfigCard(c,key);})||null);}
+function CE_scriptOwnedConfigCandidates(key) {
+  var cards=(typeof storyCards!=="undefined"&&Array.isArray(storyCards))?storyCards:[], out=[];
+  var expectedTitle=CE_expectedConfigTitle(key);
+  for(var i=0;i<cards.length;i++){
+    var c=cards[i];if(!c)continue;
+    var type=String(c.type||"").trim().toLowerCase(),title=String(c.title||c.name||"").trim();
+    var reserved=false;try{reserved=CE_hasCardKey(c,key);}catch(_){}
+    if(type==="crossed echoes config"&&(reserved||(expectedTitle&&title===expectedTitle)))out.push(c);
+  }
+  return out;
+}
+function CE_pruneDuplicateRequiredConfigCards(){
+  if(typeof storyCards==="undefined"||!Array.isArray(storyCards)||typeof removeStoryCard!=="function")return 0;
+  var removeIdx=[];
+  CE_RESERVED_CONFIG_KEYS.forEach(function(key){
+    var cards=CE_scriptOwnedConfigCandidates(key);if(cards.length<=1)return;
+    var expectedTitle=CE_expectedConfigTitle(key),keeper=null;
+    for(var i=0;i<cards.length;i++){var c=cards[i];if(CE_hasCardKey(c,key)&&String(c.title||c.name||"").trim()===expectedTitle){keeper=c;break;}}
+    if(!keeper)keeper=cards[0];
+    cards.forEach(function(c){if(c!==keeper){var idx=storyCards.indexOf(c);if(idx>=0)removeIdx.push(idx);}});
+  });
+  removeIdx=Array.from(new Set(removeIdx)).sort(function(a,b){return b-a;});
+  var removed=0;removeIdx.forEach(function(idx){try{removeStoryCard(idx);removed++;}catch(_){}});
+  if(removed){try{CE_REQUIRED_CONFIG_PRESENCE_CACHE=null;CE_invalidateSharedStoryCardIndex();}catch(_){}}
+  return removed;
+}
 function CE_bootstrapRequiredConfigCards(phase){
   var bs=CE_configBootstrapState();bs.runs=(bs.runs||0)+1;bs.lastPhase=String(phase||"");try{CE_hydrateStoryCardCompat();}catch(_){}
   var p=CE_requiredConfigPresence(),shared=null;
+  // If CORE already exists (for example after importing the new two-card setup), retire any positively
+  // identified legacy config cards immediately. If CORE is missing, ensureSharedConfigCard must see the
+  // legacy cards first so it can migrate their supported values before removing them.
+  if(p[CE_CONFIG_KEY_CORE])try{CE_removeLegacyOwnedConfigs();}catch(_){}
+  p=CE_requiredConfigPresence();
   try{if(!p[CE_CONFIG_KEY_CORE])shared=ensureSharedConfigCard();else shared=(storyCards||[]).find(function(c){return CE_isRequiredConfigCard(c,CE_CONFIG_KEY_CORE);})||null;}catch(_){}
+  try{CE_removeLegacyOwnedConfigs();}catch(_){}
   p=CE_requiredConfigPresence();try{if(!p[CE_CONFIG_KEY_CODEX])ensureCodexConfigCard(shared);}catch(_){}
+  try{CE_pruneDuplicateRequiredConfigCards();}catch(_){}
   p=CE_requiredConfigPresence();var miss=CE_RESERVED_CONFIG_KEYS.filter(function(k){return !p[k];});bs.lastMissing=miss.slice();if(miss.length)bs.failures=(bs.failures||0)+1;return {ok:!miss.length,missing:miss,presence:p};
 }
 function CE_coreConfigTitle(card) {
@@ -5971,7 +6004,7 @@ function applyCodexConfigText(cfg, section) {
 function renderTwistNotes(cfg, c) {
   return [
     CONFIG_SECTION_TWIST,
-    "UNSPOKEN TURNS — TWISTS AND TURNS CONFIG GUIDE",
+    "🌀 TWISTS AND TURNS — LONG-ARC PLOTTING",
     "",
     "Edit the SETTINGS ENTRY on this Story Card, not these Notes. Keep the key names exactly as written and only change the value after '='. Boolean settings accept true or false. Invalid/out-of-range values are ignored or safely clamped. These Notes are documentation and are not sent to the AI.",
     "",
@@ -6174,9 +6207,13 @@ function renderIntegrationNotes(){
 function renderCoreNotes(cfg,c){
   return [
     "⚙️ CROSSED ECHOES — CORE CONFIG",
-    "This is the single main configuration card for twists, NPC minds, relationships, visible motive continuity and world/canon integration. CODEX has one separate specialist card because Story Card generation has many independent controls.",
+    "One authoritative card for the living-story systems: TWISTS AND TURNS, NPC MINDS, CROSSED WIRES, ECHO VEIL and WORLD/CANON INTEGRATION. CODEX has one separate specialist card because Story Card generation has its own detailed controls.",
     "",
-    "HOW TO EDIT: change only the value after '=' in this card's Entry. Keep section names and key names intact. Booleans use true/false. Invalid numbers are clamped or ignored. These Notes document every exposed CORE option; they are not story lore and are not intended for model context.",
+    "✅ RECOMMENDED: start with the defaults. They are tuned for persistent character behaviour, evidence-led twists and broad scenario compatibility.",
+    "✏️ EDITING: change only the value after '=' in this card's Entry. Keep section names and key names intact. Booleans use true/false. Invalid or unsafe values are ignored or clamped.",
+    "📖 NOTES: every exposed CORE option is documented below with its accepted values, default and practical effect. These Notes are documentation, not story lore.",
+    "",
+    "SECTIONS: 🌀 TWISTS AND TURNS  •  🧠 NPC MINDS  •  ❤️ CROSSED WIRES  •  🌘 ECHO VEIL  •  🔗 WORLD/CANON INTEGRATION",
     "",
     renderTwistNotes(cfg||Object.assign({},CP_DEFAULTS),(c||null)),
     "",
@@ -6194,11 +6231,12 @@ function renderCoreNotes(cfg,c){
 function renderCodexNotes() {
   return [
     CONFIG_SECTION_CODEX,
-    "📚 CROSSED ECHOES — CODEX / STORY CARD ENGINE",
-    "Automatic entity detection, classification, Story Card creation and evidence-backed refresh.",
+    "📚 CROSSED ECHOES — CODEX CONFIG",
+    "The specialist Story Card engine for automatic entity detection, classification, creation, refresh and canon protection.",
     "",
-    "✏️ HOW TO EDIT",
-    "Edit values in the Entry above. Keep key names exactly as written and change only the value after '='. Invalid values are ignored or clamped into the safe range. Config Notes are player-facing documentation, not story evidence.",
+    "✅ RECOMMENDED: balanced defaults are designed to create useful cards without turning ordinary words into entities.",
+    "✏️ EDITING: change only the value after '=' in this card's Entry. Keep key names exactly as written. Invalid or unsafe values are ignored or clamped into the safe range.",
+    "📖 NOTES: every exposed CODEX option is documented below with its accepted values, default and practical effect. These Notes are documentation, not story evidence.",
     "",
     "━━━━━━━━━━ ⚡ MASTER / SIZE ━━━━━━━━━━",
     "enabled  [true/false]  Default: true",
@@ -6218,7 +6256,7 @@ function renderCodexNotes() {
     "Lets CODEX use independent entity observations from ECHO VEIL scene tracking and Crossed Wires NPC tracking as confidence. Consensus changes scheduling/type confidence only; it does not invent facts or expose private psychology.",
     "",
     "learnAliases  [true/false]  Default: true",
-    "Learns only explicit aliases/codenames (‘Mara Vale, known as Wren’) for established or newly confirmed characters. Learned aliases are shared with UNSPOKEN TURNS/Crossed Wires and can be appended to triggers on CODEX-managed cards. Generic or ambiguous nicknames are rejected.",
+    "Learns only explicit aliases/codenames (‘Mara Vale, known as Wren’) for established or newly confirmed characters. Learned aliases are shared with NPC Minds and CROSSED WIRES and can be appended to triggers on CODEX-managed cards. Generic or ambiguous nicknames are rejected.",
     "",
     "evidenceRescue  [true/false]  Default: true",
     "If the model ignores or mangles a hidden CARD block, a strongly established entity can receive a conservative evidence-only card instead of forcing repeated Continue presses or a manual /card. No unsupported fields are invented; later refreshes can deepen the card. Ambiguous/weak entities do not qualify.",

@@ -67,8 +67,8 @@ var crossedEchoesCommandHelp = () => [
   "/crossedechoes help — command overview",
   "/pulse — recent live engine activity; /pulse smart|verbose|off controls automatic pulses",
   "/wire help — Crossed Wires commands",
-  "/unsaid — UNSPOKEN TURNS / CODEX commands",
-  "/twists — TWISTS AND TURNS config/help",
+  "/unsaid — NPC mind / CODEX commands",
+  "/twists — twist controls and CORE-config help",
   "",
   "Quick controls: /peek <name> • /card <name> • /wire <name> • /spark [small|medium|major] • /threads • /twist [name]"
 ].join("\n");
@@ -249,7 +249,7 @@ var twistsModifier = (text) => {
         return stopControl();
       } else if (head === "twists" || head === "twisthelp") {
         Library.updateConfigCard(cfg, c);
-        pushMessage("📖 Config card refreshed — check \"CROSSED ECHOES — Config — UNSPOKEN TURNS\" for settings and commands.");
+        pushMessage("📖 CORE config refreshed — check \"CROSSED ECHOES — Config — CORE\" for twists, NPC minds, relationships and continuity settings. CODEX has its own specialist config card.");
         return stopControl();
       } else {}
     }
@@ -349,7 +349,7 @@ var unsaidModifier = (text) => {
     }
     if (/^\/unsaid(?:\s+(?:help|commands?|guide))?\s*$/i.test(commandText)) {
       ensureSharedConfigCard();
-      pushMessage("📖 Commands are active. They work from Story, Do, Say, and third-person input: /peek <name>, /peek <name> core, /card <name>, /alias <character> = <alias>, /unalias <character> = <alias>, /unsaid status, /unsaid health, /unsaid resetcodex. Full settings are on the \"CROSSED ECHOES — Config — UNSPOKEN TURNS\" card.");
+      pushMessage("📖 Commands are active. They work from Story, Do, Say, and third-person input: /peek <name>, /peek <name> core, /card <name>, /alias <character> = <alias>, /unalias <character> = <alias>, /unsaid status, /unsaid health, /unsaid resetcodex. Settings are split cleanly between \"CROSSED ECHOES — Config — CORE\" and \"CROSSED ECHOES — Config — CODEX\".");
       return stopControl();
     }
     if (/^\/unsaid\s+resetcodex\s*$/i.test(commandText)) {

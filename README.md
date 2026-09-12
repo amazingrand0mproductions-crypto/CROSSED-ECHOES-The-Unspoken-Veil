@@ -1,215 +1,245 @@
-# CROSSED ECHOES — Unified Config + Causal Impact Edition
+# CROSSED ECHOES
 
-CROSSED ECHOES is an AI Dungeon scripting suite built around a simple rule: **if the script tracks something important, that state must be able to affect what happens next.**
+**Living characters. Persistent relationships. Long-form twists. Automatic world memory.**
 
-This edition keeps the mature CODEX, UNSAID, CROSSED WIRES, TWISTS AND TURNS and Live Pulse systems, then closes the gap between *recording state* and *using state*. Relevant stored state is now translated into compact, scenario-neutral guidance in the Context hook so it can materially influence the model's next generation.
+CROSSED ECHOES is an AI Dungeon scripting system designed to make a scenario feel as though its characters, relationships, mysteries and world are actually continuing between turns instead of resetting whenever the prose moves on.
 
-## The causal pipeline
+Its central rule is simple: **if the script tracks something important, that information should be able to influence what happens next.**
 
-### CODEX — public canon has consequences
-CODEX remains the authoritative public-lore layer. Active Story Cards are not merely detected or updated: selected public facts for entities currently present are reasserted as **active canon constraints**.
+---
 
-When relevant, the model is reminded to respect established:
+## 📚 CODEX — Automatic Story Card Intelligence
 
-- roles and relationships
-- powers, abilities, skills and weaknesses
-- status and ownership
-- location/purpose/function
-- personality, goals and affiliations
-- other bounded public Story Card facts
+CODEX watches the story for genuinely established people, locations, items and factions, then builds and refreshes Story Cards from evidence already present in the adventure.
 
-The packet explicitly tells the model not to silently invent extra powers, biography or relationships. Newer visible story events still outrank stale card facts.
+It is designed to distinguish real entities from ordinary prose, headings and throwaway words. Repeated mentions, explicit introductions, aliases, dialogue cues, scene relevance and cross-system agreement all contribute to confidence before a card is created.
 
-### CROSSED WIRES — relationships change behaviour
-Relationships are directional: `A → B` and `B → A` can differ.
+CODEX can preserve supported details such as:
 
-Premade Character Story Cards can seed family, friendship, ally, rival, romantic, mentor, peer, guardian, workplace and other roles. Live events then evolve trust, affection, attraction, respect, fear, resentment, jealousy, suspicion, loyalty, intimacy, dependence, comfort and boundary pressure without replacing the established role.
+- identity, aliases and role
+- appearance and personality
+- powers, abilities and weaknesses
+- goals, affiliations and relationships
+- ownership, status and location
+- important history and current circumstances
+- location layout, atmosphere and hazards
+- item properties, limits and significance
+- faction leadership, purpose, allies and rivals
 
-Those values now produce **behavioural pressure**, not just dashboard numbers. Examples:
+Existing good information is preserved during refreshes. Manual cards are protected when configured, unsupported fields are omitted rather than invented, and trigger collisions are handled without overwriting unrelated lore.
 
-- high trust → more willingness to rely on or believe the target
-- low trust / high suspicion → guarded behaviour and verification
-- resentment → unresolved friction can colour choices and tone
-- loyalty → stronger pressure to defend, assist or remain committed
-- low comfort / high boundary pressure → distance, caution or firmer limits
-- family/friend/ally/rival/mentor roles → the relationship is treated as established history rather than invented afresh
+Relevant public Story Card facts can also become **active canon pressure**, helping the model respect established abilities, relationships, ownership, setting and continuity in later generations.
 
-The player never receives an autonomous emotional state and the script never forces the player to reciprocate an NPC's feelings.
+---
 
-### UNSAID — NPC minds drive decisions
-NPC private state can retain goals, plans, wants, fears, beliefs, commitments, values, secrets, important memories and local knowledge.
+## ❤️ CROSSED WIRES — Relationships That Actually Change Behaviour
 
-The important change is delivery: active NPC private pressures are now converted into a narrator-only causal packet that tells the model to let them influence what the NPC:
+Relationships are stored directionally. How **Mara feels about Elias** does not have to equal how **Elias feels about Mara**.
 
-- notices
-- prioritizes
-- chooses
-- avoids
-- says
-- withholds
-- reacts to
+Premade Character Story Cards can establish family, friendship, rivalry, romance, mentorship, guardianship, workplace, ally and other relationship roles before the story even begins. The script then tracks what happens between characters and allows the emotional state around those roles to evolve.
 
-Private thoughts remain private. The packet does not grant telepathy, does not dump secrets into visible prose, and does not create a mind for the player character.
+CROSSED WIRES can track pressure such as:
 
-### TWISTS AND TURNS — threads develop and then affect the story
-Twists remain evidence-led. Duplicate clues do not count twice, counter-evidence can weaken readiness, and strict logic blocks unsupported reveals.
+- trust
+- affection
+- attraction
+- respect
+- loyalty
+- resentment
+- jealousy
+- suspicion
+- fear
+- intimacy
+- dependence
+- comfort
+- boundaries
 
-Threads follow **seed → develop → ready → payoff**. Readiness is re-evaluated during ordinary maintenance, so enough distinct evidence plus enough age can mature a thread even if no new clue lands on that exact turn.
+Those values are not just statistics. When relevant, they become behavioural guidance. A suspicious ally should act differently from a trusting one. A resentful sibling should carry unresolved friction. A loyal friend should feel stronger pressure to help, defend or stay involved.
 
-A previous delivery gap is fixed: normal non-cache twist/subtext hints are now actually appended to model context. The managed hint budget was also increased so a payoff instruction cannot be cut off midway through its required marker.
+Established roles remain stable unless the story genuinely changes them. The system does not invent the player's private feelings or force the player to reciprocate an NPC's emotions.
 
-### ECHO VEIL — visible motives persist
-ECHO VEIL is no longer a tracker-only compatibility layer. Visible NPC motives such as plans, wants, fears or intentions can be carried forward as **motive continuity pressure** when that NPC remains relevant.
+---
 
-This is intentionally weaker than the private UNSAID mind: it represents motives established through visible story material. New visible evidence can change them.
+## 🧠 NPC MINDS — Characters With Private Continuity
 
-### WORLD ENGINE — location changes continuity
-WORLD ENGINE now acquires scene location from active typed Location/Place/Setting Story Cards and carries that forward as a scene anchor.
+NPCs can maintain private inner state instead of behaving like blank dialogue generators every turn.
 
-That location can affect spatial and environmental continuity until visible travel, teleportation, displacement or another location change is established. On huge archives, location detection uses a cheap type-first path to stay within AI Dungeon's runtime limit.
+An NPC mind can retain bounded information such as:
 
-### CANON SENTINEL — recent visible events carry forward
-Canon Sentinel now retains a bounded set of recent visible story beats and can reassert ones that have fallen out of the immediate text window.
+- goals
+- plans
+- wants
+- fears
+- beliefs
+- values
+- commitments
+- secrets
+- important memories
+- knowledge and uncertainty
+- unresolved emotional pressure
 
-It distinguishes continuity from objective truth: dialogue claims remain claims. Newer player actions and newer visible events always outrank older stored beats.
+Relevant private state can influence what an NPC notices, prioritises, says, avoids, hides, chooses and reacts to.
 
-### LIVE PULSE — proof without debug spam
-Live Pulse reports **real state changes** through the player-facing message channel instead of inserting debug text into the story.
+Private information stays private unless the visible story reveals it. Other characters are not granted telepathy, and the player character is deliberately excluded from autonomous NPC-mind generation.
 
-Examples:
+The result is designed to create characters who can carry grudges, remember promises, pursue plans, change priorities and react differently because of what has already happened.
 
-- `❤️ relationship updated: Maya Walker→YOU`
-- `🧠 NPC mind updated: Maya Walker`
-- `📚 CODEX saved: Glass Key`
-- `🌀 twist thread deepened: C-12`
-- `🌀 twist matured: C-12 (payoff eligible)`
+---
 
-`/pulse` also reports whether causal context delivery is active and which causal packets were delivered on the latest Context hook.
+## 🌀 TWISTS AND TURNS — Built, Not Randomly Dropped
 
-Use:
+Twists are treated as developing threads rather than instant random reveals.
 
-- `/pulse` — dashboard + recent activity
-- `/pulse smart` — recommended default
-- `/pulse verbose` — more visible activity
-- `/pulse off` — silence notifications only; the engine continues working
+A thread can progress through:
 
-## Premade Story Card relationships
+**seed → develop → ready → payoff**
 
-Relationship seeding understands structured sections such as:
+The system tracks distinct evidence, age, counter-evidence, pacing and cooldowns. Repeating the same clue does not magically count as several clues, and strict logic can require genuine grounding before a reveal is allowed.
 
-- `Relationships:`
-- `Family:`
-- `Friends:`
-- `Allies:`
-- `Rivals:`
-- `Connections:`
-- `Bonds:`
+Foreshadowing can therefore accumulate over many turns before finally paying off. Relationship pressure, NPC psychology, Story Card canon and visible story evidence can reinforce compatible threads without being treated as proof on their own.
 
-It also understands common direct fields and forms such as `Mother: Sera Walker`, `Ezra Walker — nephew`, `Ezra Walker (nephew)` and similar patterns.
+Compound twists can combine compatible threads when the story already provides a believable connection. Mature twist categories can be separately controlled.
 
-Role direction is normalized. If Maya's card says `Ezra Walker — nephew`, the system derives Maya → Ezra as aunt/uncle rather than incorrectly calling Maya the nephew.
+The goal is long-form plotting that feels earned rather than a surprise generator firing every few turns.
 
-## Scenario independence
+---
 
-The causal layer contains no built-in superhero, fantasy, horror, western, modern or science-fiction plot assumptions. It works from the scenario's own Story Cards, visible events and accumulated state.
+## 🌘 ECHO VEIL — Visible Motives That Persist
 
-The release matrix is explicitly tested against:
+ECHO VEIL carries forward motives and intentions that have actually appeared in the visible story.
 
-- fantasy
-- science fiction
-- contemporary
-- western
-- horror
+If an NPC has clearly been trying to protect someone, avoid a place, investigate a mystery or accomplish a task, that visible motivation can continue to shape behaviour even after the exact sentence falls out of immediate context.
 
-The tests verify that each genre's own NPC plan, relationship and canon facts reach model context without importing a default setting.
+ECHO VEIL is intentionally different from NPC Minds: it deals with **visible continuity**, not hidden psychology.
 
-No script can guarantee that a generative model will obey every instruction on every turn. What this release guarantees at the scripting level is that relevant tracked state is **actually placed into the model input path** rather than living only in hidden counters or diagnostics.
+---
 
-## Noise and identity hardening
+## 🌍 WORLD ENGINE — Scene and Location Continuity
 
-The name detector filters common context headings such as `Recent Story`, `Current Scene`, `Plot Essentials`, `Author Notes`, `AI Instructions`, `Front Memory`, `Story Cards` and similar labels so they cannot become fake NPC minds.
+WORLD ENGINE helps the adventure remember where the current scene actually is.
 
-Relationship vocabulary has also been broadened for general scenarios, including allies, guardians/wards, neighbours, peers/classmates, workplace hierarchy, clients/counsel and business partners.
+Typed Location, Place and Setting Story Cards can establish a scene anchor that persists until visible travel, teleportation, displacement or another genuine location change occurs.
 
-## Configuration — two cards, not five
+This reduces arbitrary scene jumps and helps locations matter as continuing spaces rather than disposable backdrops.
 
-This release consolidates the old five-card configuration surface into **exactly two genuine configuration Story Cards**:
+---
 
-1. **CROSSED ECHOES — Config — CORE** — TWISTS AND TURNS, UNSAID/NPC minds, CROSSED WIRES relationships, ECHO VEIL and Integration/World Engine/Canon Sentinel.
-2. **CROSSED ECHOES — Config — CODEX** — specialist Story Card detection, creation, refresh and protection controls.
+## 🛡️ CANON SENTINEL — Recent Events Stay Relevant
 
-There is no third hidden config. The private diagnostics dashboard now uses the separate `CROSSED ECHOES PRIVATE` type. Legacy five-card adventures are read and safely migrated into CORE when the old cards can be positively identified as script-owned configuration cards.
+Canon Sentinel carries forward a bounded set of recent visible events after they begin to fall out of immediate context.
 
-Every option exposed in either card is explained in that card's **Notes/Description** with its accepted values, default, purpose and important trade-offs. Runtime authority remains the card **Entry**. Relationships now have one authoritative configuration section instead of duplicate switches in UNSAID and CROSSED WIRES.
+It is designed to preserve consequences without pretending every spoken claim is objective truth. A character saying something remains a claim unless the story establishes it as fact, and newer visible events always outrank older remembered continuity.
 
-The runtime also avoids repeatedly trying to rewrite title/Notes fields on hosts that do not expose them, reducing unnecessary Story Card work on large archives.
+---
 
-## Install
+## 💠 LIVE PULSE — See the Engine Working
 
-1. Open the AI Dungeon Scenario editor.
-2. Open **Scripting**.
-3. Replace the four script tabs with `Library.js`, `Input.js`, `Context.js`, and `Output.js`.
-4. Save all four tabs.
-5. Optional: import `CONFIG_CARD_IMPORTS.json`.
-6. Start a fresh test adventure.
-7. Run `/ce doctor` and then `/pulse`.
+Live Pulse gives the player a quiet, spoiler-safe indication that meaningful internal changes are really happening.
 
-Do not concatenate the four files into one tab.
+It can surface events such as:
 
-## Useful commands
+- a relationship changing
+- an NPC mind updating
+- CODEX successfully creating or refreshing a card
+- a twist thread deepening
+- a twist reaching payoff readiness
 
-- `/ce` — overall status
-- `/ce doctor` — runtime diagnostic
-- `/ce help` — command overview
-- `/pulse` — causal/runtime activity dashboard
-- `/pulse smart|verbose|off` — notification mode
-- `/unsaid status` — mind/CODEX status
-- `/unsaid health` — write/config health
-- `/peek <name>` — private-mind diagnostic request
-- `/card <name>` — force a CODEX creation/refresh request
-- `/alias <character> = <alias>` — add alias
-- `/unalias <character> = <alias>` — remove alias
-- `/wire <name>` — inspect one character's directional bonds
-- `/wires` — inspect all tracked relationships
-- `/threads` — inspect twist threads
+It never needs to expose the actual private thought or reveal the answer to a developing twist. The player can see that the machinery is active without turning the story into a debug log.
+
+`/pulse` shows current activity. `/pulse smart` is the recommended normal mode, `/pulse verbose` shows more activity, and `/pulse off` hides the notifications without disabling the underlying systems.
+
+---
+
+## ⚙️ TWO CONFIG CARDS — CLEAN AND AUTHORITATIVE
+
+CROSSED ECHOES uses **two configuration Story Cards only**.
+
+### ⚙️ CROSSED ECHOES — Config — CORE
+
+The CORE card controls:
+
+- TWISTS AND TURNS
+- NPC Minds / UNSAID
+- CROSSED WIRES relationships
+- ECHO VEIL
+- WORLD ENGINE
+- Canon Sentinel
+- cross-system behaviour and performance safeguards
+
+Its Notes explain every exposed option, accepted value, default behaviour and important trade-off.
+
+### 📚 CROSSED ECHOES — Config — CODEX
+
+The CODEX card controls:
+
+- automatic entity detection
+- Story Card size
+- mention and observation thresholds
+- creation pacing
+- refresh behaviour
+- manual-card protection
+- detection strictness
+- alias learning
+- evidence rescue
+- scaffold behaviour
+
+Its Notes also explain every exposed option and its safe range.
+
+There are no separate CROSSED WIRES, ECHO VEIL, TWISTS or Integration config cards competing with CORE. Relationship settings have one authority, CODEX settings have one authority, and diagnostics are not presented as configuration.
+
+---
+
+## 🔗 SYSTEMS WORK TOGETHER
+
+CROSSED ECHOES is designed as one connected engine rather than a collection of unrelated trackers.
+
+A Story Card can establish that two characters are siblings. CROSSED WIRES can then preserve that role while tracking changing trust and resentment. NPC Minds can remember the argument that caused the resentment. ECHO VEIL can preserve the visible intention to make amends. A developing twist can use separate evidence involving the same characters. CODEX can keep the public facts stable. Live Pulse can confirm that each system is changing without spoiling the private state.
+
+That interaction is the point of the script: **memory should create consequences.**
+
+---
+
+## 🎭 BUILT FOR DIFFERENT KINDS OF SCENARIOS
+
+The systems are scenario-neutral. They do not require superheroes, fantasy, modern drama, horror, science fiction or any other specific setting.
+
+They work from the adventure's own characters, Story Cards, visible events, relationships, locations and established rules. A detective mystery can build suspicion and evidence. A romance can develop trust and boundaries. A political story can track alliances and betrayals. A fantasy campaign can remember factions, relics and locations. A superhero story can keep powers, family relationships and long-running conspiracies coherent.
+
+The script adapts to the scenario instead of forcing the scenario to adapt to the script.
+
+---
+
+## 🎮 PLAYER COMMANDS
+
+Useful player-facing controls include:
+
+- `/status` — overall CROSSED ECHOES status
+- `/pulse` — recent engine activity
+- `/pulse smart|verbose|off` — Live Pulse mode
+- `/peek <name>` — request an NPC private-state check
+- `/card <name>` — request CODEX creation or refresh
+- `/alias <character> = <alias>` — add an explicit alias
+- `/unalias <character> = <alias>` — remove an alias
+- `/wire <name>` — inspect one character's directional relationships
+- `/wires` — inspect tracked relationships
+- `/threads` — inspect spoiler-safe twist development
 - `/twist <name>` — request an evidence-backed payoff candidate
-- `/plant <name> [category]` — deliberately plant a plotting direction
+- `/plant <name> [category]` — deliberately begin a plotting direction
 
-Administrative commands are consumed locally rather than being sent into story prose.
+Commands are administrative controls and are consumed by the script rather than treated as ordinary story prose.
 
-## How to verify causal impact
+---
 
-Use a small test scenario with one established NPC, one premade relationship and one non-character Story Card.
+## 🌒 THE CROSSED ECHOES IDEA
 
-1. Run `/ce doctor` and `/pulse`.
-2. Give the NPC a visible positive or negative interaction and inspect `/wire <name>`.
-3. Continue a scene with that NPC. The relationship should not only change numerically; the Context system should use the changed relationship as behavioural guidance.
-4. Establish an NPC plan or goal. On later relevant turns, UNSAID should carry that pressure forward without printing the private note verbatim.
-5. Mention a typed Location Story Card. WORLD ENGINE should retain the scene anchor until visible relocation occurs.
-6. Seed a mystery with two genuinely distinct clues. `/threads` should show development; age + support should eventually permit readiness.
-7. `/pulse` should show which real subsystems changed and whether causal context delivery occurred.
+A character should remember what happened to them.
 
-Creator-side model-context inspection, where available, is the strongest verification because it lets you see the actual causal packets delivered to the model.
+A relationship should matter after the scene where it changed.
 
-## Story Card Notes
+A secret should be able to develop before it is revealed.
 
-Core operation does not depend on Notes. Public canon belongs in Story Card Entry. Private minds, relationship metrics, twist state and causal diagnostics live in persistent script state. Notes remain presentation/documentation where supported.
+A location should still be the same location next turn.
 
-## Large libraries
+A Story Card should affect canon rather than simply exist in a menu.
 
-The release stays archive-lazy. Dormant Character cards are not all materialized into full live minds. At the 5,000-card ceiling, automatic writes fail closed instead of overwriting unrelated lore.
-
-The release gate includes a synthetic **4,998 Character Story Card** archive under a 16 MB sandbox. The latest run kept every hook below two seconds while still developing a new live NPC relationship; the maximum observed hook in the final causal build was **1.383 seconds**.
-
-## Files
-
-- `Library.js` — mature CODEX, UNSAID, relationships, twists, causal context, ECHO/WORLD/Canon integration and Live Pulse
-- `Input.js` — player input, commands and turn processing
-- `Context.js` — model-context scheduler and causal delivery
-- `Output.js` — output parsing, state learning and CODEX refresh
-- `CONFIG_CARD_IMPORTS.json` — optional config-card import
-- `CONFIG_NOTES.md` — configuration reference
-- `QUICK_START.txt` — short install/test checklist
-- `TEST_REPORT.txt` — release validation
-- `AUDIT_SUMMARY.md` — technical audit
-- `tests/` — regression, scenario-matrix and constrained-runtime tests
+And when the script spends time tracking something, **that information should have a reason to exist in the story.**
