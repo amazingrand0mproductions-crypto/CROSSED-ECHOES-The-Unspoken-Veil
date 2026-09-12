@@ -755,6 +755,21 @@ var unsaidModifier = (text) => {
     state.unsaid.codex.pendingForced = false;
     state.unsaid.codex.pendingRefreshNames = [];
 
+    // REFORGED: original CODEX above remains fully intact. From this point
+    // forward the deep character kernel owns private cognition and relationship
+    // continuity so the legacy UNSAID scheduler cannot issue a second competing
+    // hidden task on the same generation.
+    if (typeof CE_R2_context === "function") {
+      state.unsaid.pending = null;
+      state.unsaid.pendingCoreShiftAllowed = false;
+      state.unsaid.pendingCoreCheck = false;
+      state.unsaid.pendingRevealForced = false;
+      const reforgedText = CE_R2_context(text, cfg, active, cacheEfficient);
+      const reforgedSuffix = typeof reforgedText === "string" && reforgedText.indexOf(text) === 0 ? reforgedText.slice(text.length) : "";
+      updateUnsaidBackupCard(cacheEfficient, reforgedSuffix);
+      return { text: typeof reforgedText === "string" ? reforgedText : text };
+    }
+
     if (cfg.cast.length > 0) {
       const eligible = active.filter(name => {
         const mind = state.unsaid.minds[name];

@@ -1445,6 +1445,9 @@ var modifier = (text) => {
     // no longer abort every subsystem that follows it on the same Output turn.
     var afterTwists = runFeature("twists", function(){ return twistsModifier(originalText); }, {text:originalText}, typeof twistsModifier === "function");
     var twistText = afterTwists && typeof afterTwists.text !== "undefined" ? afterTwists.text : originalText;
+    if (typeof CE_R2_onOutput === "function") {
+      twistText = runFeature("unsaid", function(){ return CE_R2_onOutput(twistText); }, twistText, true);
+    }
     var afterUnsaid = runFeature("unsaid", function(){ return unsaidModifier(twistText); }, {text:twistText}, typeof unsaidModifier === "function");
     var visible = afterUnsaid && typeof afterUnsaid.text !== "undefined" ? afterUnsaid.text : twistText;
 

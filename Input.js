@@ -324,6 +324,12 @@ var unsaidModifier = (text) => {
     }
 
     const cfg = readUnsaidConfig();
+    // Strong explicit player introductions are authoritative story evidence.
+    // Create a conservative CODEX scaffold here so a new entity cannot starve
+    // merely because the model fails to repeat its name in the next Output.
+    if (!isUnsaidCommand && cfg && cfg.codexEnabled !== false && cfg.codexDirectScaffold !== false && typeof createCodexDirectScaffoldFromInput === "function") {
+      try { createCodexDirectScaffoldFromInput(originalText, cfg); } catch (e) { if (typeof utRecordRuntimeError === "function") utRecordRuntimeError("Input/Codex-direct", e); }
+    }
     // Control-task mode is single-flight. Every new player input starts clean;
     // /peek and /card set it again below when they intentionally need a model
     // call. This prevents a stale failed command from suppressing later prose.
@@ -640,6 +646,9 @@ var modifier = (text) => {
     }
 
     var visible = afterUnsaid && typeof afterUnsaid.text !== "undefined" ? afterUnsaid.text : originalText;
+    if (typeof CE_R2_onInput === "function") {
+      try { CE_R2_onInput(originalText); } catch (e) { if (typeof log === "function") log("CROSSED ECHOES Reforged Input: " + (e && e.message)); }
+    }
     if (typeof CE_runTurnFeature === "function") {
       CE_runTurnFeature("coordinator", "input", function(){ if (typeof UN_capturePlayerIntent === "function") UN_capturePlayerIntent(originalText); }, null, typeof UN_capturePlayerIntent === "function");
       visible = CE_runTurnFeature("crossed_wires", "input", function(){ return typeof CW_onInput === "function" ? CW_onInput(visible) : visible; }, visible, typeof CW_onInput === "function");
