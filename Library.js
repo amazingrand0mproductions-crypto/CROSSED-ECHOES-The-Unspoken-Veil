@@ -1,9 +1,10 @@
 var CE_CONFIG_CATEGORY = "CROSSED ECHOES CONFIG";
-var CE_CONFIG_TITLE_UNSAID = "CROSSED ECHOES — Config — UNSPOKEN TURNS";
-var CE_CONFIG_TITLE_CROSSED = "CROSSED ECHOES — Config — CROSSED WIRES";
-var CE_CONFIG_TITLE_ECHO = "CROSSED ECHOES — Config — ECHO VEIL";
+var CE_CONFIG_TITLE_CORE = "CROSSED ECHOES — Config — CORE";
+var CE_CONFIG_TITLE_UNSAID = CE_CONFIG_TITLE_CORE; // internal/backward-compatible alias
+var CE_CONFIG_TITLE_CROSSED = "CROSSED ECHOES — Config — CROSSED WIRES"; // legacy migration title
+var CE_CONFIG_TITLE_ECHO = "CROSSED ECHOES — Config — ECHO VEIL"; // legacy migration title
 var CE_CONFIG_TITLE_CODEX = "CROSSED ECHOES — Config — CODEX";
-var CE_CONFIG_TITLE_INTEGRATION = "CROSSED ECHOES — Config — INTEGRATION";
+var CE_CONFIG_TITLE_INTEGRATION = "CROSSED ECHOES — Config — INTEGRATION"; // legacy migration title
 function CE_platformCharacterNames() {
   var out = [], seen = Object.create(null);
   try {
@@ -69,6 +70,11 @@ function CE_cardIdentityName(card) {
 }
 var CE_PLAYER_IDENTITY_SCHEMA = 3;
 var CE_RUNTIME_PLAYER_IDENTITY = null;
+// Per-hook cache: player identity resolution consults the same Story Card name/alias
+// table many times. Rebuilding it for every canonicalization becomes catastrophic in
+// multi-thousand-card adventures. Library.js is re-evaluated each hook, so this cache
+// cannot go stale across hooks; explicit force/invalidation clears it within a hook.
+var CE_RUNTIME_PLAYER_KNOWN_NAMES = null;
 function CE_playerIdentityKey(value) {
   return String(value == null ? "" : value)
     .normalize("NFKC")
@@ -118,6 +124,7 @@ function CE_playerIdentityNamePrefix(value, allowSingleUnknown) {
   return candidate;
 }
 function CE_playerIdentityKnownNames() {
+  if (CE_RUNTIME_PLAYER_KNOWN_NAMES) return CE_RUNTIME_PLAYER_KNOWN_NAMES;
   var aliasToOwners = Object.create(null), canonicalByKey = Object.create(null), aliasesByCanonical = Object.create(null);
   try {
     var cards = (typeof storyCards !== "undefined" && Array.isArray(storyCards)) ? storyCards : [];
@@ -145,7 +152,8 @@ function CE_playerIdentityKnownNames() {
   } catch (_) {}
   var aliasToCanonical=Object.create(null);
   Object.keys(aliasToOwners).forEach(function(k){var owners=aliasToOwners[k]||[];if(owners.length===1)aliasToCanonical[k]=owners[0];});
-  return {aliasToCanonical:aliasToCanonical,canonicalByKey:canonicalByKey,aliasesByCanonical:aliasesByCanonical};
+  CE_RUNTIME_PLAYER_KNOWN_NAMES={aliasToCanonical:aliasToCanonical,canonicalByKey:canonicalByKey,aliasesByCanonical:aliasesByCanonical};
+  return CE_RUNTIME_PLAYER_KNOWN_NAMES;
 }
 function CE_playerIdentityCanonicalName(value, skipPrefixRecovery) {
   var clean=CE_playerIdentityCleanName(value); if(!clean)return "";
@@ -254,6 +262,7 @@ function CE_persistedPlayerIdentity() {
 }
 function CE_resolvePlayerIdentity(force) {
   if(CE_RUNTIME_PLAYER_IDENTITY&&!force)return CE_RUNTIME_PLAYER_IDENTITY;
+  if(force) CE_RUNTIME_PLAYER_KNOWN_NAMES=null;
   var openingText=CE_playerOpeningStoryText();
   var opening=CE_detectPlayerDeclaration(openingText,"opening-story");
   var placeholder=CE_playerPlaceholderName();
@@ -425,6 +434,7 @@ var CE_SHARED_STORY_CARD_INDEX_VERSION = 0;
 var CE_REQUIRED_CONFIG_PRESENCE_CACHE = null;
 function CE_invalidateSharedStoryCardIndex() {
   CE_SHARED_STORY_CARD_INDEX_CACHE = null;
+  CE_RUNTIME_PLAYER_KNOWN_NAMES = null;
   CE_REQUIRED_CONFIG_PRESENCE_CACHE = null;
   CE_SHARED_STORY_CARD_INDEX_VERSION++;
   try { UNSAID_ALIAS_INDEX = null; UNSAID_ENTITY_LOOKUP_CACHE = Object.create(null); } catch (_) {}
@@ -656,11 +666,8 @@ function CE_commitCoreStoryCard(card, keys, entry, type) {
 }
 var CE_STORY_CARD_HARD_CAP = 5000;
 var CE_RESERVED_CONFIG_KEYS = [
-  "__crossed_echoes_config_unsaid__",
-  "__crossed_echoes_config_codex__",
-  "__crossed_echoes_config_crossed_wires__",
-  "__echo_veil_config__",
-  "__crossed_echoes_integration__"
+  "__crossed_echoes_config_core__",
+  "__crossed_echoes_config_codex__"
 ];
 function CE_storyCardCount() {
   try { return (typeof storyCards !== "undefined" && Array.isArray(storyCards)) ? storyCards.length : 0; }
@@ -794,6 +801,7 @@ function CE_entityNotesWatchState() {
 }
 var CE_PRIVATE_STATE_DASHBOARD_KEY = "__crossed_echoes_private_state_dashboard_7f3d__";
 var CE_PRIVATE_STATE_DASHBOARD_TITLE = "CROSSED ECHOES — PRIVATE SCRIPT STATE";
+var CE_PRIVATE_STATE_DASHBOARD_TYPE = "CROSSED ECHOES PRIVATE";
 function CE_notesCapabilityState(){
   if(typeof state==="undefined"||!state)return null;
   var box=state.crossedEchoesNotesCapability;
@@ -870,10 +878,10 @@ function CE_syncPrivateStateDashboard(force){
     if(!force&&Number(box.lastDashboardTurn||-999999)===now)return true;
     var entry=CE_privateDashboardEntry(),card=CE_findPrivateDashboardCard(),ok=false;
     if(card){
-      var committed=CE_updateStoryCardCompat(card,CE_PRIVATE_STATE_DASHBOARD_KEY,entry,CE_CONFIG_CATEGORY,undefined,undefined,{forceHostWrite:true});
+      var committed=CE_updateStoryCardCompat(card,CE_PRIVATE_STATE_DASHBOARD_KEY,entry,CE_PRIVATE_STATE_DASHBOARD_TYPE,undefined,undefined,{forceHostWrite:true});
       ok=!!(committed&&committed.ok);
     }else{
-      var added=CE_tryAddStoryCard(CE_PRIVATE_STATE_DASHBOARD_KEY,entry,CE_CONFIG_CATEGORY,CE_PRIVATE_STATE_DASHBOARD_TITLE,undefined,{allowReserved:false});
+      var added=CE_tryAddStoryCard(CE_PRIVATE_STATE_DASHBOARD_KEY,entry,CE_PRIVATE_STATE_DASHBOARD_TYPE,CE_PRIVATE_STATE_DASHBOARD_TITLE,undefined,{allowReserved:false});
       ok=!!(added&&added.ok);
     }
     if(ok)box.lastDashboardTurn=now;
@@ -986,18 +994,17 @@ function CE_verifyExpectedStoryCardWrites(currentPhase) {
     return failed.length+noteFailures;
   }catch(_){return 0;}
 }
-var CE_CONFIG_KEY_UNSAID = "__crossed_echoes_config_unsaid__";
+var CE_CONFIG_KEY_CORE = "__crossed_echoes_config_core__";
+var CE_CONFIG_KEY_UNSAID = CE_CONFIG_KEY_CORE; // internal/backward-compatible alias
 var CE_CONFIG_KEY_CODEX = "__crossed_echoes_config_codex__";
-var CE_CONFIG_KEY_CROSSED = "__crossed_echoes_config_crossed_wires__";
-var CE_CONFIG_KEY_ECHO = "__echo_veil_config__";
-var CE_CONFIG_KEY_INTEGRATION = "__crossed_echoes_integration__";
+var CE_CONFIG_KEY_CROSSED = "__crossed_echoes_config_crossed_wires__"; // legacy migration key
+var CE_CONFIG_KEY_ECHO = "__echo_veil_config__"; // legacy migration key
+var CE_CONFIG_KEY_INTEGRATION = "__crossed_echoes_integration__"; // legacy migration key
+var CE_LEGACY_CONFIG_KEY_UNSAID = "__crossed_echoes_config_unsaid__";
 var CE_TWIST_FACTS_SENTINEL = "__crossed_echoes_established_facts__";
 var CE_CONFIG_TITLE_BY_KEY = Object.create(null);
-CE_CONFIG_TITLE_BY_KEY[CE_CONFIG_KEY_UNSAID] = CE_CONFIG_TITLE_UNSAID;
+CE_CONFIG_TITLE_BY_KEY[CE_CONFIG_KEY_CORE] = CE_CONFIG_TITLE_CORE;
 CE_CONFIG_TITLE_BY_KEY[CE_CONFIG_KEY_CODEX] = CE_CONFIG_TITLE_CODEX;
-CE_CONFIG_TITLE_BY_KEY[CE_CONFIG_KEY_CROSSED] = CE_CONFIG_TITLE_CROSSED;
-CE_CONFIG_TITLE_BY_KEY[CE_CONFIG_KEY_ECHO] = CE_CONFIG_TITLE_ECHO;
-CE_CONFIG_TITLE_BY_KEY[CE_CONFIG_KEY_INTEGRATION] = CE_CONFIG_TITLE_INTEGRATION;
 var CE_CONFIG_KEY_BY_TITLE = Object.create(null);
 Object.keys(CE_CONFIG_TITLE_BY_KEY).forEach(function(k){ CE_CONFIG_KEY_BY_TITLE[CE_CONFIG_TITLE_BY_KEY[k]] = k; });
 function CE_expectedConfigTitle(key) {
@@ -1006,13 +1013,13 @@ function CE_expectedConfigTitle(key) {
 function CE_configEntryMatchesKey(card, key) {
   const entry = CE_cardEntryCore(card);
   key = String(key || "").trim().toLowerCase();
-  if (key === "__crossed_echoes_config_unsaid__") {
+  if (key === CE_CONFIG_KEY_CORE || key === CE_LEGACY_CONFIG_KEY_UNSAID) {
     return /==\s*TWISTS AND TURNS\s*==/i.test(entry) && /==\s*UNSAID\s*==/i.test(entry);
   }
-  if (key === "__crossed_echoes_config_codex__") return /^\s*==\s*CODEX\s*==/i.test(entry);
-  if (key === "__crossed_echoes_config_crossed_wires__") return /^\s*Crossed Wires Settings\b/i.test(entry);
-  if (key === "__echo_veil_config__") return /^\s*ECHO VEIL CONFIG\b/i.test(entry);
-  if (key === "__crossed_echoes_integration__") return /^\s*CROSSED ECHOES INTEGRATION\b/i.test(entry);
+  if (key === CE_CONFIG_KEY_CODEX) return /^\s*==\s*CODEX\s*==/i.test(entry);
+  if (key === CE_CONFIG_KEY_CROSSED) return /^\s*(?:Crossed Wires Settings|==\s*CROSSED WIRES\s*==)/i.test(entry);
+  if (key === CE_CONFIG_KEY_ECHO) return /^\s*(?:ECHO VEIL CONFIG|==\s*ECHO VEIL\s*==)/i.test(entry);
+  if (key === CE_CONFIG_KEY_INTEGRATION) return /^\s*(?:CROSSED ECHOES INTEGRATION|==\s*INTEGRATION\s*==)/i.test(entry);
   return false;
 }
 function CE_isRequiredConfigCard(card, key) {
@@ -1055,19 +1062,13 @@ function CE_bootstrapLiteConfig(key,title,entry,notes){var cards=(typeof storyCa
 function CE_bootstrapRequiredConfigCards(phase){
   var bs=CE_configBootstrapState();bs.runs=(bs.runs||0)+1;bs.lastPhase=String(phase||"");try{CE_hydrateStoryCardCompat();}catch(_){}
   var p=CE_requiredConfigPresence(),shared=null;
-  try{if(!p[CE_CONFIG_KEY_UNSAID])shared=ensureSharedConfigCard();else shared=(storyCards||[]).find(function(c){return CE_isRequiredConfigCard(c,CE_CONFIG_KEY_UNSAID);})||null;}catch(_){}
+  try{if(!p[CE_CONFIG_KEY_CORE])shared=ensureSharedConfigCard();else shared=(storyCards||[]).find(function(c){return CE_isRequiredConfigCard(c,CE_CONFIG_KEY_CORE);})||null;}catch(_){}
   p=CE_requiredConfigPresence();try{if(!p[CE_CONFIG_KEY_CODEX])ensureCodexConfigCard(shared);}catch(_){}
-  p=CE_requiredConfigPresence();if(!p[CE_CONFIG_KEY_CROSSED])CE_bootstrapLiteConfig(CE_CONFIG_KEY_CROSSED,CE_CONFIG_TITLE_CROSSED,"Crossed Wires Settings\nenabled=true\nvisibleEvents=true\nseedCardRoles=true\nrelationshipTwists=true","Directional relationship state is persistent in script state. NPC→YOU and NPC↔NPC bonds are tracked independently; the script never invents the player's private feelings.");
-  p=CE_requiredConfigPresence();if(!p[CE_CONFIG_KEY_ECHO])CE_bootstrapLiteConfig(CE_CONFIG_KEY_ECHO,CE_CONFIG_TITLE_ECHO,"ECHO VEIL CONFIG\nenabled=true\nsceneTracking=true\nmotiveContinuity=true","ECHO VEIL keeps a bounded live-scene continuity layer for active NPCs. It does not mirror the whole Story Card archive into state.");
-  p=CE_requiredConfigPresence();if(!p[CE_CONFIG_KEY_INTEGRATION])CE_bootstrapLiteConfig(CE_CONFIG_KEY_INTEGRATION,CE_CONFIG_TITLE_INTEGRATION,"CROSSED ECHOES INTEGRATION\nenabled=true\nworldEngine=true\ncanonSentinel=true\ncacheSafe=true","Integration coordinates bounded WORLD ENGINE, Canon Sentinel, ECHO VEIL, UNSAID, CROSSED WIRES, TWISTS and CODEX activity without duplicating the full Story Card archive.");
   p=CE_requiredConfigPresence();var miss=CE_RESERVED_CONFIG_KEYS.filter(function(k){return !p[k];});bs.lastMissing=miss.slice();if(miss.length)bs.failures=(bs.failures||0)+1;return {ok:!miss.length,missing:miss,presence:p};
 }
 function CE_coreConfigTitle(card) {
-  if (CE_isRequiredConfigCard(card, CE_CONFIG_KEY_UNSAID)) return CE_CONFIG_TITLE_UNSAID;
+  if (CE_isRequiredConfigCard(card, CE_CONFIG_KEY_CORE)) return CE_CONFIG_TITLE_CORE;
   if (CE_isRequiredConfigCard(card, CE_CONFIG_KEY_CODEX)) return CE_CONFIG_TITLE_CODEX;
-  if (CE_isRequiredConfigCard(card, CE_CONFIG_KEY_CROSSED)) return CE_CONFIG_TITLE_CROSSED;
-  if (CE_isRequiredConfigCard(card, CE_CONFIG_KEY_ECHO)) return CE_CONFIG_TITLE_ECHO;
-  if (CE_isRequiredConfigCard(card, CE_CONFIG_KEY_INTEGRATION)) return CE_CONFIG_TITLE_INTEGRATION;
   if (CE_hasCardKey(card, CE_TWIST_FACTS_SENTINEL)) return "CROSSED ECHOES — Established Facts";
   return "";
 }
@@ -1140,7 +1141,7 @@ var CP_VERSION = "1.3.1";
 var NAME_ALPHANUM = "a-zA-ZÀ-ÖØ-öø-ÿĀ-ſΑ-ωΆ-ώА-ЯЁа-яё0-9";
 var UT_DEFAULT_CONTEXT_BUDGET_MS = 900;
 var UT_ACTIVE_RUNTIME_PHASE = null;
-var UT_RUNTIME_BUILD_ID = "2026-08-23-entity-guard-r4";
+var UT_RUNTIME_BUILD_ID = "2026-09-12-live-pulse-r1";
 var UT_PHASE_BUDGET_CAP_MS = {
   input: 500,
   context: 800,
@@ -1385,7 +1386,7 @@ function CE_activationHealth() {
   var rec=a.turns[String(turn)]||CE_activationTurnRecord(turn)||{input:{},context:{},output:{}};
   var expected={
     input:["twists","unsaid","crossed_wires","echo_veil","world_engine","canon_sentinel","full_hardening","codex","coordinator"],
-    context:["twists","unsaid","crossed_wires","echo_veil","world_engine","canon_sentinel","full_hardening","codex","coordinator"],
+    context:["twists","unsaid","crossed_wires","echo_veil","world_engine","canon_sentinel","full_hardening","codex","coordinator","causal_impact"],
     output:["twists","unsaid","crossed_wires","echo_veil","world_engine","canon_sentinel","full_hardening","codex","coordinator","storycard_presentation"]
   };
   var missing=[],errors=[];
@@ -2423,8 +2424,8 @@ function setManagedFrontMemorySegment(marker, body) {
   var h = CE_contextHintState();
   if (!h) return;
   var compactBody = body == null ? "" : String(body).replace(/\s+/g, " ").trim();
-  if (marker === TWIST_FRONT_MEMORY_MARKER) h.twists = compactBody.slice(0, 900);
-  else h.unsaid = compactBody.slice(0, 500);
+  if (marker === TWIST_FRONT_MEMORY_MARKER) h.twists = compactBody.slice(0, 2600);
+  else h.unsaid = compactBody.slice(0, 700);
 }
 function syncTwistFrontMemoryHint(hint) {
   setManagedFrontMemorySegment(TWIST_FRONT_MEMORY_MARKER, hint || "");
@@ -2614,7 +2615,7 @@ var Library = (() => {
     if (!raw) return null;
     const t = String(raw).replace(/\r/g, "").trim();
     if (!t) return null;
-    const owned = "(?:help|status|crossedechoesstatus|crossedechoes|cestatus|ce|threadboundstatus|threadbound|tbstatus|unifiedstatus|unified|worldengine|world|unsaid|pe(?:e|a)k|card|alias|unalias|twistcategories|twisttypes|twistlog|twisthelp|twist|plant|mature|scenario|synergy|link|intensity|threads|rescan|twists|wiremerge|wireforget|wireprofile|wirestatus|wiretwists|wirehelp|wirerole|wireage|wires|wire|spark)";
+    const owned = "(?:help|status|pulse|activity|crossedechoesstatus|crossedechoes|cestatus|ce|threadboundstatus|threadbound|tbstatus|unifiedstatus|unified|worldengine|world|unsaid|pe(?:e|a)k|card|alias|unalias|twistcategories|twisttypes|twistlog|twisthelp|twist|plant|mature|scenario|synergy|link|intensity|threads|rescan|twists|wiremerge|wireforget|wireprofile|wirestatus|wiretwists|wirehelp|wirerole|wireage|wires|wire|spark)";
     const prefixedAtStart = new RegExp(`^[!/:]${owned}\\b`, "i");
     const prefixedAnywhere = new RegExp(`[!/:]${owned}\\b`, "i");
     const canonicalAtStart = new RegExp(`^/${owned}\\b`, "i");
@@ -3577,6 +3578,21 @@ var Library = (() => {
     thread.groundingScore = grounding;
     return (c.turn - thread.originTurn) >= effectiveTurns;
   }
+  function promoteEligibleThreads(c, cfg) {
+    if (!c || !cfg || !Array.isArray(c.threads)) return 0;
+    let promoted = 0;
+    c.threads.forEach(thread => {
+      if (!thread || thread.status !== "brewing" || !isThreadAllowed(thread, cfg)) return;
+      if (!cfg.involvePlayer && isPlayerEntity(c, thread.entity)) return;
+      if (isEligible(thread, c, cfg)) {
+        thread.status = "ready";
+        thread.deepAutoReady = true;
+        thread.readyTurn = typeof c.turn === "number" ? c.turn : thread.readyTurn;
+        promoted += 1;
+      }
+    });
+    return promoted;
+  }
   function matchAnyThreadPattern(sentence, entity, cfg) {
     return matchScenarioCategory(sentence, entity, cfg || CP_DEFAULTS, "live");
   }
@@ -4173,7 +4189,7 @@ var Library = (() => {
     CP_VERSION, CP_DEFAULTS, CP_CATEGORIES, CP_CATEGORY_KEYS, CP_TIER_MINOR, CP_TIER_MODERATE, CP_TIER_MAJOR, CP_TIER_CATACLYSMIC,
     CP_COMPOUND_CHANCE, CP_WILDCARD_CHANCE, CP_CLUSTER_NAMES, CP_CATEGORY_CLUSTERS, CP_CATEGORY_TO_CLUSTER, CP_CATEGORY_LABELS, CP_MATURE_KEYS,
     initState, getConfig, pacingFor, effectivePacing, beginContextTurn, extractCommand, nextId, findEntityInSentence, findKnownEntityInSentence, eligibleCardTitles,
-    splitSentences, findThread, findThreadFuzzy, createThread, tierFor, isEligible, priorTwistCountFor, scanForLooseThreads, scanStoryCardsForScenarioThreads,
+    splitSentences, findThread, findThreadFuzzy, createThread, tierFor, isEligible, promoteEligibleThreads, priorTwistCountFor, scanForLooseThreads, scanStoryCardsForScenarioThreads,
     rememberTwistEvidence, rememberTwistCounterEvidence, reinforceRelatedThreadsFromSentence, threadSemanticRelationScore, twistSemanticDomain, twistEvidenceContext,
     twistEvidenceLevel, twistEvidenceCounts, twistGroundingScore, twistEvidenceQualityText, twistIsCounterEvidence, twistIsMetaphoricalThreatLanguage, twistSentenceEligibleForDiscovery, twistCardHasOpenHook,
     scanPlotEssentialsForThreads, scanAuthorsNoteForThreads, pickForeshadowThread, pickMostBuiltUpBrewingThread, pickPayoffThread, pickCompoundPayoffThreads, pickWildcardEntity, twistCompoundBridgeEvidence, twistThreadScenePriority,
@@ -5707,30 +5723,34 @@ function findConfigCardTolerant(title, maxDistance) {
   }
   return null;
 }
-var CONFIG_CARD_TITLE = CE_CONFIG_TITLE_UNSAID;
+var CONFIG_CARD_TITLE = CE_CONFIG_TITLE_CORE;
 var CONFIG_SECTION_TWIST = "== TWISTS AND TURNS ==";
 var CONFIG_SECTION_UNSAID = "== UNSAID ==";
+var CONFIG_SECTION_CROSSED = "== CROSSED WIRES ==";
+var CONFIG_SECTION_ECHO = "== ECHO VEIL ==";
+var CONFIG_SECTION_INTEGRATION = "== INTEGRATION ==";
 var CONFIG_SECTION_CODEX = "== CODEX ==";
 function extractConfigSection(fullText, marker) {
-  const clean = fullText || "";
-  const otherMarker = marker === CONFIG_SECTION_TWIST ? CONFIG_SECTION_UNSAID : CONFIG_SECTION_TWIST;
+  const clean = String(fullText || "");
   const idx = clean.indexOf(marker);
   if (idx === -1) return "";
-  const otherIdx = clean.indexOf(otherMarker, idx + marker.length);
-  return otherIdx === -1 ? clean.slice(idx) : clean.slice(idx, otherIdx);
+  const tail = clean.slice(idx + marker.length);
+  const next = tail.search(/(?:^|\n)\s*==\s*[^=\n]{1,80}\s*==\s*(?:\n|$)/);
+  return next === -1 ? clean.slice(idx) : clean.slice(idx, idx + marker.length + next);
 }
 function spliceConfigSection(fullText, marker, newSectionText) {
-  const otherMarker = marker === CONFIG_SECTION_TWIST ? CONFIG_SECTION_UNSAID : CONFIG_SECTION_TWIST;
-  const trimmedSection = newSectionText.replace(/\s+$/, "") + "\n";
-  const clean = (fullText || "").trim() ? fullText : "";
-  const idx = clean ? clean.indexOf(marker) : -1;
+  const clean = String(fullText || "");
+  const trimmedSection = String(newSectionText || "").replace(/\s+$/, "") + "\n";
+  const idx = clean.indexOf(marker);
   if (idx === -1) {
-    const base = clean ? clean.replace(/\s+$/, "") + "\n\n" : "";
+    const base = clean.trim() ? clean.replace(/\s+$/, "") + "\n\n" : "";
     return base + trimmedSection;
   }
-  const otherIdx = clean.indexOf(otherMarker, idx + marker.length);
+  const tail = clean.slice(idx + marker.length);
+  const rel = tail.search(/(?:^|\n)\s*==\s*[^=\n]{1,80}\s*==\s*(?:\n|$)/);
+  const end = rel === -1 ? clean.length : idx + marker.length + rel;
   const before = clean.slice(0, idx);
-  const after = otherIdx === -1 ? "" : clean.slice(otherIdx);
+  const after = clean.slice(end).replace(/^\s*\n?/, "");
   return before + trimmedSection + (after ? "\n" + after : "");
 }
 function configValue(section, key, legacyRegex) {
@@ -5839,11 +5859,54 @@ function renderUnsaidSection(cfg) {
     `reflectEvery=${cfg.adaptiveReflectionInterval}\n` +
     `behaviorContinuity=${cfg.behavioralContinuity}\n` +
     `continuityMinds=${cfg.behavioralContinuityCharacters}\n` +
-    `relationships=${cfg.relationshipsEnabled}\n` +
-    `relationshipEvents=${cfg.relationshipVisibleEvents}\n` +
-    `relationshipCardRoles=${cfg.relationshipSeedCardRoles}\n` +
     `coreShift=${cfg.allowCoreShift}\n` +
     `player=${cfg.playerName || ""}\n`;
+}
+function CE_coreRelationshipDefaults() {
+  return { enabled:true, visibleEvents:true, seedCardRoles:true, relationshipTwists:true };
+}
+function renderCrossedWiresSection(cfg) {
+  cfg = Object.assign(CE_coreRelationshipDefaults(), cfg || {});
+  return CONFIG_SECTION_CROSSED + "\n" +
+    `enabled=${cfg.enabled !== false}\n` +
+    `visibleEvents=${cfg.visibleEvents !== false}\n` +
+    `seedCardRoles=${cfg.seedCardRoles !== false}\n` +
+    `relationshipTwists=${cfg.relationshipTwists !== false}\n`;
+}
+function applyCrossedWiresConfigText(cfg, section) {
+  cfg = cfg || CE_coreRelationshipDefaults();
+  if (!section) return cfg;
+  var v=configBool(section,"enabled"); if(v!==null)cfg.enabled=v;
+  v=configBool(section,"visibleEvents"); if(v!==null)cfg.visibleEvents=v;
+  v=configBool(section,"seedCardRoles"); if(v!==null)cfg.seedCardRoles=v;
+  v=configBool(section,"relationshipTwists"); if(v!==null)cfg.relationshipTwists=v;
+  return cfg;
+}
+function CE_coreEchoDefaults(){ return { enabled:true, sceneTracking:true, motiveContinuity:true }; }
+function renderEchoSection(cfg){
+  cfg=Object.assign(CE_coreEchoDefaults(),cfg||{});
+  return CONFIG_SECTION_ECHO+"\n"+
+    `enabled=${cfg.enabled !== false}\n`+
+    `sceneTracking=${cfg.sceneTracking !== false}\n`+
+    `motiveContinuity=${cfg.motiveContinuity !== false}\n`;
+}
+function applyEchoConfigText(cfg,section){
+  cfg=cfg||CE_coreEchoDefaults(); if(!section)return cfg; var v=configBool(section,"enabled");if(v!==null)cfg.enabled=v;
+  v=configBool(section,"sceneTracking");if(v!==null)cfg.sceneTracking=v;
+  v=configBool(section,"motiveContinuity");if(v!==null)cfg.motiveContinuity=v;return cfg;
+}
+function CE_coreIntegrationDefaults(){ return { enabled:true, worldEngine:true, canonSentinel:true }; }
+function renderIntegrationSection(cfg){
+  cfg=Object.assign(CE_coreIntegrationDefaults(),cfg||{});
+  return CONFIG_SECTION_INTEGRATION+"\n"+
+    `enabled=${cfg.enabled !== false}\n`+
+    `worldEngine=${cfg.worldEngine !== false}\n`+
+    `canonSentinel=${cfg.canonSentinel !== false}\n`;
+}
+function applyIntegrationConfigText(cfg,section){
+  cfg=cfg||CE_coreIntegrationDefaults(); if(!section)return cfg; var v=configBool(section,"enabled");if(v!==null)cfg.enabled=v;
+  v=configBool(section,"worldEngine");if(v!==null)cfg.worldEngine=v;
+  v=configBool(section,"canonSentinel");if(v!==null)cfg.canonSentinel=v;return cfg;
 }
 function renderCodexSection(cfg) {
   return CONFIG_SECTION_CODEX + "\n" +
@@ -5906,16 +5969,11 @@ function applyCodexConfigText(cfg, section) {
   return cfg;
 }
 function renderTwistNotes(cfg, c) {
-  const brewing = c ? c.threads.filter(t => t.status === "brewing").length : 0;
-  const ready = c ? c.threads.filter(t => t.status === "ready").length : 0;
-  const resolved = c ? c.twistLog.length : 0;
   return [
     CONFIG_SECTION_TWIST,
     "UNSPOKEN TURNS — TWISTS AND TURNS CONFIG GUIDE",
     "",
     "Edit the SETTINGS ENTRY on this Story Card, not these Notes. Keep the key names exactly as written and only change the value after '='. Boolean settings accept true or false. Invalid/out-of-range values are ignored or safely clamped. These Notes are documentation and are not sent to the AI.",
-    "",
-    `LIVE STATUS: ${brewing} brewing thread${brewing === 1 ? "" : "s"} · ${ready} ready · ${resolved} resolved`,
     "",
     "━━━━━━━━━━ CORE ━━━━━━━━━━",
     "enabled  [true/false]  Default: true",
@@ -6009,91 +6067,128 @@ function renderTwistNotes(cfg, c) {
 function renderUnsaidNotes() {
   return [
     CONFIG_SECTION_UNSAID,
-    "🧠 CROSSED ECHOES — UNSPOKEN TURNS / UNSAID",
-    "Private psychology, behavioural continuity and character interiority.",
+    "🧠 NPC MINDS / UNSAID",
+    "Private psychology and behavioural continuity for autonomous NPCs. Literal hidden thoughts stay private unless showThoughts=true; their durable consequences can still influence later behaviour.",
     "",
-    "✏️ HOW TO EDIT",
-    "Edit values in the Entry above. Keep each key exactly as written and change only the value after '='. true/false toggles are case-insensitive. Invalid numbers are safely clamped. These Notes are documentation and are not story lore.",
-    "",
-    "📚 CODEX HAS ITS OWN CONFIG CARD",
-    `Automatic Story Card detection/creation is configured separately on “${CE_CONFIG_TITLE_CODEX}”. This keeps psychology controls clean and gives Codex room for detailed card-generation settings.`,
-    "",
-    "━━━━━━━━━━ 🧠 PRIVATE THOUGHTS ━━━━━━━━━━",
     "enabled  [true/false]  Default: true",
-    "Master switch for UNSAID psychology. false pauses automatic private-thought and behavioural-continuity work without deleting saved minds.",
+    "Master switch for NPC mind processing. false preserves saved minds but pauses new private-thought work and NPC-mind causal guidance.",
     "",
     "thoughtChance  [0.0–1.0]  Default: 0.3",
-    "Base chance that an eligible active NPC receives a private-thought request. 0 disables random thoughts; 1 requests one whenever cooldown/eligibility allow. Delivery backoff still prevents repeated model-format failures from spamming turns.",
+    "Base chance that an eligible active NPC receives a private-thought request when cooldown and delivery safeguards allow. 0 disables random thought requests; 1 requests as often as eligibility permits.",
     "",
     "thoughtCD  [0–500]  Default: 3",
-    "Minimum turns before the same NPC can be selected for another private thought. Lower = more frequent interiority; higher = more breathing room.",
+    "Minimum turns before the same NPC can receive another private-thought request.",
     "",
     "reduceOnActions  [true/false]  Default: true",
-    "Reduces random private-thought pressure on the player's own Do/Say actions so visible action stays dominant.",
+    "Reduces random interiority pressure during the player's own Do/Say actions so the player's visible action remains dominant.",
     "",
     "activeWindow  [1–20]  Default: 3",
-    "How many recent turns count when deciding which NPCs are active enough to receive psychology guidance.",
+    "How many recent turns count when deciding which NPCs are active enough for mind processing and continuity guidance.",
     "",
     "showThoughts  [true/false]  Default: false",
-    "false keeps literal thoughts out of visible story prose while saving their psychological effect. true intentionally allows the generated thought to remain visible.",
+    "false strips literal private-thought payloads from visible prose while preserving their state effects. true intentionally allows those generated thoughts to remain visible.",
     "",
     "subtleHints  [true/false]  Default: true",
-    "Lets established feelings/goals subtly colour behaviour without exposing literal private thoughts or granting telepathy.",
+    "Lets established feelings, goals and concerns colour behaviour without giving the player telepathic knowledge.",
     "",
     "jsonNotes  [true/false]  Default: false",
-    "Storage preference for UNSAID-owned private state. false favours readable Notes; true favours structured JSON where supported. CROSSED ECHOES' combined card dashboard remains readable either way.",
+    "Private-state storage preference on hosts that persist auxiliary Story Card notes. Script state remains authoritative; this never moves secret psychology into public Story Card Entry text.",
     "",
-    "━━━━━━━━━━ 🧩 ADAPTIVE MIND ━━━━━━━━━━",
     "adaptiveMind  [true/false]  Default: true",
-    "Enables bounded long-term private memory for recurring goals, plans, fears, beliefs, secrets, commitments and concerns.",
+    "Enables bounded long-term NPC memory for goals, plans, fears, beliefs, secrets, commitments, wants, values and important memories.",
     "",
     "mindSlots  [4–24]  Default: 12",
-    "Maximum adaptive private-memory slots per NPC. More slots preserve more concurrent concerns but consume more state/processing.",
+    "Maximum adaptive private-memory slots per NPC. Higher values preserve more simultaneous concerns but use more state and processing.",
     "",
     "reflectEvery  [2–20]  Default: 4",
-    "Every N successful private moments, UNSAID allows deeper consolidation so repeated details can become durable concerns instead of endless duplicates.",
+    "Every N successful private moments, repeated evidence can consolidate into more durable concerns instead of accumulating duplicates.",
     "",
     "behaviorContinuity  [true/false]  Default: true",
-    "Allows established goals/plans/relationships to quietly shape active NPC behaviour even on turns with no new private-thought reveal.",
+    "Feeds relevant NPC plans/goals/wants/fears/beliefs/memories back into model Context so minds change later decisions instead of remaining bookkeeping only.",
     "",
     "continuityMinds  [1–4]  Default: 2",
-    "Maximum active NPC minds included in one behavioural-continuity pass. Increase for ensemble scenes; keep low for large/slow adventures.",
-    "",
-    "━━━━━━━━━━ ❤️ DIRECTIONAL RELATIONSHIPS ━━━━━━━━━━",
-    "relationships  [true/false]  Default: true",
-    "Master switch for the startup-safe CROSSED WIRES relationship graph. Turning it off preserves saved bonds but stops new relationship processing/context guidance.",
-    "",
-    "relationshipEvents  [true/false]  Default: true",
-    "Learns directional relationship changes from explicit visible events such as helping, comforting, rescuing, affection, flirting, arguments, threats, attacks, betrayal, apologies and boundary violations.",
-    "",
-    "relationshipCardRoles  [true/false]  Default: true",
-    "Imports explicit public relationship roles from Character Story Cards when the named relationship is unambiguous. It does not invent attraction or player feelings.",
-    "",
-    "Relationships are directional: NPC → YOU is independent from YOU → NPC. CROSSED ECHOES never creates a hidden autonomous mind or private emotional state for the player.",
+    "Maximum active NPC minds used in one behavioural-continuity pass. Raise for ensemble scenes; keep lower for very large adventures.",
     "",
     "coreShift  [true/false]  Default: true",
-    "Allows repeated, well-supported psychological pressure to rewrite a character's durable core truth. Automatic core shifts now require corroborating visible story pressure; private mood oscillation by itself cannot rewrite personality.",
+    "Allows repeated, corroborated pressure to alter a durable NPC core truth. A single private mood swing is not enough; established public canon remains a stability anchor.",
     "",
-    "🧭 PUBLIC-CANON ANCHOR",
-    "When a public Character Story Card exists, UNSAID uses its supported Role/Personality/Goals/Background/Relationships/Affiliations/Status as a stability anchor. Private thoughts may deepen or complicate that character, but ordinary uncertainty, attraction, embarrassment or irritation should not silently turn a kind/steady character into an obsessive, coercive, manipulative or hostile personality without visible story events supporting the change.",
+    "player  [text, up to 80 chars]  Default: blank",
+    "Optional explicit player-character name. Blank uses automatic player-identity detection. The resolved player is excluded from autonomous NPC minds and from invented private feelings.",
     "",
-    "player  [name or blank]  Default: blank",
-    "Player-character name. UNSAID and Codex skip this identity for NPC automation. Blank lets the script infer a suitable Character Creator name placeholder when possible.",
+    "Relationships are configured once in the CROSSED WIRES section below; there are no duplicate relationship switches in UNSAID."
+  ].join("\n");
+}
+function renderCrossedWiresNotes(){
+  return [
+    CONFIG_SECTION_CROSSED,
+    "❤️ CROSSED WIRES — DIRECTIONAL RELATIONSHIPS",
+    "Tracks established roles from premade Character Story Cards plus live directional sentiment. Relationship state is causal: relevant trust, suspicion, resentment, loyalty, comfort, attraction, jealousy, fear and boundaries become behavioural pressure in later Context.",
     "",
-    "━━━━━━━━━━ 🎮 COMMANDS ━━━━━━━━━━",
-    "/peek <name> — force a private-thought check.",
-    "/peek <name> core — force a core-truth check.",
-    "/card <name> — force a Codex Story Card request.",
-    "/alias <character> = <alias> — add a manual nickname/callsign.",
-    "/unalias <character> = <alias> — remove it.",
-    "/unsaid status — private state diagnostic.",
-    "/unsaid health — runtime/performance diagnostic.",
-    "/unsaid resetcodex — reset Codex tracking queues without deleting cards.",
+    "enabled  [true/false]  Default: true",
+    "Master relationship switch. false preserves stored bonds but stops new relationship learning and relationship-context guidance.",
     "",
-    "✨ QUICK TUNING",
-    "• Novel-like/subtle: thoughtChance=0.2–0.35, thoughtCD=3–5, showThoughts=false, subtleHints=true.",
-    "• Character-heavy drama: thoughtChance=0.45–0.6, thoughtCD=2, mindSlots=14–18.",
-    "• Large cast/performance: continuityMinds=1–2, mindSlots=8–12."
+    "visibleEvents  [true/false]  Default: true",
+    "Learns directional changes only from explicit visible interactions such as help, comfort, affection, flirting, arguments, threats, attacks, betrayal, apology, rescue and boundary violations. It does not invent the player's private feelings.",
+    "",
+    "seedCardRoles  [true/false]  Default: true",
+    "Imports unambiguous public relationship roles from premade Character Story Cards. Family/friend/rival/ally/mentor/romantic and other supported roles are interpreted directionally; the script derives inverse family roles where appropriate.",
+    "",
+    "relationshipTwists  [true/false]  Default: true",
+    "Allows established relationship pressure to reinforce compatible long-arc twist threads. This never counts mere relationship metrics as factual proof of a twist; normal evidence and payoff gates still apply.",
+    "",
+    "Direction matters: NPC → YOU is separate from YOU → NPC, and NPC ↔ NPC bonds are stored independently. Public role canon is preserved while live sentiment can evolve around it."
+  ].join("\n");
+}
+function renderEchoNotes(){
+  return [
+    CONFIG_SECTION_ECHO,
+    "🌘 ECHO VEIL — VISIBLE MOTIVE CONTINUITY",
+    "A bounded live-scene continuity layer. It tracks motives that were actually visible in story text and can carry them forward without creating secret facts.",
+    "",
+    "enabled  [true/false]  Default: true",
+    "Master ECHO VEIL switch. false preserves stored lightweight state but stops ECHO scene/motive processing.",
+    "",
+    "sceneTracking  [true/false]  Default: true",
+    "Tracks a bounded active cast and visible scene signals so recurring NPCs do not reset merely because their last sentence fell out of immediate prose.",
+    "",
+    "motiveContinuity  [true/false]  Default: true",
+    "Feeds relevant visibly established NPC motives back into Context so priorities can persist across turns. Newer visible evidence can revise an old motive."
+  ].join("\n");
+}
+function renderIntegrationNotes(){
+  return [
+    CONFIG_SECTION_INTEGRATION,
+    "🔗 INTEGRATION / WORLD CONTINUITY",
+    "Coordinates lightweight world and canon continuity without mirroring the whole Story Card archive into persistent state.",
+    "",
+    "enabled  [true/false]  Default: true",
+    "Master switch for the lightweight integration layer. false disables World Engine and Canon Sentinel packets while leaving CODEX, NPC minds, relationships and twists independently configurable.",
+    "",
+    "worldEngine  [true/false]  Default: true",
+    "Uses active typed Location/Place/Setting Story Cards to maintain the current established scene location until visible travel, displacement or relocation occurs. This helps prevent arbitrary scene teleporting.",
+    "",
+    "canonSentinel  [true/false]  Default: true",
+    "Carries forward a small set of recent visible story beats after they leave immediate Context. Dialogue claims remain claims, not automatic objective truth, and newer player/story events override older continuity."
+  ].join("\n");
+}
+function renderCoreNotes(cfg,c){
+  return [
+    "⚙️ CROSSED ECHOES — CORE CONFIG",
+    "This is the single main configuration card for twists, NPC minds, relationships, visible motive continuity and world/canon integration. CODEX has one separate specialist card because Story Card generation has many independent controls.",
+    "",
+    "HOW TO EDIT: change only the value after '=' in this card's Entry. Keep section names and key names intact. Booleans use true/false. Invalid numbers are clamped or ignored. These Notes document every exposed CORE option; they are not story lore and are not intended for model context.",
+    "",
+    renderTwistNotes(cfg||Object.assign({},CP_DEFAULTS),(c||null)),
+    "",
+    renderUnsaidNotes(),
+    "",
+    renderCrossedWiresNotes(),
+    "",
+    renderEchoNotes(),
+    "",
+    renderIntegrationNotes(),
+    "",
+    "RECOMMENDED DEFAULT: leave the CORE defaults alone until you have a specific pacing/performance reason to change them. /status and /pulse show whether systems are active without exposing private NPC thoughts or twist answers."
   ].join("\n");
 }
 function renderCodexNotes() {
@@ -6209,7 +6304,8 @@ function renderCodexNotes() {
     "• Conservative/huge library: cardChars=700–950, mentions=4–6, codexCD=6–10, charObserve=4–6, protectManual=true."
   ].join("\n");
 }
-var CONFIG_DEFAULT_UNSAID_NOTES_SECTION = renderUnsaidNotes();
+var CONFIG_DEFAULT_CORE_NOTES = renderCoreNotes(Object.assign({}, CP_DEFAULTS), null);
+var CONFIG_DEFAULT_UNSAID_NOTES_SECTION = CONFIG_DEFAULT_CORE_NOTES; // compatibility alias
 var CONFIG_DEFAULT_CODEX_NOTES_SECTION = renderCodexNotes();
 function ensureCodexConfigCard(sourceCard) {
   let card = null;
@@ -6240,12 +6336,14 @@ function ensureCodexConfigCard(sourceCard) {
   if (card) {
     var codexEntryNow = CW_cardEntryText(card);
     var wantedCodexEntry = codexEntryNow.trim() ? codexEntryNow : renderCodexSection(UNSAID_DEFAULTS);
-    var codexNotesNow = String(card.description || card.notes || "");
-    var wantedCodexNotes = codexNotesNow === CONFIG_DEFAULT_CODEX_NOTES_SECTION ? codexNotesNow : CONFIG_DEFAULT_CODEX_NOTES_SECTION;
+    var codexHasTitle = Object.prototype.hasOwnProperty.call(card,"title") || Object.prototype.hasOwnProperty.call(card,"name");
+    var codexHasNotes = Object.prototype.hasOwnProperty.call(card,"description") || Object.prototype.hasOwnProperty.call(card,"notes");
+    var codexNotesNow = codexHasNotes ? String(card.description || card.notes || "") : "";
+    var wantedCodexNotes = codexHasNotes ? CONFIG_DEFAULT_CODEX_NOTES_SECTION : codexNotesNow;
     var codexNeedsCommit = CE_cardKeysCore(card) !== CE_CONFIG_KEY_CODEX ||
       String(card.type || "") !== CE_CONFIG_CATEGORY ||
-      String(card.title || card.name || "") !== CE_CONFIG_TITLE_CODEX ||
-      codexEntryNow !== wantedCodexEntry || codexNotesNow !== wantedCodexNotes;
+      (codexHasTitle && String(card.title || card.name || "") !== CE_CONFIG_TITLE_CODEX) ||
+      codexEntryNow !== wantedCodexEntry || (codexHasNotes && codexNotesNow !== wantedCodexNotes);
     if (codexNeedsCommit) {
       var committed = CE_updateStoryCardCompat(card, CE_CONFIG_KEY_CODEX, wantedCodexEntry, CE_CONFIG_CATEGORY, CE_CONFIG_TITLE_CODEX, wantedCodexNotes);
       card = committed.card || card;
@@ -6278,97 +6376,69 @@ function parseUnsaidSectionInto(cfg, section) {
 }
 function canonicalSharedConfigEntryText(current) {
   current = String(current || "");
-  var twistSection = extractConfigSection(current, CONFIG_SECTION_TWIST);
-  var unsaidSection = extractConfigSection(current, CONFIG_SECTION_UNSAID);
-  if (!twistSection && !unsaidSection) return current;
   var twistCfg = Object.assign({}, CP_DEFAULTS, (state && state.contingencyConfig) || {});
-  if (twistSection) applyTwistConfigText(twistCfg, twistSection);
   var unsaidCfg = Object.assign({}, UNSAID_DEFAULTS);
-  if (unsaidSection) parseUnsaidSectionInto(unsaidCfg, unsaidSection);
+  var relCfg = CE_coreRelationshipDefaults(), echoCfg=CE_coreEchoDefaults(), integrationCfg=CE_coreIntegrationDefaults();
+  var sec=extractConfigSection(current,CONFIG_SECTION_TWIST); if(sec)applyTwistConfigText(twistCfg,sec);
+  sec=extractConfigSection(current,CONFIG_SECTION_UNSAID); if(sec){parseUnsaidSectionInto(unsaidCfg,sec);var legacyRel={enabled:unsaidCfg.relationshipsEnabled,visibleEvents:unsaidCfg.relationshipVisibleEvents,seedCardRoles:unsaidCfg.relationshipSeedCardRoles,relationshipTwists:true};relCfg=Object.assign(relCfg,legacyRel);}
+  sec=extractConfigSection(current,CONFIG_SECTION_CROSSED); if(sec)applyCrossedWiresConfigText(relCfg,sec);
+  sec=extractConfigSection(current,CONFIG_SECTION_ECHO); if(sec)applyEchoConfigText(echoCfg,sec);
+  sec=extractConfigSection(current,CONFIG_SECTION_INTEGRATION); if(sec)applyIntegrationConfigText(integrationCfg,sec);
   state.contingencyConfig = Object.assign({}, twistCfg);
-  return renderTwistSection(twistCfg).replace(/\s+$/, "") + "\n\n" + renderUnsaidSection(unsaidCfg);
+  return [renderTwistSection(twistCfg),renderUnsaidSection(unsaidCfg),renderCrossedWiresSection(relCfg),renderEchoSection(echoCfg),renderIntegrationSection(integrationCfg)].map(function(x){return x.replace(/\s+$/,'');}).join("\n\n")+"\n";
 }
 function normalizeSharedConfigEntry(card) {
   if (!card) return false;
-  var current = CW_cardEntryText(card);
-  var canonical = canonicalSharedConfigEntryText(current);
+  var current = CW_cardEntryText(card), canonical = canonicalSharedConfigEntryText(current);
   if (canonical === current) return false;
-  var committed = CE_updateStoryCardCompat(card, CE_cardKeysCore(card), canonical, String(card.type || CE_CONFIG_CATEGORY), String(card.title || card.name || CONFIG_CARD_TITLE), String(card.description || card.notes || ""));
+  var committed = CE_updateStoryCardCompat(card, CE_CONFIG_KEY_CORE, canonical, CE_CONFIG_CATEGORY, CONFIG_CARD_TITLE, renderCoreNotes(Object.assign({},CP_DEFAULTS,(state&&state.contingencyConfig)||{}),null));
   return !!committed.ok;
 }
-function ensureSharedConfigCard() {
-  let card = findConfigCardTolerant(CONFIG_CARD_TITLE) || findConfigCardTolerant("UNSPOKEN TURNS — Config");
-  if (!card) {
-    const oldTwistCard = findConfigCardTolerant("Twists and Turns Config");
-    const oldUnsaidCard = findConfigCardTolerant("UNSAID Config");
-    const migrating = !!(oldTwistCard || oldUnsaidCard);
-    const twistCfg = Object.assign({}, (typeof CP_DEFAULTS !== "undefined" ? CP_DEFAULTS : {}), (typeof state !== "undefined" && state.contingencyConfig) || {});
-    if (oldTwistCard && CW_cardEntryText(oldTwistCard)) applyTwistConfigText(twistCfg, CW_cardEntryText(oldTwistCard));
-    if (typeof state !== "undefined" && state) state.contingencyConfig = Object.assign({}, twistCfg);
-    const twistSection = renderTwistSection(twistCfg);
-    const oldUnsaidEntry = oldUnsaidCard ? CW_cardEntryText(oldUnsaidCard) : "";
-    const unsaidEntrySection = (oldUnsaidCard && oldUnsaidEntry.trim())
-      ? CONFIG_SECTION_UNSAID + "\n" + oldUnsaidEntry.trim() + "\n"
-      : renderUnsaidSection(UNSAID_DEFAULTS);
-    const unsaidNotesSection = (oldUnsaidCard && oldUnsaidCard.description && oldUnsaidCard.description.trim())
-      ? CONFIG_SECTION_UNSAID + "\n" + oldUnsaidCard.description.trim()
-      : CONFIG_DEFAULT_UNSAID_NOTES_SECTION;
-    const twistNotesSection = renderTwistNotes(
-      twistCfg,
-      (typeof state !== "undefined" && state && state.contingency) ? state.contingency : null
-    );
-    const initialEntry = twistSection.replace(/\s+$/, "") + "\n\n" + unsaidEntrySection;
-    const initialDescription = twistNotesSection.replace(/\s+$/, "") + "\n\n" + unsaidNotesSection;
-    const cardKeys = CE_CONFIG_KEY_UNSAID;
-    const added = CE_tryAddStoryCard(cardKeys, initialEntry, CE_CONFIG_CATEGORY, CONFIG_CARD_TITLE, initialDescription, { allowReserved:true });
-    card = added.card;
-    if (!card) card = storyCards.find(sc => CE_isRequiredConfigCard(sc, CE_CONFIG_KEY_UNSAID)) || null;
-    if (!card) {
-      for (let i = 0; i < storyCards.length; i++) {
-        if (storyCards[i] && CE_cardIdentityName(storyCards[i]) === CONFIG_CARD_TITLE) { card = storyCards[i]; break; }
-      }
-    }
-    if (card) {
-      var migrateEntry = CW_cardEntryText(card).trim() ? CW_cardEntryText(card) : initialEntry;
-      var migrateNotes = String(card.description || card.notes || "").trim() ? String(card.description || card.notes || "") : initialDescription;
-      var migrateCommit = CE_updateStoryCardCompat(card, cardKeys, migrateEntry, CE_CONFIG_CATEGORY, CONFIG_CARD_TITLE, migrateNotes);
-      card = migrateCommit.card || card;
-      removeStoryCardByTitle("Twists and Turns Config");
-      removeStoryCardByTitle("UNSAID Config");
-      if (migrating && typeof pushMessage === "function") {
-        pushMessage(`⚙️ Your Twists and Turns and UNSAID config cards have been combined into one — check "${CONFIG_CARD_TITLE}". All your existing settings carried over.`);
-      }
-    }
+function CE_findLegacyOwnedConfig(key,title){
+  if(typeof storyCards==="undefined"||!Array.isArray(storyCards))return null;
+  for(var i=0;i<storyCards.length;i++){
+    var c=storyCards[i];if(!c)continue;var t=String(c.title||c.name||"").trim(),type=String(c.type||"").toLowerCase(),has=false;
+    try{has=CE_hasCardKey(c,key);}catch(_){}
+    if((t===title||has)&&(type==="crossed echoes config"||t===title))return c;
   }
-  if (card) {
-    var sharedEntryNow = CW_cardEntryText(card);
-    var wantedSharedEntry = sharedEntryNow;
-    if (wantedSharedEntry.indexOf(CONFIG_SECTION_TWIST) === -1) {
-      wantedSharedEntry = spliceConfigSection(wantedSharedEntry, CONFIG_SECTION_TWIST, renderTwistSection(Object.assign({}, CP_DEFAULTS, (state.contingencyConfig || {}))));
-    }
-    if (wantedSharedEntry.indexOf(CONFIG_SECTION_UNSAID) === -1) {
-      wantedSharedEntry = spliceConfigSection(wantedSharedEntry, CONFIG_SECTION_UNSAID, renderUnsaidSection(UNSAID_DEFAULTS));
-    }
-    wantedSharedEntry = canonicalSharedConfigEntryText(wantedSharedEntry);
-    var sharedNotesNow = String(card.description || card.notes || "");
-    var wantedSharedNotes = sharedNotesNow;
-    if (wantedSharedNotes.indexOf(CONFIG_SECTION_TWIST) === -1) {
-      wantedSharedNotes = spliceConfigSection(
-        wantedSharedNotes, CONFIG_SECTION_TWIST,
-        renderTwistNotes(Object.assign({}, CP_DEFAULTS, (state.contingencyConfig || {})), state.contingency || null)
-      );
-    }
-    if (wantedSharedNotes.indexOf(CONFIG_SECTION_UNSAID) === -1) {
-      wantedSharedNotes = spliceConfigSection(wantedSharedNotes, CONFIG_SECTION_UNSAID, CONFIG_DEFAULT_UNSAID_NOTES_SECTION);
-    }
-    var sharedNeedsCommit = CE_cardKeysCore(card) !== CE_CONFIG_KEY_UNSAID ||
-      String(card.type || "") !== CE_CONFIG_CATEGORY ||
-      String(card.title || card.name || "") !== CONFIG_CARD_TITLE ||
-      sharedEntryNow !== wantedSharedEntry || sharedNotesNow !== wantedSharedNotes;
-    if (sharedNeedsCommit) {
-      var committed = CE_updateStoryCardCompat(card, CE_CONFIG_KEY_UNSAID, wantedSharedEntry, CE_CONFIG_CATEGORY, CONFIG_CARD_TITLE, wantedSharedNotes);
-      card = committed.card || card;
-    }
+  return null;
+}
+function CE_findLegacyStandaloneConfig(title,entryRegex){
+  if(typeof storyCards==="undefined"||!Array.isArray(storyCards))return null;
+  for(var i=0;i<storyCards.length;i++){var c=storyCards[i];if(!c)continue;var t=String(c.title||c.name||"").trim(),type=String(c.type||"").toLowerCase(),entry=CE_cardEntryCore(c);if(t===title&&(type.indexOf("config")>=0||(entryRegex&&entryRegex.test(entry))))return c;}
+  return null;
+}
+function CE_removeLegacyStandaloneConfig(title,entryRegex){var c=CE_findLegacyStandaloneConfig(title,entryRegex);if(!c)return false;var i=storyCards.indexOf(c);if(i<0)return false;try{removeStoryCard(i);return true;}catch(_){return false;}}
+function CE_removeLegacyOwnedConfigs(){
+  var pairs=[[CE_LEGACY_CONFIG_KEY_UNSAID,"CROSSED ECHOES — Config — UNSPOKEN TURNS"],[CE_CONFIG_KEY_CROSSED,CE_CONFIG_TITLE_CROSSED],[CE_CONFIG_KEY_ECHO,CE_CONFIG_TITLE_ECHO],[CE_CONFIG_KEY_INTEGRATION,CE_CONFIG_TITLE_INTEGRATION]];
+  for(var p=pairs.length-1;p>=0;p--){var c=CE_findLegacyOwnedConfig(pairs[p][0],pairs[p][1]);if(!c)continue;var idx=storyCards.indexOf(c);if(idx>=0)try{removeStoryCard(idx);}catch(_){}}
+  CE_removeLegacyStandaloneConfig("Twists and Turns Config",/\b(?:twist|seed|payoff)\b/i);CE_removeLegacyStandaloneConfig("UNSAID Config",/\b(?:thought|unsaid|adaptiveMind)\b/i);
+}
+function ensureSharedConfigCard() {
+  var card=null;
+  if(typeof storyCards!=="undefined"&&Array.isArray(storyCards))card=storyCards.find(function(c){return c&&CE_isRequiredConfigCard(c,CE_CONFIG_KEY_CORE);})||null;
+  if(!card){
+    var oldShared=CE_findLegacyOwnedConfig(CE_LEGACY_CONFIG_KEY_UNSAID,"CROSSED ECHOES — Config — UNSPOKEN TURNS")||CE_findLegacyStandaloneConfig("UNSPOKEN TURNS — Config",/==\s*(?:TWISTS AND TURNS|UNSAID)\s*==/i)||CE_findLegacyStandaloneConfig("UNSAID Config",/\b(?:thought|unsaid|adaptiveMind)\b/i);
+    var oldTwist=CE_findLegacyStandaloneConfig("Twists and Turns Config",/\b(?:twist|seed|payoff)\b/i);
+    var oldCross=CE_findLegacyOwnedConfig(CE_CONFIG_KEY_CROSSED,CE_CONFIG_TITLE_CROSSED),oldEcho=CE_findLegacyOwnedConfig(CE_CONFIG_KEY_ECHO,CE_CONFIG_TITLE_ECHO),oldInt=CE_findLegacyOwnedConfig(CE_CONFIG_KEY_INTEGRATION,CE_CONFIG_TITLE_INTEGRATION);
+    var migrating=!!(oldShared||oldTwist||oldCross||oldEcho||oldInt);
+    var twistCfg=Object.assign({},CP_DEFAULTS,(state&&state.contingencyConfig)||{}),unsaidCfg=Object.assign({},UNSAID_DEFAULTS),relCfg=CE_coreRelationshipDefaults(),echoCfg=CE_coreEchoDefaults(),intCfg=CE_coreIntegrationDefaults();
+    if(oldTwist)applyTwistConfigText(twistCfg,CW_cardEntryText(oldTwist));
+    if(oldShared){var e=CW_cardEntryText(oldShared),ts=extractConfigSection(e,CONFIG_SECTION_TWIST),us=extractConfigSection(e,CONFIG_SECTION_UNSAID);if(ts)applyTwistConfigText(twistCfg,ts);if(us){parseUnsaidSectionInto(unsaidCfg,us);relCfg.enabled=unsaidCfg.relationshipsEnabled!==false;relCfg.visibleEvents=unsaidCfg.relationshipVisibleEvents!==false;relCfg.seedCardRoles=unsaidCfg.relationshipSeedCardRoles!==false;}}
+    if(oldCross)applyCrossedWiresConfigText(relCfg,CW_cardEntryText(oldCross));if(oldEcho)applyEchoConfigText(echoCfg,CW_cardEntryText(oldEcho));if(oldInt)applyIntegrationConfigText(intCfg,CW_cardEntryText(oldInt));
+    state.contingencyConfig=Object.assign({},twistCfg);
+    var entry=[renderTwistSection(twistCfg),renderUnsaidSection(unsaidCfg),renderCrossedWiresSection(relCfg),renderEchoSection(echoCfg),renderIntegrationSection(intCfg)].map(function(x){return x.replace(/\s+$/,'');}).join("\n\n")+"\n";
+    var notes=renderCoreNotes(twistCfg,(state&&state.contingency)||null);
+    var added=CE_tryAddStoryCard(CE_CONFIG_KEY_CORE,entry,CE_CONFIG_CATEGORY,CONFIG_CARD_TITLE,notes,{allowReserved:true});card=added&&added.card?added.card:null;
+    if(!card)card=(storyCards||[]).find(function(c){return c&&CE_isRequiredConfigCard(c,CE_CONFIG_KEY_CORE);})||null;
+    if(card){CE_removeLegacyOwnedConfigs();if(migrating&&typeof pushMessage==="function")pushMessage("⚙️ CROSSED ECHOES consolidated legacy configuration into 2 cards: CORE + CODEX. Existing supported settings were carried forward.");}
+  }
+  if(card){
+    var entryNow=CW_cardEntryText(card),wanted=canonicalSharedConfigEntryText(entryNow);
+    var hasTitle=Object.prototype.hasOwnProperty.call(card,"title")||Object.prototype.hasOwnProperty.call(card,"name"),hasNotes=Object.prototype.hasOwnProperty.call(card,"description")||Object.prototype.hasOwnProperty.call(card,"notes");
+    var notesNow=hasNotes?String(card.description||card.notes||""):"",wantedNotes=hasNotes?renderCoreNotes(Object.assign({},CP_DEFAULTS,(state&&state.contingencyConfig)||{}),null):notesNow;
+    var needs=CE_cardKeysCore(card)!==CE_CONFIG_KEY_CORE||String(card.type||"")!==CE_CONFIG_CATEGORY||(hasTitle&&String(card.title||card.name||"")!==CONFIG_CARD_TITLE)||entryNow!==wanted||(hasNotes&&notesNow!==wantedNotes);
+    if(needs){var committed=CE_updateStoryCardCompat(card,CE_CONFIG_KEY_CORE,wanted,CE_CONFIG_CATEGORY,hasTitle?CONFIG_CARD_TITLE:undefined,hasNotes?wantedNotes:undefined);card=committed.card||card;}
   }
   return card;
 }
@@ -6414,8 +6484,14 @@ function readUnsaidConfig() {
   const cfg = { ...UNSAID_DEFAULTS };
   if (!card) { cfg.cast = []; return cfg; }
   initUnsaid();
-  const entrySection = extractConfigSection(CW_cardEntryText(card), CONFIG_SECTION_UNSAID);
+  const coreEntry = CW_cardEntryText(card);
+  const entrySection = extractConfigSection(coreEntry, CONFIG_SECTION_UNSAID);
   parseUnsaidSectionInto(cfg, entrySection);
+  const relSection = extractConfigSection(coreEntry, CONFIG_SECTION_CROSSED);
+  const relCfg = applyCrossedWiresConfigText({enabled:cfg.relationshipsEnabled,visibleEvents:cfg.relationshipVisibleEvents,seedCardRoles:cfg.relationshipSeedCardRoles,relationshipTwists:true}, relSection);
+  cfg.relationshipsEnabled = relCfg.enabled !== false;
+  cfg.relationshipVisibleEvents = relCfg.visibleEvents !== false;
+  cfg.relationshipSeedCardRoles = relCfg.seedCardRoles !== false;
   const codexEntrySection = codexCard ? CW_cardEntryText(codexCard) : "";
   applyCodexConfigText(cfg, codexEntrySection);
   const resetValue = configBool(codexEntrySection, "resetCodex", /Reset Codex tracking now:\s*(true|false)/i);
@@ -10845,7 +10921,7 @@ function CW_liteRelationSentence(link){
   if(!link)return "";var m=link.metrics||{},bits=[];
   function add(k,label){var v=Number(m[k]||0);if(Math.abs(v)>=2)bits.push(label+" "+(v>0?"+":"")+Math.round(v));}
   add("trust","trust");add("affection","affection");add("attraction","attraction");add("respect","respect");add("fear","fear");add("resentment","resentment");add("jealousy","jealousy");add("suspicion","suspicion");add("loyalty","loyalty");add("intimacy","intimacy");add("comfort","comfort");add("boundaryPressure","boundary pressure");
-  return link.from+" → "+link.to+(link.role&&link.role!=="unknown"?" ["+link.role+"]":"")+": "+(bits.length?bits.join(", "):"forming/neutral");
+  return link.from+" → "+link.to+(link.role&&link.role!=="unknown"?" ["+link.role+"]":"")+": "+(bits.length?bits.join(", "):(link.role&&link.role!=="unknown"?"established role; live sentiment not yet observed":"forming/neutral"));
 }
 function CW_liteRecord(from,to,kind,text,source,recipientEffect){
   var def=CW_LITE_EVENT_DEFS[kind];if(!def)return null;var a=CW_liteCanonical(from),b=CW_liteCanonical(to);if(!a||!b||CW_liteKey(a)===CW_liteKey(b))return null;
@@ -10916,20 +10992,30 @@ function CW_liteCharacterNames(text,cap){
       var nonPersonTail=/\b(?:Hall|House|Tower|Street|Road|Lane|Avenue|Bridge|Station|University|College|Institute|Laboratory|Lab|Hospital|Company|Corporation|Corp|Ltd|Limited|LLC|PLC|Society|Guild|Order|Collective|Foundation|Agency|Department|Project|Program|Programme|Network|Freight|Logistics|Holdings|Key|Device|Sword|Weapon|Artifact|Archive|Facility|Base|Warehouse|Kingdom|Empire|Republic|City|County|Forest|Valley|Mountain|River|Island)$/i;
       while(out.length<limit&&(pm=personRe.exec(src))){
         var pc=String(pm[0]||"").replace(/^(?:Mr|Mrs|Ms|Miss|Dr|Prof|Capt|Gen|Col|Lt|Sgt|Cmdr|Maj|Adm|Rev|Hon|Gov|Sen|Rep|Det|Insp)\.?\s+/i,"").trim();
-        if(!pc||nonPersonTail.test(pc)||/^(?:The|This|That|These|Those|You)\b/.test(pc))continue;
+        var nonPersonPhrase=/^(?:Recent Story|Story Summary|Current Story|Current Scene|Plot Essentials|Author Notes?|Author['’]s Note|AI Instructions|Game State|Context Memory|Front Memory|World Info|Story Cards?|CROSS(?:ED)? ECHOES)$/i;
+        if(!pc||nonPersonTail.test(pc)||nonPersonPhrase.test(pc)||/^(?:The|This|That|These|Those|You)\b/.test(pc))continue;
         add(pc);
       }
     }
   }catch(_){}
   try{
     var cards=(typeof storyCards!=="undefined"&&Array.isArray(storyCards))?storyCards:[];
-    for(var i=0;i<cards.length&&out.length<limit;i++){
-      var c=cards[i];if(!c||!/^(?:character|npc|person|cast|companion)$/i.test(String(c.type||"")))continue;
-      var identity="";try{identity=CE_cardIdentityName(c);}catch(_){}
-      if(!identity)continue;
-      var hit=present(identity);
-      if(!hit){var keys=Array.isArray(c.keys)?c.keys.join(","):String(c.keys||"");if(keys){var parts=keys.split(",");for(var j=0;j<parts.length&&j<12;j++){var alias=String(parts[j]||"").trim();if(alias&&alias.length>1&&present(alias)){hit=true;break;}}}}
-      if(hit)add(identity);
+    // Full-card fallback is useful on ordinary adventures, but at multi-thousand-card
+    // scale it can consume most of AI Dungeon's per-hook time budget. Live proper
+    // names, known minds and cast-registry names above already cover active NPCs.
+    // Keep only a bounded edge sample for single-name/alias-only characters.
+    var ranges=[];
+    if(cards.length<=1200)ranges=[[0,cards.length]];
+    else ranges=[[0,96],[Math.max(96,cards.length-96),cards.length]];
+    for(var rg=0;rg<ranges.length&&out.length<limit;rg++){
+      for(var i=ranges[rg][0];i<ranges[rg][1]&&out.length<limit;i++){
+        var c=cards[i];if(!c||!/^(?:character|npc|person|cast|companion)$/i.test(String(c.type||"")))continue;
+        var identity="";try{identity=CE_cardIdentityName(c);}catch(_){}
+        if(!identity)continue;
+        var hit=present(identity);
+        if(!hit){var keys=Array.isArray(c.keys)?c.keys.join(","):String(c.keys||"");if(keys){var parts=keys.split(",");for(var j=0;j<parts.length&&j<12;j++){var alias=String(parts[j]||"").trim();if(alias&&alias.length>1&&present(alias)){hit=true;break;}}}}
+        if(hit)add(identity);
+      }
     }
   }catch(_){}
   CW_LITE_NAME_CACHE_KEY=cacheKey;CW_LITE_NAME_CACHE_VALUE=out.slice(0,16);return out.slice(0,limit);
@@ -10981,9 +11067,11 @@ function CW_liteRoleFromText(text){
   if(/\b(?:girlfriend|boyfriend|romantic partner|dating|lover)\b/.test(s))return "romantic";
   if(/\b(?:ex-wife|ex-husband|ex-girlfriend|ex-boyfriend|former partner|ex-partner)\b/.test(s))return "ex-partner";
   if(/\b(?:great[- ]grandmother|great[- ]grandfather|great[- ]grandparent)\b/.test(s))return "great-grandparent";
+  if(/\b(?:great[- ]granddaughter|great[- ]grandson|great[- ]grandchild)\b/.test(s))return "great-grandchild";
   if(/\b(?:grandmother|grandfather|grandparent)\b/.test(s))return "grandparent";
   if(/\b(?:granddaughter|grandson|grandchild)\b/.test(s))return "grandchild";
   if(/\b(?:great[- ]aunt|great[- ]uncle)\b/.test(s))return "great-aunt/uncle";
+  if(/\b(?:great[- ]niece|great[- ]nephew)\b/.test(s))return "great-niece/nephew";
   if(/\b(?:aunt|uncle)\b/.test(s))return "aunt/uncle";
   if(/\b(?:niece|nephew)\b/.test(s))return "niece/nephew";
   if(/\b(?:mother|father|parent)\b/.test(s))return "parent";
@@ -10991,13 +11079,90 @@ function CW_liteRoleFromText(text){
   if(/\b(?:sister|brother|sibling)\b/.test(s))return "sibling";
   if(/\bcousin\b/.test(s))return "cousin";
   if(/\b(?:best friend|close friend|friends?|friendship)\b/.test(s))return "friend";
+  if(/\b(?:ally|allies|trusted ally|companion-in-arms)\b/.test(s))return "ally";
+  if(/\b(?:guardian|legal guardian|protector)\b/.test(s))return "guardian";
+  if(/\b(?:ward|protected dependent)\b/.test(s))return "ward";
+  if(/\b(?:neighbor|neighbour)\b/.test(s))return "neighbor";
   if(/\b(?:mentor|teacher|coach|supervisor|adviser|advisor)\b/.test(s))return "mentor";
   if(/\b(?:student|mentee|prot[eé]g[eé])\b/.test(s))return "mentee";
   if(/\b(?:rival|enemy|nemesis|adversary)\b/.test(s))return "rival";
   if(/\b(?:roommate|flatmate|housemate)\b/.test(s))return "roommate";
-  if(/\b(?:coworker|co-worker|colleague|teammate|team-mate|peer|peers)\b/.test(s))return "peer";
-  if(/\b(?:partner|field partner|work partner)\b/.test(s))return "partner";
+  if(/\b(?:coworker|co-worker|colleague|teammate|team-mate|peer|peers|classmate|schoolmate)\b/.test(s))return "peer";
+  if(/\b(?:boss|manager|employer|commander|team leader)\b/.test(s))return "superior";
+  if(/\b(?:employee|subordinate|direct report|crew member)\b/.test(s))return "subordinate";
+  if(/\b(?:client)\b/.test(s))return "client";
+  if(/\b(?:lawyer|attorney|counsel)\b/.test(s))return "counsel";
+  if(/\b(?:partner|field partner|work partner|business partner)\b/.test(s))return "partner";
   return "unknown";
+}
+var CW_LITE_ROLE_INVERSE={
+  "spouse":"spouse","fiance":"fiance","romantic":"romantic","ex-partner":"ex-partner",
+  "parent":"child","child":"parent","grandparent":"grandchild","grandchild":"grandparent",
+  "great-grandparent":"great-grandchild","great-grandchild":"great-grandparent",
+  "aunt/uncle":"niece/nephew","niece/nephew":"aunt/uncle",
+  "great-aunt/uncle":"great-niece/nephew","great-niece/nephew":"great-aunt/uncle",
+  "sibling":"sibling","cousin":"cousin","friend":"friend","ally":"ally","guardian":"ward","ward":"guardian","neighbor":"neighbor","mentor":"mentee","mentee":"mentor",
+  "rival":"rival","roommate":"roommate","peer":"peer","superior":"subordinate","subordinate":"superior","client":"counsel","counsel":"client","partner":"partner","unknown":"unknown"
+};
+function CW_liteInverseRole(role){return CW_LITE_ROLE_INVERSE[String(role||"unknown")]||"unknown";}
+function CW_liteRelationshipBlock(entry){
+  var src=String(entry||"").replace(/\r/g,""); if(!src)return "";
+  var lines=src.split("\n"),out=[],inside=false;
+  var stop=/^\s*(?:name|type|age|role|occupation|job|appearance|personality|traits?|powers?|abilities|skills?|equipment|background|history|goals?|fears?|secrets?|location|status|description|aliases?)\s*:/i;
+  for(var i=0;i<lines.length;i++){
+    var line=lines[i];
+    var m=line.match(/^\s*(?:relationships?|family|friends?|allies|rivals?|connections?|bonds?)\s*:\s*(.*)$/i);
+    if(m){inside=true;if(m[1])out.push(m[1]);continue;}
+    if(inside&&stop.test(line)){inside=false;continue;}
+    if(inside){if(/^\s*$/.test(line)){if(out.length)out.push("");continue;}out.push(line);}
+    if(/^\s*(?:mother|father|parent|daughter|son|child|sister|brother|sibling|aunt|uncle|niece|nephew|cousin|grandmother|grandfather|grandparent|granddaughter|grandson|grandchild|spouse|wife|husband|partner|girlfriend|boyfriend|fianc[eé]e?|mentor|mentee|roommate|flatmate|rival|enemy|friend)\s*:/i.test(line))out.push(line);
+  }
+  return out.join("\n").trim();
+}
+function CW_liteRelationshipTargets(block){
+  var src=String(block||""),out=[],seen={};
+  function add(n){n=CW_liteClean(n);var k=CW_liteKey(n);if(!n||!k||seen[k])return;seen[k]=1;out.push(n);}
+  try{(CE_playerIdentityNames()||[]).forEach(function(p){if(p&&CW_liteContainsName(src,p))add(p);});}catch(_){}
+  // Relationship sections are trusted structured lore. Extract person-shaped names directly
+  // instead of walking a potentially 5,000-card archive for every relationship-bearing card.
+  try{
+    var re=/\b(?:[A-ZÀ-ÖØ-Þ][A-Za-zÀ-ÖØ-öø-ÿ'’.-]{1,30})(?:\s+(?:[A-ZÀ-ÖØ-Þ][A-Za-zÀ-ÖØ-öø-ÿ'’.-]{1,30})){1,3}\b/g,m;
+    var reject=/^(?:Relationships?|Family|Friends?|Allies|Rivals?|Connections?|Bonds?|Professional Rival|Close Friend|Best Friend|Great Grandparent|Great Grandchild)$/i;
+    while(out.length<32&&(m=re.exec(src))){var n=String(m[0]||"").trim();if(!n||reject.test(n))continue;add(n);}
+  }catch(_){}
+  // Support common single-name relationship entries when that alias already resolves uniquely.
+  try{
+    var lines=src.split(/\n|\s*;\s*/).filter(Boolean);
+    for(var i=0;i<lines.length&&out.length<32;i++){
+      var x=lines[i].match(/^\s*[•*\-]?\s*([A-ZÀ-ÖØ-Þ][A-Za-zÀ-ÖØ-öø-ÿ'’.-]{2,30})\s*(?:\(|[:=—-])/);
+      if(!x)continue;var cand=x[1];
+      var rows=typeof CE_sharedLargeLookup==="function"?CE_sharedLargeLookup("alias",CE_sharedCardNorm(cand)):[];
+      if(rows&&rows.length===1&&rows[0].identity)add(rows[0].identity);
+    }
+  }catch(_){}
+  return out;
+}
+function CW_liteRelationshipLocal(block,other){
+  var src=String(block||""),full=String(other||"").trim();if(!src||!full)return "";
+  var lines=src.split(/\n|\s*;\s*/).filter(Boolean),first=full.split(/\s+/)[0]||"";
+  for(var i=0;i<lines.length;i++){if(CW_liteContainsName(lines[i],full))return lines[i].trim();}
+  if(first.length>2)for(var j=0;j<lines.length;j++){if(CW_liteContainsName(lines[j],first))return lines[j].trim();}
+  return "";
+}
+function CW_liteRoleDescriptor(local,other){
+  var line=String(local||"").trim(),name=String(other||"").trim();if(!line)return {role:"unknown",direct:false};
+  var esc=name.replace(/[.*+?^${}()|[\]\\]/g,"\\$&"),m;
+  try{m=line.match(new RegExp("relationship\\s+to\\s+"+esc+"\\s*[:=—-]\\s*([^,;]+)","i"));if(m)return {role:CW_liteRoleFromText(m[1]),direct:true};}catch(_){}
+  try{m=line.match(new RegExp(esc+"\\s*(?:\\(([^)]+)\\)|[:=—-]\\s*([^,;]+))","i"));if(m)return {role:CW_liteRoleFromText(m[1]||m[2]),direct:false};}catch(_){}
+  try{m=line.match(new RegExp("([^,:;—-]{2,40})\\s*[:=—-]\\s*"+esc,"i"));if(m)return {role:CW_liteRoleFromText(m[1]),direct:false};}catch(_){}
+  var role=CW_liteRoleFromText(line);return {role:role,direct:false};
+}
+function CW_liteSeedRoleLink(from,to,role,source){
+  if(!from||!to||!role||role==="unknown"||CW_liteKey(from)===CW_liteKey(to))return null;
+  if(CW_isPlayerName(from))return null;
+  var link=CW_liteLink(from,to,true);if(!link)return null;
+  if(link.role==="unknown"||link.source==="story-card"||String(link.source||"").indexOf("story-card")===0){link.role=role;link.confidence=Math.max(Number(link.confidence||0),95);link.source=source||"story-card";}
+  return link;
 }
 function CW_liteLocalRelationshipSegment(field,other){
   var src=String(field||""); if(!src)return "";
@@ -11013,46 +11178,95 @@ function CW_liteLocalRelationshipSegment(field,other){
   return "";
 }
 function CW_liteSeedCardRelationship(name){
-  try{if(state.unsaid&&state.unsaid.relationshipSettings&&state.unsaid.relationshipSettings.seedCardRoles===false)return;}catch(_){}
-  var n=CW_liteCanonical(name),card=null;try{card=findStoryCardForEntity(n);}catch(_){}if(!card)return;
-  var entry=String(card.entry||""),m=/(?:^|\n)\s*Relationships?\s*:\s*([^\n]{2,800})/i.exec(entry);if(!m)return;
-  var field=m[1],others=CW_liteCharacterNames(field,12);
-  try{
-    var pnames=typeof CE_playerIdentityNames==="function"?CE_playerIdentityNames():[];
-    if(pnames.some(function(pn){return pn&&CW_liteContainsName(field,pn);})){others.push("YOU");}
-  }catch(_){}
-  var seen={};
-  others.forEach(function(other){
-    other=CW_liteCanonical(other);var ok=CW_liteKey(other);if(!other||seen[ok])return;seen[ok]=1;
-    if(CW_liteKey(other)===CW_liteKey(n))return;
-    var local=other==="YOU"?field:CW_liteLocalRelationshipSegment(field,other);
-    if(other==="YOU"){
-      try{
-        var aliases=typeof CE_playerIdentityNames==="function"?CE_playerIdentityNames():[];
-        for(var ai=0;ai<aliases.length;ai++){var seg=CW_liteLocalRelationshipSegment(field,aliases[ai]);if(seg){local=seg;break;}}
-      }catch(_){}
+  try{if(typeof CW_liteConfigSettings==="function"&&CW_liteConfigSettings().seedCardRoles===false)return 0;else if(state.unsaid&&state.unsaid.relationshipSettings&&state.unsaid.relationshipSettings.seedCardRoles===false)return 0;}catch(_){}
+  var owner=CW_liteCanonical(name),card=null;try{card=findStoryCardForEntity(owner==="YOU"?name:owner);}catch(_){}if(!card)return 0;
+  var block=CW_liteRelationshipBlock(CW_cardEntryText(card));if(!block)return 0;
+  var targets=CW_liteRelationshipTargets(block),count=0,ownerIsPlayer=CW_isPlayerName(owner)||owner==="YOU";
+  targets.forEach(function(otherRaw){
+    var other=CW_liteCanonical(otherRaw),ok=CW_liteKey(other);if(!other||CW_liteKey(owner)===ok)return;
+    var local=CW_liteRelationshipLocal(block,otherRaw);if(!local&&other==="YOU"){
+      try{var aliases=CE_playerIdentityNames()||[];for(var ai=0;ai<aliases.length&&!local;ai++)local=CW_liteRelationshipLocal(block,aliases[ai]);}catch(_){}
     }
-    var role=CW_liteRoleFromText(local||"");
-    var link=CW_liteLink(n,other,true);
-    if(link&&link.role==="unknown"&&role!=="unknown"){
-      link.role=role;link.confidence=90;link.source="story-card";
+    if(!local)return;
+    var d=CW_liteRoleDescriptor(local,otherRaw),describedRole=d.role;if(!describedRole||describedRole==="unknown")return;
+    if(ownerIsPlayer){
+      if(other!=="YOU"&&CW_liteSeedRoleLink(other,"YOU",d.direct?CW_liteInverseRole(describedRole):describedRole,"story-card-player"))count++;
+      return;
+    }
+    var ownerToOther=d.direct?describedRole:CW_liteInverseRole(describedRole);
+    var otherToOwner=CW_liteInverseRole(ownerToOther);
+    if(other==="YOU"){
+      if(CW_liteSeedRoleLink(owner,"YOU",ownerToOther,"story-card"))count++;
+    }else{
+      if(CW_liteSeedRoleLink(owner,other,ownerToOther,"story-card"))count++;
+      if(CW_liteSeedRoleLink(other,owner,otherToOwner,"story-card-reciprocal"))count++;
     }
   });
+  return count;
+}
+function CW_liteRoleImpact(role){
+  role=String(role||"unknown").toLowerCase();
+  if(!role||role==="unknown")return "";
+  if(/^(?:parent|child|sibling|aunt\/uncle|niece\/nephew|cousin|grandparent|grandchild)$/.test(role))return "treat the family relationship as established history, not a first meeting; familiarity does not automatically mean warmth or agreement";
+  if(/^(?:spouse|fiance|romantic|partner|girlfriend|boyfriend)$/.test(role))return "treat the relationship as established and let its current trust, boundaries and history shape closeness; never force consent, intimacy or escalation";
+  if(/^(?:friend|best friend|ally)$/.test(role))return "preserve established familiarity and shared history while letting current sentiment determine how supportive or guarded they are";
+  if(/^(?:rival|enemy)$/.test(role))return "let the established opposition affect choices, interpretation and tension without making every scene openly hostile";
+  if(/^(?:mentor|mentee|teacher|student)$/.test(role))return "let the established guidance/power dynamic affect expectations and boundaries without erasing the individuals' autonomy";
+  if(/^(?:roommate|flatmate|coworker|colleague|teammate|peer|neighbor)$/.test(role))return "preserve the practical familiarity, obligations and accumulated history of the established role";
+  if(/^(?:guardian|ward|superior|subordinate|client|counsel)$/.test(role))return "let the established duty, power balance and boundaries of this role affect expectations and choices without removing anyone's autonomy";
+  return "treat this social role as established continuity rather than making the characters behave like strangers";
+}
+function CW_liteMetricImpact(link){
+  if(!link)return "";var m=link.metrics||{},p=[];
+  function pos(k,n,txt){var v=Number(m[k]||0);if(v>=n)p.push(txt);}
+  function neg(k,n,txt){var v=Number(m[k]||0);if(v<=-n)p.push(txt);}
+  pos("trust",3,"more willing to rely on or believe the target");neg("trust",3,"less willing to rely on or take the target at face value");
+  pos("affection",3,"warmer and more personally caring");neg("affection",3,"less emotionally warm");
+  pos("respect",3,"more likely to take the target seriously");neg("respect",3,"more dismissive or resistant to the target's judgment");
+  pos("fear",3,"more cautious, defensive or avoidant around the target");
+  pos("resentment",3,"more likely to carry friction, impatience or unresolved hurt into choices");
+  pos("suspicion",3,"more guarded and more likely to verify claims before trusting them");
+  pos("loyalty",3,"more inclined to stand by, protect or prioritize the target when costs appear");
+  pos("comfort",3,"more relaxed and natural around the target");neg("comfort",3,"more tense or self-conscious around the target");
+  pos("jealousy",3,"jealous tension may color reactions, but never creates entitlement or overrides consent");
+  pos("attraction",3,"attraction may subtly color attention or tone when scenario-appropriate, but never predetermines romance or consent");
+  pos("boundaryPressure",3,"boundaries are under pressure: show caution, resistance or consequences rather than silently normalizing violations");
+  return p.slice(0,3).join("; ");
+}
+function CW_liteBehaviorSentence(link){
+  if(!link)return "";var role=CW_liteRoleImpact(link.role),pressure=CW_liteMetricImpact(link),bits=[];
+  if(role)bits.push(role);if(pressure)bits.push(pressure);
+  if(!bits.length)return "";
+  return link.from+" → "+link.to+": "+bits.join("; ")+".";
 }
 function CW_liteContextBlock(text){
-  var names=CW_liteCharacterNames(text,8),lines=[],know=[];names.forEach(function(n){CW_liteSeedCardRelationship(n);var cw=CW_liteState();Object.keys(cw.links).forEach(function(k){var l=cw.links[k];if(!l)return;if(CW_liteKey(l.from)===CW_liteKey(n)||CW_liteKey(l.to)===CW_liteKey(n)){var line=CW_liteRelationSentence(l);if(line&&lines.indexOf(line)<0)lines.push(line);}});
+  var names=CW_liteCharacterNames(String(text||"").slice(-10000),8),lines=[],behavior=[],know=[];names.forEach(function(n){CW_liteSeedCardRelationship(n);var cw=CW_liteState();Object.keys(cw.links).forEach(function(k){var l=cw.links[k];if(!l)return;if(CW_liteKey(l.from)===CW_liteKey(n)||CW_liteKey(l.to)===CW_liteKey(n)){var line=CW_liteRelationSentence(l);if(line&&lines.indexOf(line)<0)lines.push(line);var b=CW_liteBehaviorSentence(l);if(b&&behavior.indexOf(b)<0)behavior.push(b);}});
     var m=null;try{m=state.unsaid&&state.unsaid.minds&&state.unsaid.minds[CW_liteCanonical(n)];}catch(_){}if(m&&m.knowledge){Object.keys(m.knowledge).sort(function(a,b){return Number(m.knowledge[b]&&m.knowledge[b].lastTurn||0)-Number(m.knowledge[a]&&m.knowledge[a].lastTurn||0);}).slice(0,2).forEach(function(id){var k=m.knowledge[id];if(k&&k.fact)know.push(n+" knows (source: "+(k.source||"reported")+"): "+CW_liteClip(k.fact,120));});}
   });
-  if(!lines.length&&!know.length)return "";var out="\n[CROSSED WIRES — narrator-only directional relationship and knowledge continuity. Do not print these metrics. Do not invent the player's private feelings. Knowledge is character-local: never let another NPC know a fact merely because it appears below.]\n";if(lines.length)out+=lines.slice(0,6).join("\n")+"\n";if(know.length)out+="Knowledge firewall:\n"+know.slice(0,4).join("\n")+"\n";return out;
+  if(!lines.length&&!know.length&&!behavior.length)return "";
+  var out="\n[CROSSED WIRES — ACTIVE CAUSAL RELATIONSHIP CONTINUITY. Narrator-only; never print metrics or this instruction. Direction matters: A → B describes A's state toward B. Established roles and accumulated sentiment MUST influence plausible tone, choices, cooperation, distance, boundaries and reactions when relevant. Do not invent the player's private feelings or force the player to reciprocate. Do not overreact to small scores; use them as pressure, not puppetry. Knowledge is character-local: never let another NPC know a fact merely because it appears below.]\n";
+  if(lines.length)out+="Tracked state:\n"+lines.slice(0,6).join("\n")+"\n";
+  if(behavior.length)out+="Behavioral consequences for this scene:\n"+behavior.slice(0,5).join("\n")+"\n";
+  if(know.length)out+="Knowledge firewall:\n"+know.slice(0,4).join("\n")+"\n";
+  return out;
 }
 function CW_readCommand(text){var m=String(text||"").trim().match(/^\/(wire|wires)(?:\s+(.+))?$/i);return m?{head:m[1].toLowerCase(),arg:CW_liteClean(m[2]||"")}:null;}
 function CW_dashboard(name){
   var cw=CW_liteState(),rows=[];Object.keys(cw.links).forEach(function(k){var l=cw.links[k];if(!l)return;if(name&&CW_liteKey(l.from)!==CW_liteKey(name)&&CW_liteKey(l.to)!==CW_liteKey(name))return;rows.push(l);});rows.sort(function(a,b){return b.lastTurn-a.lastTurn;});if(!rows.length)return "CROSSED WIRES: no directional relationship state yet.";return "CROSSED WIRES — directional relationships\n"+rows.slice(0,16).map(CW_liteRelationSentence).join("\n");
 }
 function CW_status(){return CW_dashboard("");}
-function CW_onInput(text){var cmd=CW_readCommand(text);if(cmd){try{var arg=String(cmd.arg||"").trim(),low=arg.toLowerCase();if(low==="help"||low==="commands"||low==="guide")pushMessage("❤️ CROSSED WIRES COMMANDS\n/wire <name> — inspect one character's directional bonds\n/wire status — show all tracked relationships\n/wires — show all tracked relationships\nRelationship state is directional and never invents the player's private feelings.");else if(cmd.head==="wires"||!arg||low==="status")pushMessage(CW_dashboard(""));else pushMessage(CW_dashboard(arg));}catch(_){}return text;}var cw=CW_liteState(),rs=state.unsaid&&state.unsaid.relationshipSettings||{};try{CW_liteCharacterNames(text,10).forEach(CW_liteSeedCardRelationship);}catch(_){}cw.lastInputText=CW_liteClip(text,700);if(rs.enabled!==false&&rs.visibleEvents!==false)CW_liteParse(text,"input");return text;}
-function CW_onContext(text){var rs=state.unsaid&&state.unsaid.relationshipSettings||{};if(rs.enabled===false)return text;var block=CW_liteContextBlock(text);CW_liteState().lastContextNames=CW_liteCharacterNames(text,8);if(!block)return text;try{var fit=typeof fitInstructionToBudget==="function"?fitInstructionToBudget(text,block):block;return fit?text+fit:text;}catch(_){return text;}}
-function CW_onOutput(text){var cw=CW_liteState(),rs=state.unsaid&&state.unsaid.relationshipSettings||{},turn=CW_liteTurn();cw.lastProcessedOutputTurn=turn;if(rs.enabled===false||rs.visibleEvents===false)return text;if(cw.lastOutputTurn===turn&&cw.lastOutputText===CW_liteClip(text,700))return text;cw.lastOutputTurn=turn;cw.lastOutputText=CW_liteClip(text,700);CW_liteParse(text,"output");return text;}
+function CW_liteConfigSettings(){
+  var prior=state.unsaid&&state.unsaid.relationshipSettings&&typeof state.unsaid.relationshipSettings==="object"?state.unsaid.relationshipSettings:{};
+  var cfg={enabled:prior.enabled!==false,visibleEvents:prior.visibleEvents!==false,seedCardRoles:prior.seedCardRoles!==false,relationshipTwists:prior.relationshipTwists!==false};
+  cfg.enabled=CE_LITE_configBool(CE_CONFIG_KEY_CROSSED,"enabled",cfg.enabled);
+  cfg.visibleEvents=CE_LITE_configBool(CE_CONFIG_KEY_CROSSED,"visibleEvents",cfg.visibleEvents);
+  cfg.seedCardRoles=CE_LITE_configBool(CE_CONFIG_KEY_CROSSED,"seedCardRoles",cfg.seedCardRoles);
+  cfg.relationshipTwists=CE_LITE_configBool(CE_CONFIG_KEY_CROSSED,"relationshipTwists",cfg.relationshipTwists);
+  if(!state.unsaid||typeof state.unsaid!=="object")state.unsaid={};state.unsaid.relationshipSettings=cfg;return cfg;
+}
+function CW_onInput(text){var cmd=CW_readCommand(text);if(cmd){try{var arg=String(cmd.arg||"").trim(),low=arg.toLowerCase();if(low==="help"||low==="commands"||low==="guide")pushMessage("❤️ CROSSED WIRES COMMANDS\n/wire <name> — inspect one character's directional bonds\n/wire status — show all tracked relationships\n/wires — show all tracked relationships\nRelationship state is directional and never invents the player's private feelings.");else if(cmd.head==="wires"||!arg||low==="status")pushMessage(CW_dashboard(""));else pushMessage(CW_dashboard(arg));}catch(_){}return text;}var cw=CW_liteState(),rs=CW_liteConfigSettings();try{CW_liteCharacterNames(text,10).forEach(CW_liteSeedCardRelationship);}catch(_){}cw.lastInputText=CW_liteClip(text,700);if(rs.enabled!==false&&rs.visibleEvents!==false)CW_liteParse(text,"input");return text;}
+function CW_onContext(text){var rs=CW_liteConfigSettings();if(rs.enabled===false)return text;var block=CW_liteContextBlock(text);CW_liteState().lastContextNames=CW_liteCharacterNames(text,8);if(!block)return text;try{var fit=typeof fitInstructionToBudget==="function"?fitInstructionToBudget(text,block):block;return fit?text+fit:text;}catch(_){return text;}}
+function CW_onOutput(text){var cw=CW_liteState(),rs=CW_liteConfigSettings(),turn=CW_liteTurn();cw.lastProcessedOutputTurn=turn;if(rs.enabled===false||rs.visibleEvents===false)return text;if(cw.lastOutputTurn===turn&&cw.lastOutputText===CW_liteClip(text,700))return text;cw.lastOutputTurn=turn;cw.lastOutputText=CW_liteClip(text,700);CW_liteParse(text,"output");return text;}
 function CW_init(){return CW_liteState();}
 function CW_playerNames(){var out=["you"],seen={you:1};function add(n){var k=CW_liteKey(n);if(!k||seen[k])return;seen[k]=1;out.push(k);}try{var p=state&&state.crossedEchoesPlayerIdentity;if(p&&typeof p==="object"){(Array.isArray(p.aliases)?p.aliases:[]).forEach(add);(Array.isArray(p.controlledNames)?p.controlledNames:[]).forEach(add);if(p.primary)add(p.primary);}}catch(_){}try{if(out.length===1&&typeof CE_platformCharacterNames==="function")CE_platformCharacterNames().forEach(function(n){add(n);var bits=String(n||"").trim().split(" ");if(bits.length>1&&bits[0].length>=3)add(bits[0]);});}catch(_){}return out;}
 function CW_getRole(a,b){var l=CW_liteLink(a,b,false),r=l&&l.role?l.role:"unknown";return /^(?:spouse|fiance|romantic)$/.test(r)?"romantic":r;}
@@ -11063,7 +11277,7 @@ function CW_pairKey(a,b){return CW_litePairKey(a,b);}
 function CW_rebuildRoles(){return true;}
 function CW_rebuildTwistIndexes(){return true;}
 function CW_maybeArmTwist(turn){
-  var cw=CW_liteState(),t=Math.max(0,Number(turn)||CW_liteTurn());if(cw.twist.pending)return cw.twist.pending;
+  var settings=CW_liteConfigSettings();if(settings.enabled===false||settings.relationshipTwists===false)return null;var cw=CW_liteState(),t=Math.max(0,Number(turn)||CW_liteTurn());if(cw.twist.pending)return cw.twist.pending;
   var hist=cw.twist.history||[];if(t<6||t-Number(cw.twist.lastTurn||-999)<8)return null;
   var rows=Object.keys(cw.links||{}).map(function(k){return cw.links[k];}).filter(function(l){return l&&l.from!=="YOU"&&(l.to==="YOU"||l.role&&l.role!=="unknown");});
   if(!rows.length)return null;rows.sort(function(a,b){return Number(b.lastTurn||0)-Number(a.lastTurn||0);});var l=rows[0],id="rel-"+CW_liteKey(l.from).replace(/\s+/g,"-")+"-"+CW_liteKey(l.to).replace(/\s+/g,"-")+"-"+t;
@@ -11071,13 +11285,35 @@ function CW_maybeArmTwist(turn){
 }
 function CW_registerNpc(name,turn,role){if(!name||CW_isPlayerName(name))return null;var cw=CW_liteState(),n=CW_liteCanonical(name),k=CW_liteKey(n);if(!cw.npcs[k])cw.npcs[k]={name:n,mentions:0,firstTurn:Number(turn)||CW_liteTurn(),lastTurn:Number(turn)||CW_liteTurn()};cw.npcs[k].mentions=(cw.npcs[k].mentions||0)+1;cw.npcs[k].lastTurn=Number(turn)||CW_liteTurn();if(role&&role!=="unknown")cw.roles[k]=role;return cw.npcs[k];}
 
+var CE_LITE_CONFIG_CARD_CACHE=null;
+function CE_LITE_reEscape(v){return String(v||"").replace(/[.*+?^${}()|[\]\\]/g,"\\$&");}
+function CE_LITE_configCardMap(){
+  if(CE_LITE_CONFIG_CARD_CACHE)return CE_LITE_CONFIG_CARD_CACHE;
+  var out=Object.create(null),cards=(typeof storyCards!=="undefined"&&Array.isArray(storyCards))?storyCards:[],core=null;
+  for(var i=0;i<cards.length;i++){var c=cards[i];if(!c)continue;try{if(CE_isRequiredConfigCard(c,CE_CONFIG_KEY_CORE)){core=c;break;}}catch(_){}}
+  if(core){out[CE_CONFIG_KEY_CORE]=core;out[CE_CONFIG_KEY_CROSSED]=core;out[CE_CONFIG_KEY_ECHO]=core;out[CE_CONFIG_KEY_INTEGRATION]=core;CE_LITE_CONFIG_CARD_CACHE=out;return out;}
+  var legacy=[[CE_CONFIG_KEY_CROSSED,CE_CONFIG_TITLE_CROSSED],[CE_CONFIG_KEY_ECHO,CE_CONFIG_TITLE_ECHO],[CE_CONFIG_KEY_INTEGRATION,CE_CONFIG_TITLE_INTEGRATION]];
+  for(var j=0;j<legacy.length;j++){var found=CE_findLegacyOwnedConfig(legacy[j][0],legacy[j][1]);if(found)out[legacy[j][0]]=found;}
+  CE_LITE_CONFIG_CARD_CACHE=out;return out;
+}
+function CE_LITE_configSectionForKey(entry,key){
+  key=String(key||"").toLowerCase();
+  if(key===CE_CONFIG_KEY_CROSSED)return extractConfigSection(entry,CONFIG_SECTION_CROSSED)||entry;
+  if(key===CE_CONFIG_KEY_ECHO)return extractConfigSection(entry,CONFIG_SECTION_ECHO)||entry;
+  if(key===CE_CONFIG_KEY_INTEGRATION)return extractConfigSection(entry,CONFIG_SECTION_INTEGRATION)||entry;
+  return entry;
+}
+function CE_LITE_configBool(key,field,fallback){
+  try{var card=CE_LITE_configCardMap()[String(key||"").toLowerCase()]||null;if(!card)return fallback;var entry=CE_LITE_configSectionForKey(String(CW_cardEntryText(card)||""),key),re=new RegExp("(?:^|\\n)\\s*"+CE_LITE_reEscape(field)+"\\s*=\\s*(true|false)\\s*(?:$|\\n)","i"),m=entry.match(re);return m?String(m[1]).toLowerCase()==="true":fallback;}catch(_){return fallback;}
+}
+function EV_liteConfig(){return {enabled:CE_LITE_configBool(CE_CONFIG_KEY_ECHO,"enabled",true),sceneTracking:CE_LITE_configBool(CE_CONFIG_KEY_ECHO,"sceneTracking",true),motiveContinuity:CE_LITE_configBool(CE_CONFIG_KEY_ECHO,"motiveContinuity",true)};}
 function EV_liteState(){
   if(!state.echoVeil||typeof state.echoVeil!=="object")state.echoVeil={};var s=state.echoVeil;
   if(!s.entities||typeof s.entities!=="object")s.entities={};if(!s.relations||typeof s.relations!=="object")s.relations={};if(!Array.isArray(s.beliefs))s.beliefs=[];if(!Array.isArray(s.knowledgeGaps))s.knowledgeGaps=[];if(!Array.isArray(s.threads))s.threads=[];if(!Array.isArray(s.consequences))s.consequences=[];if(!Array.isArray(s.secrets))s.secrets=[];
   if(!s.scene||typeof s.scene!=="object")s.scene={cast:{},facts:[],objects:{}};if(!s.scene.cast||typeof s.scene.cast!=="object")s.scene.cast={};if(!s.discourse||typeof s.discourse!=="object")s.discourse={lastSubject:"",lastObject:"",recent:[]};if(!s.meta||typeof s.meta!=="object")s.meta={lastInputTurn:-1,lastOutputTurn:-1};if(!s.director||typeof s.director!=="object")s.director={contextTurn:-1,contextBaseOutputTurn:-1,moveHistory:[],recalledEpisodeIds:[]};return s;
 }
 function EV_liteTrack(text){
-  var s=EV_liteState(),names=CW_liteCharacterNames(text,10),turn=CW_liteTurn(),src=String(text||"");s.scene.cast={};
+  var s=EV_liteState(),cfg=EV_liteConfig();if(cfg.enabled===false||cfg.sceneTracking===false)return s;var names=CW_liteCharacterNames(text,10),turn=CW_liteTurn(),src=String(text||"");s.scene.cast={};
   names.forEach(function(n){if(CW_isPlayerName(n))return;var k=CW_liteKey(n);if(!s.entities[k])s.entities[k]={name:n,kind:"person",motives:[],lastSeenTurn:turn};s.entities[k].lastSeenTurn=turn;s.scene.cast[k]={name:n};});
   var lastName="";CW_liteSentences(src).forEach(function(sent){
     var direct="";for(var i=0;i<names.length;i++){if(CW_liteContainsName(sent,names[i])&&!CW_isPlayerName(names[i])){direct=names[i];break;}}
@@ -11088,27 +11324,129 @@ function EV_liteTrack(text){
   });
   s.discourse.recent=names.slice(-8);if(names[0])s.discourse.lastSubject=names[0];if(names[1])s.discourse.lastObject=names[1];return s;
 }
+function EV_contextPacket(source){
+  try{
+    var cfg=EV_liteConfig();if(cfg.enabled===false||cfg.motiveContinuity===false)return "";var s=EV_liteState(),names=[];
+    try{names=Object.keys(s.scene&&s.scene.cast||{}).map(function(k){return s.scene.cast[k]&&s.scene.cast[k].name;}).filter(Boolean).slice(0,6);}catch(_){}
+    if(!names.length){try{names=CW_liteCharacterNames(source,6);}catch(_){names=[];}}
+    var rows=[];names.forEach(function(n){if(rows.length>=3)return;var e=s.entities&&s.entities[CW_liteKey(n)];if(!e||!Array.isArray(e.motives)||!e.motives.length)return;var motives=e.motives.slice(-2).map(function(x){return CW_liteClip(x,125);}).filter(Boolean);if(motives.length)rows.push(n+" — visible motive continuity: "+motives.join(" | "));});
+    if(!rows.length)return "";
+    return "\n[ECHO VEIL — ACTIVE MOTIVE CONTINUITY. These motives were established through visible story behaviour or statements. When still relevant, let them shape what the NPC pursues, notices, avoids and prioritizes. They are continuity pressure, not mind control; newer visible evidence can change them. Never assign these motives to the player unless the player explicitly established them.]\n"+rows.join("\n")+"\n";
+  }catch(_){return "";}
+}
 function EV_onInput(text){var s=EV_liteTrack(text);s.meta.lastInputTurn=(typeof info!=="undefined"&&info&&Number.isFinite(Number(info.actionCount)))?Number(info.actionCount):CW_liteTurn();return text;}
 function EV_onContext(text){var s=EV_liteTrack(text);s.director.contextTurn=(typeof info!=="undefined"&&info&&Number.isFinite(Number(info.actionCount)))?Number(info.actionCount):CW_liteTurn();s.director.contextBaseOutputTurn=s.meta.lastOutputTurn;return text;}
 function EV_onOutput(text){var s=EV_liteTrack(text);s.meta.lastOutputTurn=(typeof info!=="undefined"&&info&&Number.isFinite(Number(info.actionCount)))?Number(info.actionCount):CW_liteTurn();return text;}
-function CEW_state(){if(!state.crossedEchoesWorld||typeof state.crossedEchoesWorld!=="object")state.crossedEchoesWorld={};var w=state.crossedEchoesWorld;if(!w.stats||typeof w.stats!=="object")w.stats={inputs:0,contexts:0,outputs:0};if(!w.scene||typeof w.scene!=="object")w.scene={location:"",cast:[]};return w;}
-function CEW_onInput(text){var w=CEW_state();w.stats.inputs=(w.stats.inputs||0)+1;w.lastInputTurn=(typeof info!=="undefined"&&info)?Number(info.actionCount||0):CW_liteTurn();w.scene.cast=CW_liteCharacterNames(text,8);return "";}
-function CEW_onContext(text,packetOnly){var w=CEW_state();if(!packetOnly){w.stats.contexts=(w.stats.contexts||0)+1;w.lastContextTurn=(typeof info!=="undefined"&&info)?Number(info.actionCount||0):CW_liteTurn();w.scene.cast=CW_liteCharacterNames(text,8);}var loc=String(w.scene.location||"");return loc?"\n[WORLD ENGINE — current location: "+loc+"]":"";}
-function CEW_onOutput(text){var w=CEW_state();w.stats.outputs=(w.stats.outputs||0)+1;w.lastOutputTurn=(typeof info!=="undefined"&&info)?Number(info.actionCount||0):CW_liteTurn();w.scene.cast=CW_liteCharacterNames(text,8);return text;}
-function CECS_state(){if(!state.crossedEchoesCanonSentinel||typeof state.crossedEchoesCanonSentinel!=="object")state.crossedEchoesCanonSentinel={};var c=state.crossedEchoesCanonSentinel;if(!Array.isArray(c.recentFacts))c.recentFacts=[];if(!Array.isArray(c.contradictions))c.contradictions=[];return c;}
-function CECS_onInput(text){var c=CECS_state();c.lastInputTurn=(typeof info!=="undefined"&&info)?Number(info.actionCount||0):CW_liteTurn();c.lastInputText=CW_liteClip(text,420);return text;}
-function CECS_onContext(text){var c=CECS_state();c.lastContextTurn=(typeof info!=="undefined"&&info)?Number(info.actionCount||0):CW_liteTurn();return text;}
-function CECS_onOutput(text){var c=CECS_state();c.lastOutputTurn=(typeof info!=="undefined"&&info)?Number(info.actionCount||0):CW_liteTurn();var facts=CW_liteSentences(text).slice(-3).map(function(x){return CW_liteClip(x,180);});facts.forEach(function(f){if(f&&c.recentFacts.indexOf(f)<0)c.recentFacts.push(f);});if(c.recentFacts.length>24)c.recentFacts=c.recentFacts.slice(-24);return text;}
+function CEW_state(){if(!state.crossedEchoesWorld||typeof state.crossedEchoesWorld!=="object")state.crossedEchoesWorld={};var w=state.crossedEchoesWorld;if(!w.stats||typeof w.stats!=="object")w.stats={inputs:0,contexts:0,outputs:0};if(!w.scene||typeof w.scene!=="object")w.scene={location:"",cast:[]};if(!Array.isArray(w.locationHistory))w.locationHistory=[];return w;}
+function CEW_enabled(){return CE_LITE_configBool(CE_CONFIG_KEY_INTEGRATION,"enabled",true)!==false&&CE_LITE_configBool(CE_CONFIG_KEY_INTEGRATION,"worldEngine",true)!==false;}
+function CEW_detectLocation(text){
+  if(!CEW_enabled())return "";var src=String(text||"").slice(-12000),low=src.toLowerCase(),cards=(typeof storyCards!=="undefined"&&Array.isArray(storyCards))?storyCards:[],best="",bestAt=-1;
+  if(cards.length>CE_SHARED_FULL_INDEX_CARD_CAP){
+    for(var ci=0;ci<cards.length;ci++){var c=cards[ci];if(!c)continue;var t=String(c.type||"").toLowerCase();if(!/(?:location|place|setting|building|city|town|village|region|district|country|world|planet|realm|venue|landmark)/i.test(t))continue;var n=CE_cardIdentityName(c);if(!n)continue;var at=low.lastIndexOf(String(n).toLowerCase());if(at>=bestAt){best=String(n);bestAt=at;}}
+    return best;
+  }
+  var names=[];try{names=Library.eligibleCardTitles(src,12)||[];}catch(_){}names.forEach(function(n){var card=null;try{card=findStoryCardForEntity(n);}catch(_){}if(!card)return;var type=String(card.type||"").toLowerCase(),entry=String(CW_cardEntryText(card)||"");var isLoc=/^(?:location|place|setting|building|city|town|village|region|district|country|world|planet|realm|venue|landmark)$/i.test(type)||/(?:^|\n)\s*(?:type|kind|category)\s*:\s*(?:location|place|setting|building|city|town|village|region|district|country|world|planet|realm|venue|landmark)\b/i.test(entry);if(!isLoc)return;var at=low.lastIndexOf(String(n).toLowerCase());if(at>=bestAt){best=String(n);bestAt=at;}});
+  return best;
+}
+function CEW_trackScene(text){var w=CEW_state();if(!CEW_enabled())return w;var loc=CEW_detectLocation(text);if(loc&&CW_liteKey(loc)!==CW_liteKey(w.scene.location)){w.scene.location=loc;w.scene.locationTurn=(typeof info!=="undefined"&&info)?Number(info.actionCount||0):CW_liteTurn();w.locationHistory.push({turn:w.scene.locationTurn,location:loc});if(w.locationHistory.length>16)w.locationHistory=w.locationHistory.slice(-16);}w.scene.cast=CW_liteCharacterNames(text,8);return w;}
+function CEW_onInput(text){var w=CEW_trackScene(text);w.stats.inputs=(w.stats.inputs||0)+1;w.lastInputTurn=(typeof info!=="undefined"&&info)?Number(info.actionCount||0):CW_liteTurn();return "";}
+function CEW_onContext(text,packetOnly){var w=packetOnly?CEW_state():CEW_trackScene(text);if(!CEW_enabled())return "";if(!packetOnly){w.stats.contexts=(w.stats.contexts||0)+1;w.lastContextTurn=(typeof info!=="undefined"&&info)?Number(info.actionCount||0):CW_liteTurn();}var loc=String(w.scene.location||"");return loc?"\n[WORLD ENGINE — ACTIVE SCENE ANCHOR. Current established location: "+loc+". Preserve spatial/environmental continuity and consequences here until a visible action or event establishes travel, displacement or a new location. Do not relocate characters merely for convenience.]\n":"";}
+function CEW_onOutput(text){var w=CEW_trackScene(text);w.stats.outputs=(w.stats.outputs||0)+1;w.lastOutputTurn=(typeof info!=="undefined"&&info)?Number(info.actionCount||0):CW_liteTurn();return text;}
+function CECS_state(){if(!state.crossedEchoesCanonSentinel||typeof state.crossedEchoesCanonSentinel!=="object")state.crossedEchoesCanonSentinel={};var c=state.crossedEchoesCanonSentinel;if(!Array.isArray(c.recentFacts))c.recentFacts=[];if(!Array.isArray(c.factLog))c.factLog=[];if(!Array.isArray(c.contradictions))c.contradictions=[];return c;}
+function CECS_enabled(){return CE_LITE_configBool(CE_CONFIG_KEY_INTEGRATION,"enabled",true)!==false&&CE_LITE_configBool(CE_CONFIG_KEY_INTEGRATION,"canonSentinel",true)!==false;}
+function CECS_onInput(text){var c=CECS_state();if(!CECS_enabled())return text;c.lastInputTurn=(typeof info!=="undefined"&&info)?Number(info.actionCount||0):CW_liteTurn();c.lastInputText=CW_liteClip(text,420);return text;}
+function CECS_onContext(text){var c=CECS_state();if(!CECS_enabled())return text;c.lastContextTurn=(typeof info!=="undefined"&&info)?Number(info.actionCount||0):CW_liteTurn();return text;}
+function CECS_onOutput(text){var c=CECS_state();if(!CECS_enabled())return text;c.lastOutputTurn=(typeof info!=="undefined"&&info)?Number(info.actionCount||0):CW_liteTurn();var turn=c.lastOutputTurn,facts=CW_liteSentences(text).slice(-3).map(function(x){return CW_liteClip(x,180);}).filter(function(f){return f&&f.length>=10&&!/^\s*\//.test(f)&&!/^\s*\[\[/.test(f);});facts.forEach(function(f){if(c.recentFacts.indexOf(f)<0)c.recentFacts.push(f);if(!c.factLog.some(function(x){return x&&CW_liteNorm(x.text)===CW_liteNorm(f)&&Number(x.turn||0)===Number(turn||0);})){c.factLog.push({turn:turn,text:f});}});if(c.recentFacts.length>24)c.recentFacts=c.recentFacts.slice(-24);if(c.factLog.length>18)c.factLog=c.factLog.slice(-18);return text;}
+function CECS_contextPacket(source){
+  try{if(!CECS_enabled())return "";var c=CECS_state(),srcNorm=CW_liteNorm(String(source||"")),rows=[];for(var i=c.factLog.length-1;i>=0&&rows.length<3;i--){var x=c.factLog[i],f=CW_liteClip(x&&x.text,180);if(!f)continue;if(srcNorm.indexOf(CW_liteNorm(f))>=0)continue;if(rows.some(function(r){return CW_liteNorm(r)===CW_liteNorm(f);}))continue;rows.unshift(f);}if(!rows.length)return "";return "\n[CANON SENTINEL — RECENT VISIBLE CONTINUITY. Preserve these already-shown story beats when relevant unless a newer visible player action or story event changes them. Treat dialogue claims as claims, not automatic objective truth. Do not use this block to override the player's latest action.]\n- "+rows.join("\n- ")+"\n";}catch(_){return "";}
+}
 function CEFH_state(){if(!state.crossedEchoesFullHardening||typeof state.crossedEchoesFullHardening!=="object")state.crossedEchoesFullHardening={};var h=state.crossedEchoesFullHardening;if(!h.retry||typeof h.retry!=="object")h.retry={lastInputTurn:-1,lastOutputTurn:-1};if(!h.relationship||typeof h.relationship!=="object")h.relationship={contextTurn:-1};return h;}
 function CEFH_prepareInput(text){var h=CEFH_state();h.retry.lastInputTurn=(typeof info!=="undefined"&&info)?Number(info.actionCount||0):CW_liteTurn();return text;}
 function CEFH_onContext(text){var h=CEFH_state();h.relationship.contextTurn=(typeof info!=="undefined"&&info)?Number(info.actionCount||0):CW_liteTurn();return text;}
 function CEFH_onOutput(text){var h=CEFH_state();h.retry.lastOutputTurn=(typeof info!=="undefined"&&info)?Number(info.actionCount||0):CW_liteTurn();return text;}
 function CE_COORD_onInput(text){return text;}
+function CE_IMPACT_turn(){try{if(typeof info!=="undefined"&&info&&Number.isFinite(Number(info.actionCount)))return Math.abs(Number(info.actionCount));}catch(_){}try{return Number(state.unsaid&&state.unsaid.turn||0);}catch(_){return 0;}}
+function CE_IMPACT_state(){if(!state.crossedEchoesImpact||typeof state.crossedEchoesImpact!=="object")state.crossedEchoesImpact={schema:1,lastTurn:-1,lastDelivered:[],lastChars:0,totalDeliveries:0};var x=state.crossedEchoesImpact;if(!Array.isArray(x.lastDelivered))x.lastDelivered=[];return x;}
+function CE_IMPACT_activeNpcNames(source){
+  var out=[],seen={};function add(v){var n="";try{n=CW_liteCanonical(v);}catch(_){n=String(v||"").trim();}var k="";try{k=CW_liteKey(n);}catch(_){k=n.toLowerCase();}if(!n||n==="YOU"||seen[k])return;try{if(CW_isPlayerName(n))return;}catch(_){}seen[k]=1;out.push(n);}
+  var tail=String(source||"").slice(-10000);try{CW_liteCharacterNames(tail,8).forEach(add);}catch(_){}
+  if(out.length<4){try{var u=state.unsaid||{},turn=Number(u.turn||0),p=u.scenePresence||{};(u.lastActiveCast||[]).forEach(function(n){if(out.length>=6)return;var row=p[n]||{};if(Number(row.lastSeenTurn||-999)>=turn-2)add(n);});}catch(_){}}
+  return out.slice(0,6);
+}
+function CE_IMPACT_mindContext(source){
+  try{
+    var cfg=null;try{cfg=typeof readUnsaidConfig==="function"?readUnsaidConfig():null;}catch(_){}if(!cfg)cfg=Object.assign({},UNSAID_DEFAULTS);
+    if(cfg.enabled===false||cfg.behavioralContinuity===false)return "";
+    var names=CE_IMPACT_activeNpcNames(source);if(!names.length)return "";var lines=[];
+    names.forEach(function(n){
+      if(lines.length>=3)return;try{if(typeof seedMindIfKnown==="function")seedMindIfKnown(n);}catch(_){}
+      var m=null;try{m=CW_liteMind(n);}catch(_){}if(!m)return;try{if(typeof ensureAdaptiveMindShape==="function")ensureAdaptiveMindShape(m);}catch(_){}
+      var parts=[],bank=m.thoughtBank&&typeof m.thoughtBank==="object"?m.thoughtBank:{};
+      function add(label,v,max){v=CW_liteClip(v,max||120);if(v)parts.push(label+"="+v);}
+      add("plan",bank.current_plan||(Array.isArray(m.plans)&&m.plans.length?m.plans[m.plans.length-1]:""),135);
+      add("goal",bank.current_goal||(Array.isArray(m.goals)&&m.goals.length?m.goals[m.goals.length-1]:""),130);
+      if(parts.length<3)add("commitment",bank.private_commitment,120);
+      if(parts.length<3)add("want",m.want,120);
+      if(parts.length<3)add("fear",bank.current_fear||(Array.isArray(m.fears)&&m.fears.length?m.fears[m.fears.length-1]:""),115);
+      if(parts.length<3)add("belief",bank.current_belief||(Array.isArray(m.beliefs)&&m.beliefs.length?m.beliefs[m.beliefs.length-1]:""),115);
+      if(parts.length<3&&Array.isArray(m.memories)&&m.memories.length){var mem=m.memories.slice().sort(function(a,b){return Number(b.importance||0)-Number(a.importance||0)||Number(b.turn||0)-Number(a.turn||0);})[0];if(mem)add("memory",mem.text||mem.fact||mem,125);}
+      if(parts.length<2&&m.core)add("core",m.core,120);
+      if(!parts.length){var pub="";try{pub=unsaidPublicCharacterAnchor(n);}catch(_){}if(pub)add("public-canon",pub,180);}
+      if(parts.length)lines.push(n+" — "+parts.slice(0,3).join("; "));
+    });
+    if(!lines.length)return "";
+    return "\n[UNSAID ACTIVE CAUSAL NPC MIND — narrator-only. These are established private pressures, not decorative notes. When relevant, they MUST affect what each NPC notices, prioritizes, chooses, avoids, says, withholds and how they react. Express effects naturally through behaviour; do not quote private notes as exposition or grant other characters telepathy. Private state can change only when visible events justify it. Never invent or control the player's private thoughts, feelings, consent or choices.]\n"+lines.join("\n")+"\n";
+  }catch(_){return "";}
+}
+function CE_IMPACT_publicDigest(name,card){
+  try{
+    var entry=String(CW_cardEntryText(card)||"").replace(/\r/g,"");if(!entry.trim())return "";
+    var allowed=/^\s*(Name|Type|Role|Personality|Traits?|Goals?|Powers?|Abilities|Skills?|Weaknesses|Status|Location|Purpose|Function|Owner|Affiliations?|Relationships?|Background|Appearance)\s*:\s*(.{2,220})\s*$/i;
+    var rows=[],lines=entry.split("\n");for(var i=0;i<lines.length&&rows.length<3;i++){var m=lines[i].match(allowed);if(!m)continue;var label=String(m[1]||"").trim(),value=CW_liteClip(m[2],150);if(/^name$/i.test(label))continue;if(value)rows.push(label+"="+value);}
+    if(!rows.length){var compact=entry.replace(/\s+/g," ").trim();if(compact)rows.push(CW_liteClip(compact,190));}
+    if(!rows.length)return "";var kind="";try{kind=typeof codexKindFromExistingCard==="function"?codexKindFromExistingCard(card,name):String(card.type||"");}catch(_){kind=String(card.type||"");}
+    return String(name||CE_cardIdentityName(card))+" ["+(kind||"canon")+"]: "+rows.join("; ");
+  }catch(_){return "";}
+}
+function CE_IMPACT_codexContext(source){
+  try{
+    var tail=String(source||"").slice(-10000),names=[];
+    try{names=Library.eligibleCardTitles(tail,8)||[];}catch(_){}
+    if(!names.length)return "";var rows=[],seen={};
+    for(var i=0;i<names.length&&rows.length<3;i++){
+      var n=String(names[i]||"").trim();if(!n)continue;var k=n.toLowerCase();if(seen[k])continue;seen[k]=1;
+      try{if(typeof isOwnCard==="function"&&isOwnCard(n))continue;}catch(_){}
+      var card=null;try{card=findStoryCardForEntity(n);}catch(_){}if(!card)continue;
+      try{if(typeof CE_privateDashboardCard==="function"&&CE_privateDashboardCard(card))continue;}catch(_){}
+      var d=CE_IMPACT_publicDigest(n,card);if(d)rows.push(d);
+    }
+    if(!rows.length)return "";
+    return "\n[CODEX ACTIVE CANON — public facts for entities present now. These Story Card facts are established continuity and MUST constrain description, capabilities, relationships, setting and consequences when relevant. Do not silently contradict them; do not invent extra powers, biography or relationships beyond them. If recent visible story events explicitly changed a fact, preserve the newer visible canon.]\n"+rows.join("\n")+"\n";
+  }catch(_){return "";}
+}
+function CE_IMPACT_appendBlock(base,block,label,delivered){
+  if(!block)return base;var raw=String(block||"").trim();if(raw&&String(base||"").indexOf(raw)>=0){if(delivered.indexOf(label)<0)delivered.push(label);return base;}var fit=null;try{fit=typeof fitInstructionToBudget==="function"?fitInstructionToBudget(base,block):block;}catch(_){fit=block;}if(!fit)return base;
+  try{if(typeof CE_appendCompleteContextSuffix==="function"){var r=CE_appendCompleteContextSuffix(base,fit,0);if(r&&r.appended){delivered.push(label);return r.text;}}}catch(_){}
+  try{var max=typeof CE_contextMaxChars==="function"?CE_contextMaxChars():0;if(max&&base.length+fit.length>max)return base;}catch(_){}
+  delivered.push(label);return base+fit;
+}
+function CE_IMPACT_applyContext(text,source){
+  var base=String(text||""),src=String(source||text||""),delivered=[];
+  var managed="";try{managed=typeof CE_managedContextHintPacket==="function"?CE_managedContextHintPacket():"";}catch(_){}
+  base=CE_IMPACT_appendBlock(base,managed,"twist/subtext",delivered);
+  base=CE_IMPACT_appendBlock(base,CE_IMPACT_mindContext(src),"npc-minds",delivered);
+  base=CE_IMPACT_appendBlock(base,CE_IMPACT_codexContext(src),"codex-canon",delivered);
+  base=CE_IMPACT_appendBlock(base,typeof EV_contextPacket==="function"?EV_contextPacket(src):"","echo-motives",delivered);
+  base=CE_IMPACT_appendBlock(base,typeof CEW_onContext==="function"?CEW_onContext(src,true):"","world-anchor",delivered);
+  base=CE_IMPACT_appendBlock(base,typeof CECS_contextPacket==="function"?CECS_contextPacket(src):"","canon-continuity",delivered);
+  var st=CE_IMPACT_state();st.lastTurn=CE_IMPACT_turn();st.lastDelivered=delivered.slice();st.lastChars=Math.max(0,base.length-String(text||"").length);if(delivered.length)st.totalDeliveries=Number(st.totalDeliveries||0)+1;
+  return base;
+}
 function CE_COORD_onContext(text){var suffix="";if(typeof CEW_onContext==="function")suffix+=String(CEW_onContext(text,true)||"");if(typeof UN_contextPacket==="function")suffix+=String(UN_contextPacket(text)||"");if(!suffix)return text;if(typeof CE_appendCompleteContextSuffix==="function"){var r=CE_appendCompleteContextSuffix(text,suffix,0);if(r&&typeof r.text==="string")return r.text;if(typeof r==="string")return r;}return text+suffix;}
 function CE_COORD_onOutput(text){return text;}
 function CE_storyCardPresentationTick(){try{if(typeof CE_syncPrivateStateDashboard==="function")CE_syncPrivateStateDashboard(false);}catch(_){}return true;}
 var CE_R2_SCHEMA=3;
-function CE_R2_state(){if(!state.crossedEchoesReforged||typeof state.crossedEchoesReforged!=="object")state.crossedEchoesReforged={};var r=state.crossedEchoesReforged;if(r.schema!==CE_R2_SCHEMA){r.schema=CE_R2_SCHEMA;r.minds=r.minds&&typeof r.minds==="object"?r.minds:{};r.relationshipEvents=Array.isArray(r.relationshipEvents)?r.relationshipEvents:[];r.currentActive=Array.isArray(r.currentActive)?r.currentActive:[];r.lastLedgerIndex=0;}if(!r.minds||typeof r.minds!=="object")r.minds={};if(!Array.isArray(r.relationshipEvents))r.relationshipEvents=[];if(!Array.isArray(r.currentActive))r.currentActive=[];return r;}
+function CE_R2_state(){if(!state.crossedEchoesReforged||typeof state.crossedEchoesReforged!=="object")state.crossedEchoesReforged={};var r=state.crossedEchoesReforged;if(r.schema!==CE_R2_SCHEMA){r.schema=CE_R2_SCHEMA;r.minds=r.minds&&typeof r.minds==="object"?r.minds:{};r.relationshipEvents=Array.isArray(r.relationshipEvents)?r.relationshipEvents:[];r.currentActive=Array.isArray(r.currentActive)?r.currentActive:[];r.lastLedgerIndex=0;}if(!r.minds||typeof r.minds!=="object")r.minds={};if(!Array.isArray(r.relationshipEvents))r.relationshipEvents=[];if(!Array.isArray(r.currentActive))r.currentActive=[];if(!r.cardBootstrap||typeof r.cardBootstrap!=="object")r.cardBootstrap={cursor:0,completed:false,lastCount:-1,passes:0};return r;}
 function CE_R2_mind(name,create){var r=CE_R2_state(),n=CW_liteCanonical(name);if(!n||CW_isPlayerName(n))return null;var k=CW_liteKey(n),m=r.minds[k],existingUM=null;try{var canon=CW_liteCanonical(n);existingUM=state.unsaid&&state.unsaid.minds&&(state.unsaid.minds[canon]||state.unsaid.minds[n]);}catch(_){}var knownCard=false;if(!m&&create===false&&!existingUM){try{var cc=findStoryCardForEntity(n);knownCard=!!(cc&&/^(?:character|npc|person|cast|companion)$/i.test(String(cc.type||"")));}catch(_){}}if(!m&&(create!==false||existingUM||knownCard)){m=r.minds[k]={name:n,thoughtPackets:[],boundaries:[],knowledge:[],goals:[],fears:[],beliefs:[],plans:[],secrets:[],values:[],memories:[],importance:1,lastTurn:CW_liteTurn()};}if(!m)return null;var um=existingUM||CW_liteMind(n);if(um){m.knowledge=Object.keys(um.knowledge||{}).map(function(id){var x=um.knowledge[id];return {id:id,fact:x.fact,source:x.source,mode:x.mode,turn:x.turn,lastTurn:x.lastTurn};});m.memories=(um.memories||[]).slice(-30);m.goals=(um.goals||[]).slice(-8);m.fears=(um.fears||[]).slice(-8);m.beliefs=(um.beliefs||[]).slice(-8);m.plans=(um.plans||[]).slice(-8);m.secrets=(um.secrets||[]).slice(-8);m.values=(um.values||[]).slice(-8);}return m;}
 function CE_R2_relationship(a,b,create){if(CW_isPlayerName(a))return null;var l=CW_liteLink(a,b,!!create);if(!l)return null;l.scores=l.metrics;l.eventCount=Array.isArray(l.events)?l.events.length:0;return l;}
 function CE_R2_pushUnique(arr,value,cap){value=CW_liteClip(value,180);if(!value)return;if(!arr.some(function(x){return CW_liteNorm(x)===CW_liteNorm(value);}))arr.push(value);if(arr.length>(cap||12))arr.splice(0,arr.length-(cap||12));}
@@ -11121,10 +11459,168 @@ function CE_R2_parseMindBlocks(text){var src=String(text||""),re=/\[\[CE_MIND_BE
 function CE_R2_eventFingerprint(e){return [CW_liteKey(e.from),CW_liteKey(e.to),String(e.kind||""),CW_liteNorm(e.text||e.note||"").replace(/\b(?:the|a|an)\b/g,"").replace(/\s+/g," ").trim()].join("|");}
 function CE_R2_syncFromCW(){var r=CE_R2_state(),cw=CW_liteState(),rows=cw.ledger||[],start=Math.max(0,Number(r.lastLedgerIndex||0));for(var i=start;i<rows.length;i++){var e=rows[i];if(!e)continue;var fp=CE_R2_eventFingerprint(e),dup=r.relationshipEvents.some(function(x){return x&&x.fp===fp&&Math.abs(Number(x.turn||0)-Number(e.turn||0))<=2;});if(dup)continue;var hookTurn=(typeof info!=="undefined"&&info&&Number.isFinite(Number(info.actionCount)))?Number(info.actionCount):(Number(e.turn)||CW_liteTurn());var rec={turn:hookTurn,from:e.from,to:e.to,kind:e.kind,text:e.text||e.note||"",fp:fp};r.relationshipEvents.push(rec);if(r.relationshipEvents.length>160)r.relationshipEvents=r.relationshipEvents.slice(-160);var target=CE_R2_mind(e.to,/boundary|boundaryViolation/.test(String(e.kind||"")));if(target&&/boundary|boundaryViolation/.test(String(e.kind||"")))CE_R2_pushUnique(target.boundaries,(e.text||e.note||e.kind),12);}r.lastLedgerIndex=rows.length;return r;}
 function CE_R2_rewind(turn){var r=CE_R2_state(),t=Number(turn)||0;r.relationshipEvents=r.relationshipEvents.filter(function(e){return Number(e.turn||0)<=t;});Object.keys(r.minds).forEach(function(k){var m=r.minds[k];m.thoughtPackets=(m.thoughtPackets||[]).filter(function(x){return Number(x.turn||0)<=t;});m.lastTurn=Math.min(Number(m.lastTurn||t),t);});var cw=CW_liteState();cw.ledger=(cw.ledger||[]).filter(function(e){return Number(e.turn||0)<=t;});Object.keys(cw.links||{}).forEach(function(k){var l=cw.links[k];if(!l)return;l.events=(l.events||[]).filter(function(e){return Number(e.turn||0)<=t;});l.metrics=CW_liteEmptyMetrics();l.events.forEach(function(e){var kind=e.kind==="protection"?"protect":e.kind;CW_liteAdjust(l,CW_LITE_EVENT_DEFS[kind]||{});});l.scores=l.metrics;l.lastTurn=l.events.length?l.events[l.events.length-1].turn:l.firstTurn;});r.lastLedgerIndex=cw.ledger.length;return r;}
-function CE_R2_adoptFromCards(limit){var cards=(typeof storyCards!=="undefined"&&Array.isArray(storyCards))?storyCards:[],n=0;for(var i=0;i<cards.length&&n<(limit||12);i++){var c=cards[i];if(!c||!/^(?:character|npc|person|cast|companion)$/i.test(String(c.type||"")))continue;var name=CE_cardIdentityName(c);if(!name||CW_isPlayerName(name))continue;CE_R2_mind(name,true);n++;}return n;}
+function CE_R2_adoptFromCards(limit){
+  var cards=(typeof storyCards!=="undefined"&&Array.isArray(storyCards))?storyCards:[],r=CE_R2_state(),b=r.cardBootstrap;
+  if(b.lastCount!==cards.length){b.cursor=0;b.completed=false;b.lastCount=cards.length;}
+  var requested=Math.max(1,Math.min(160,Number(limit)||48));
+  var budget=cards.length>2500?3:(cards.length>1000?6:(cards.length>400?20:requested));
+  var processed=0,characters=0,mindCap=60,hydratePremadeMinds=cards.length<=1000;
+  while(b.cursor<cards.length&&processed<budget){
+    var c=cards[b.cursor++];processed++;if(!c||!/^(?:character|npc|person|cast|companion)$/i.test(String(c.type||"")))continue;
+    var name=CE_cardIdentityName(c);if(!name)continue;characters++;
+    var entry=String(CW_cardEntryText(c)||"");
+    if(/(?:^|\n)\s*(?:relationships?|family|friends?|allies|rivals?|connections?|bonds?|mother|father|parent|daughter|son|child|sister|brother|sibling|aunt|uncle|niece|nephew|cousin|grandmother|grandfather|grandparent|granddaughter|grandson|grandchild|spouse|wife|husband|partner|girlfriend|boyfriend|fianc[eé]e?|mentor|mentee|roommate|flatmate|rival|enemy|friend)\s*:/i.test(entry)){
+      try{CW_liteSeedCardRelationship(name);}catch(_){}
+    }
+    if(hydratePremadeMinds&&!CW_isPlayerName(name)&&Object.keys(r.minds).length<mindCap){try{CE_R2_mind(name,true);}catch(_){}}
+  }
+  if(b.cursor>=cards.length){b.completed=true;b.passes=Number(b.passes||0)+1;}
+  try{CE_R2_syncFromCW();}catch(_){}
+  return characters;
+}
 function CE_R2_seedRelationshipsFromCard(name){CW_liteSeedCardRelationship(name);CE_R2_syncFromCW();return true;}
-function CE_R2_onInput(text){var r=CE_R2_state(),turn=(typeof info!=="undefined"&&info)?Number(info.actionCount||0):CW_liteTurn();if(Number(r.lastTurn||turn)>turn)CE_R2_rewind(turn);r.lastTurn=turn;r.currentActive=CW_liteCharacterNames(text,10);return text;}
-function CE_R2_onOutput(text){var cleaned=CE_R2_parseMindBlocks(text);CE_R2_syncFromCW();var r=CE_R2_state();r.currentActive=CW_liteCharacterNames(cleaned,10);r.lastTurn=(typeof info!=="undefined"&&info)?Number(info.actionCount||0):CW_liteTurn();return cleaned;}
+function CE_R2_onInput(text){var r=CE_R2_state(),turn=(typeof info!=="undefined"&&info)?Number(info.actionCount||0):CW_liteTurn();if(Number(r.lastTurn||turn)>turn)CE_R2_rewind(turn);r.lastTurn=turn;try{CE_R2_adoptFromCards(64);}catch(_){}r.currentActive=CW_liteCharacterNames(text,10);r.currentActive.forEach(function(n){try{CW_liteSeedCardRelationship(n);CE_R2_mind(n,true);}catch(_){}});return text;}
+function CE_R2_onOutput(text){var cleaned=CE_R2_parseMindBlocks(text);try{CE_R2_adoptFromCards(64);}catch(_){}CE_R2_syncFromCW();var r=CE_R2_state();r.currentActive=CW_liteCharacterNames(cleaned,10);r.currentActive.forEach(function(n){try{CW_liteSeedCardRelationship(n);CE_R2_mind(n,true);}catch(_){}});r.lastTurn=(typeof info!=="undefined"&&info)?Number(info.actionCount||0):CW_liteTurn();return cleaned;}
+// ---------------------------------------------------------------------------
+// LIVE PULSE — player-facing proof that CROSSED ECHOES is doing real work.
+// Uses state.message only: it never alters story prose or leaks private NPC
+// thoughts / twist answers into the model-visible narrative.
+// ---------------------------------------------------------------------------
+var CE_PULSE_SCHEMA=1;
+function CE_PULSE_turn(){
+  try{if(typeof info!=="undefined"&&info&&Number.isFinite(Number(info.actionCount)))return Math.abs(Number(info.actionCount));}catch(_){}
+  try{if(state.unsaid&&Number.isFinite(Number(state.unsaid.turn)))return Math.abs(Number(state.unsaid.turn));}catch(_){}
+  return 0;
+}
+function CE_PULSE_state(){
+  if(!state.crossedEchoesPulse||typeof state.crossedEchoesPulse!=="object")state.crossedEchoesPulse={};
+  var p=state.crossedEchoesPulse;
+  if(p.schema!==CE_PULSE_SCHEMA){
+    var keepMode=/^(?:smart|verbose|off)$/.test(String(p.mode||""))?String(p.mode):"smart";
+    p.schema=CE_PULSE_SCHEMA;p.mode=keepMode;p.enabled=keepMode!=="off";p.lastTurn=-1;p.lastVisibleTurn=-999;p.quietTurns=0;p.baseline=null;p.history=[];
+  }
+  if(!/^(?:smart|verbose|off)$/.test(String(p.mode||"")))p.mode="smart";
+  p.enabled=p.mode!=="off";
+  if(!Array.isArray(p.history))p.history=[];
+  if(typeof p.lastTurn!=="number")p.lastTurn=-1;
+  if(typeof p.lastVisibleTurn!=="number")p.lastVisibleTurn=-999;
+  if(typeof p.quietTurns!=="number")p.quietTurns=0;
+  return p;
+}
+function CE_PULSE_clip(v,n){var x=String(v||"").replace(/\s+/g," ").trim();n=n||80;return x.length<=n?x:x.slice(0,n-1).replace(/\s+\S*$/,"")+"…";}
+function CE_PULSE_mindSnapshot(name){
+  var n="";try{n=CW_liteCanonical(name);}catch(_){n=String(name||"").trim();}
+  if(!n||n==="YOU")return null;
+  var um=null,rm=null;
+  try{um=state.unsaid&&state.unsaid.minds&&(state.unsaid.minds[n]||state.unsaid.minds[name]);}catch(_){}
+  try{rm=typeof CE_R2_mind==="function"?CE_R2_mind(n,false):null;}catch(_){}
+  if(!um&&!rm)return null;
+  return {
+    name:n,
+    memories:Array.isArray(um&&um.memories)?um.memories.length:(Array.isArray(rm&&rm.memories)?rm.memories.length:0),
+    knowledge:um&&um.knowledge&&typeof um.knowledge==="object"?Object.keys(um.knowledge).length:(Array.isArray(rm&&rm.knowledge)?rm.knowledge.length:0),
+    reveals:Number(um&&um.revealCount||0),
+    packets:Array.isArray(rm&&rm.thoughtPackets)?rm.thoughtPackets.length:0,
+    lastTurn:Math.max(Number(um&&um.lastTurn||-1),Number(rm&&rm.lastTurn||-1))
+  };
+}
+function CE_PULSE_mindChanged(a,b){
+  if(!b)return false;if(!a)return b.memories>0||b.knowledge>0||b.reveals>0||b.packets>0;
+  return b.memories!==a.memories||b.knowledge!==a.knowledge||b.reveals!==a.reveals||b.packets!==a.packets||b.lastTurn!==a.lastTurn;
+}
+function CE_PULSE_threadSnapshot(){
+  var out={},rows=[];try{rows=state.contingency&&Array.isArray(state.contingency.threads)?state.contingency.threads:[];}catch(_){}
+  rows.forEach(function(t){if(!t||!t.id)return;out[String(t.id)]={id:String(t.id),entity:String(t.entity||"the story"),status:String(t.status||"brewing"),seeds:Number(t.seedTouches||0),evidence:Number(t.storyEvidenceTouches||0),tier:String(t.tier||"")};});
+  return out;
+}
+function CE_PULSE_activeNames(text){
+  var out=[],seen={};function add(v){var n="";try{n=CW_liteCanonical(v);}catch(_){n=String(v||"").trim();}var k="";try{k=CW_liteKey(n);}catch(_){k=n.toLowerCase();}if(!n||n==="YOU"||seen[k])return;seen[k]=1;out.push(n);}
+  try{(CE_R2_state().currentActive||[]).forEach(add);}catch(_){}
+  try{(state.unsaid&&state.unsaid.lastActiveCast||[]).forEach(add);}catch(_){}
+  try{if(typeof CW_liteCharacterNames==="function")CW_liteCharacterNames(text,8).forEach(add);}catch(_){}
+  return out.slice(0,10);
+}
+function CE_PULSE_beginTurn(text){
+  var p=CE_PULSE_state(),turn=CE_PULSE_turn();
+  // Rewinds or regenerated turns get a fresh baseline instead of false deltas.
+  if(p.lastTurn>=0&&turn<p.lastTurn){p.history=[];p.lastVisibleTurn=-999;p.quietTurns=0;}
+  var cw=null,h=null;try{cw=CW_liteState();}catch(_){}
+  try{h=typeof codexWriteHealthState==="function"?codexWriteHealthState():(state.unsaid&&state.unsaid.codex&&state.unsaid.codex.writeHealth);}catch(_){}
+  var names=CE_PULSE_activeNames(text),minds={};names.forEach(function(n){var x=CE_PULSE_mindSnapshot(n);if(x)minds[n]=x;});
+  p.baseline={turn:turn,ledgerLen:cw&&Array.isArray(cw.ledger)?cw.ledger.length:0,codexSuccess:Number(h&&h.successes||0),codexAttempt:Number(h&&h.attempts||0),codexFailure:Number(h&&h.failures||0),twists:CE_PULSE_threadSnapshot(),twistLogLen:state.contingency&&Array.isArray(state.contingency.twistLog)?state.contingency.twistLog.length:0,minds:minds,names:names};
+  p.lastTurn=turn;return p.baseline;
+}
+function CE_PULSE_summaryCounts(){
+  var minds=0,bonds=0,threads=0,codex="ready",impact="idle",impactParts=[];
+  try{minds=Object.keys(state.unsaid&&state.unsaid.minds||{}).length;}catch(_){}
+  try{bonds=Object.keys(CW_liteState().links||{}).length;}catch(_){}
+  try{threads=(state.contingency&&state.contingency.threads||[]).length;}catch(_){}
+  try{var h=codexWriteHealthState();if(Number(h.consecutiveFailures||0)>0)codex="check";else if(h.lastStatus==="untried")codex="ready";else codex="healthy";}catch(_){}
+  try{var ci=CE_IMPACT_state();impactParts=(ci.lastDelivered||[]).slice();impact=impactParts.length?"active":"idle";}catch(_){}
+  return {minds:minds,bonds:bonds,threads:threads,codex:codex,impact:impact,impactParts:impactParts};
+}
+function CE_PULSE_record(turn,events){
+  var p=CE_PULSE_state();if(!events||!events.length)return;
+  p.history.push({turn:turn,events:events.slice(0,8)});if(p.history.length>30)p.history=p.history.slice(-30);
+}
+function CE_PULSE_finishTurn(text){
+  var p=CE_PULSE_state(),turn=CE_PULSE_turn(),b=p.baseline||CE_PULSE_beginTurn("");
+  if(Number(b.turn)!==turn)b=CE_PULSE_beginTurn("");
+  var events=[],cw=null,h=null;try{cw=CW_liteState();}catch(_){}
+  // Relationships: only expose the pair that changed, never private metric values.
+  try{
+    var ledger=cw&&Array.isArray(cw.ledger)?cw.ledger:[],fresh=ledger.slice(Math.min(Number(b.ledgerLen||0),ledger.length)),pairs={},pairList=[];
+    fresh.forEach(function(e){if(!e)return;var a=String(e.from||""),z=String(e.to||"");if(!a||!z)return;var key=a+"→"+z;if(!pairs[key]){pairs[key]=1;pairList.push(key);}});
+    if(pairList.length===1)events.push("❤️ relationship updated: "+CE_PULSE_clip(pairList[0],72));
+    else if(pairList.length>1)events.push("❤️ relationships updated: "+pairList.length+" directional bonds");
+  }catch(_){}
+  // CODEX: rely on the verified write-health counter, not card-count guessing.
+  try{
+    h=typeof codexWriteHealthState==="function"?codexWriteHealthState():(state.unsaid&&state.unsaid.codex&&state.unsaid.codex.writeHealth);
+    var gained=Number(h&&h.successes||0)-Number(b.codexSuccess||0),failed=Number(h&&h.failures||0)-Number(b.codexFailure||0);
+    if(gained>0){var who=CE_PULSE_clip(h.lastEntity||"entity",54);events.push("📚 CODEX "+(/reused/i.test(String(h.lastStatus||""))?"verified":"saved")+": "+who);}
+    else if(failed>0)events.push("⚠️ CODEX write needs attention — use /crossedechoes doctor");
+  }catch(_){}
+  // Twists: show progression without category, clue text, or reveal content.
+  try{
+    var before=b.twists||{},after=CE_PULSE_threadSnapshot(),newReady=[],deepened=[],seeded=[];
+    Object.keys(after).forEach(function(id){var n=after[id],o=before[id];if(!o){seeded.push(n.entity);return;}if(o.status!=="ready"&&n.status==="ready")newReady.push(n.entity);else if(n.seeds>o.seeds||n.evidence>o.evidence)deepened.push(n.entity);});
+    var log=state.contingency&&Array.isArray(state.contingency.twistLog)?state.contingency.twistLog:[];
+    if(log.length>Number(b.twistLogLen||0)){var last=log[log.length-1]||{};events.push("🌀 twist paid off: "+CE_PULSE_clip(last.entity||"story thread",58));}
+    else if(newReady.length)events.push("🌀 twist matured: "+CE_PULSE_clip(newReady[0],58)+" (payoff eligible)");
+    else if(deepened.length)events.push("🌀 twist thread deepened: "+CE_PULSE_clip(deepened[0],58));
+    else if(seeded.length)events.push("🌀 twist thread seeded: "+CE_PULSE_clip(seeded[0],58));
+  }catch(_){}
+  // NPC minds: prove state changed, while withholding the actual private thought.
+  try{
+    var names=(b.names||[]).concat(CE_PULSE_activeNames(text)),seen={},changed=[];
+    names.forEach(function(n){var k=CW_liteKey(n);if(seen[k])return;seen[k]=1;var now=CE_PULSE_mindSnapshot(n),old=(b.minds||{})[n]||null;if(CE_PULSE_mindChanged(old,now))changed.push(now&&now.name||n);});
+    if(changed.length===1)events.push("🧠 NPC mind updated: "+CE_PULSE_clip(changed[0],58));
+    else if(changed.length>1)events.push("🧠 NPC minds updated: "+changed.length+" active characters");
+  }catch(_){}
+  // De-duplicate in case one subsystem reported the same compact event twice.
+  var uniq=[];events.forEach(function(e){if(e&&uniq.indexOf(e)<0)uniq.push(e);});events=uniq;
+  CE_PULSE_record(turn,events);
+  if(!p.enabled){p.baseline=null;p.lastTurn=turn;return events;}
+  var show=[],max=p.mode==="verbose"?5:3;
+  if(events.length){show=events.slice(0,max);p.quietTurns=0;}
+  else{p.quietTurns=Number(p.quietTurns||0)+1;var heartbeatEvery=p.mode==="verbose"?1:4;if(p.quietTurns>=heartbeatEvery){var c=CE_PULSE_summaryCounts();show=["💠 active · causal impact "+c.impact+" · CODEX "+c.codex+" · "+c.minds+" minds · "+c.bonds+" bonds · "+c.threads+" twist thread"+(c.threads===1?"":"s")];p.quietTurns=0;}}
+  if(show.length){pushMessage("CROSSED ECHOES · "+show.join(" · "));p.lastVisibleTurn=turn;}
+  p.baseline=null;p.lastTurn=turn;return events;
+}
+function CE_PULSE_status(includeRecent){
+  var p=CE_PULSE_state(),c=CE_PULSE_summaryCounts(),lines=["💠 CROSSED ECHOES LIVE PULSE","Mode: "+p.mode,"Causal context: "+c.impact+(c.impactParts.length?" ("+c.impactParts.join(", ")+")":""),"CODEX: "+c.codex,"NPC minds: "+c.minds,"Directional relationships: "+c.bonds,"Active twist threads: "+c.threads];
+  if(includeRecent!==false){var rows=p.history.slice(-5);if(rows.length){lines.push("","Recent engine activity:");rows.forEach(function(r){lines.push("Turn "+r.turn+": "+r.events.slice(0,4).join(" · "));});}else lines.push("","Recent engine activity: none recorded yet.");}
+  lines.push("","/pulse smart — automatic meaningful pulses","/pulse verbose — more visible activity","/pulse off — disable automatic pulses","/pulse — show this dashboard anytime");return lines.join("\n");
+}
+function CE_PULSE_command(command){
+  var p=CE_PULSE_state(),cmd=String(command||"").trim(),m=cmd.match(/^\/(?:pulse|activity)(?:\s+(.*))?$/i),arg=m?String(m[1]||"").trim().toLowerCase():"";
+  if(!arg||/^(?:status|now|recent)$/.test(arg))return CE_PULSE_status(true);
+  if(/^(?:on|smart|compact)$/.test(arg)){p.mode="smart";p.enabled=true;return "💠 CROSSED ECHOES Live Pulse: SMART. Meaningful changes appear automatically; quiet turns only get an occasional heartbeat.";}
+  if(/^(?:verbose|full)$/.test(arg)){p.mode="verbose";p.enabled=true;return "💠 CROSSED ECHOES Live Pulse: VERBOSE. More activity is surfaced each turn without revealing private thought content or twist answers.";}
+  if(/^(?:off|quiet|disable|disabled)$/.test(arg)){p.mode="off";p.enabled=false;return "💠 CROSSED ECHOES Live Pulse: OFF. The engine still runs normally; use /pulse anytime for an on-demand dashboard.";}
+  return "💠 Unknown Live Pulse option. Use /pulse, /pulse smart, /pulse verbose, or /pulse off.";
+}
 function CW_liteDoctor(){
   var cw=CW_liteState(),links=Object.keys(cw.links||{}).length,minds=0,knowledge=0;try{var mm=state.unsaid&&state.unsaid.minds||{};minds=Object.keys(mm).length;Object.keys(mm).forEach(function(n){knowledge+=Object.keys(mm[n]&&mm[n].knowledge||{}).length;});}catch(_){}
   return "CROSSED ECHOES STARTUP-SAFE DOCTOR\n• CODEX: "+(state.unsaid&&state.unsaid.codex?"ready":"not initialized")+"\n• UNSAID minds: "+minds+"\n• Character-local knowledge facts: "+knowledge+"\n• Directional relationship links: "+links+"\n• Twist threads: "+((state.contingency&&state.contingency.threads||[]).length)+"\n• Story Cards: "+((typeof storyCards!=="undefined"&&storyCards)?storyCards.length:0)+"\n• Runtime architecture: archive-lazy; no full-library relationship/world mirror.";
@@ -11132,5 +11628,5 @@ function CW_liteDoctor(){
 function CEFH_doctor(){return CW_liteDoctor();}
 function UN_statusText(){
   var cfg;try{cfg=readUnsaidConfig();}catch(_){cfg={};}
-  return "🌒 CROSSED ECHOES\n"+CW_liteDoctor()+"\n• UNSAID: "+(cfg.enabled===false?"off":"on")+"\n• CODEX: "+(cfg.codexEnabled===false?"off":"on")+"\n• Relationships: directional integrated kernel";
+  return "🌒 CROSSED ECHOES\n"+CW_liteDoctor()+"\n• UNSAID: "+(cfg.enabled===false?"off":"on")+"\n• CODEX: "+(cfg.codexEnabled===false?"off":"on")+"\n• Relationships: directional integrated kernel"+"\n• Live Pulse: "+(typeof CE_PULSE_state==="function"?CE_PULSE_state().mode:"unavailable");
 }

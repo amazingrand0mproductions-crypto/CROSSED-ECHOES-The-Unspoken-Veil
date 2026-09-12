@@ -27,6 +27,7 @@ function CE_CTX_twists(text){
     else if(lane===1&&(typeof utHasRuntimeBudget!=="function"||utHasRuntimeBudget(300)))Library.scanPlotEssentialsForThreads(c,cfg,live);
     else if(lane===2&&(typeof utHasRuntimeBudget!=="function"||utHasRuntimeBudget(260)))Library.scanAuthorsNoteForThreads(c,cfg,live);
     else if(lane===3&&(typeof utHasRuntimeBudget!=="function"||utHasRuntimeBudget(380)))Library.scanStoryCardsForScenarioThreads(c,cfg,[],false);
+    if(typeof Library.promoteEligibleThreads==="function")Library.promoteEligibleThreads(c,cfg);
     var hint=null,entities=[],direct=false,thread=null;
     if(c.forceEntity){
       if(c.forceEntity==="any")thread=Library.pickPayoffThread(c,cfg)||Library.pickMostBuiltUpBrewingThread(c,cfg);else thread=(c.threads||[]).find(function(t){return t.id===c.forceEntity&&Library.isThreadAllowed(t,cfg);});
@@ -87,7 +88,7 @@ function CE_CTX_unsaid(text){
     state.unsaid.pending=null;if(typeof updateUnsaidBackupCard==="function")updateUnsaidBackupCard(cache,"");return text;
   }catch(e){try{if(typeof utRecordRuntimeError==="function")utRecordRuntimeError("Context/UNSAID",e);}catch(_){}return original;}
 }
-function CE_CTX_twistsLight(text){try{var x=Library.initState();Library.applyEntryConfig(x.cfg);var control=String(state.unsaid&&state.unsaid.controlRequest||"");Library.beginContextTurn(x.c,text,!(control==="peek"||control==="card"));Library.updateScenarioProfile(x.c,x.cfg,text);x.c.hintActive=false;x.c.lastContextHint="";if(typeof syncTwistFrontMemoryHint==="function")syncTwistFrontMemoryHint("");}catch(_){}return text;}
+function CE_CTX_twistsLight(text){try{var x=Library.initState();Library.applyEntryConfig(x.cfg);var control=String(state.unsaid&&state.unsaid.controlRequest||"");Library.beginContextTurn(x.c,text,!(control==="peek"||control==="card"));Library.updateScenarioProfile(x.c,x.cfg,text);if(typeof Library.promoteEligibleThreads==="function")Library.promoteEligibleThreads(x.c,x.cfg);x.c.hintActive=false;x.c.lastContextHint="";if(typeof syncTwistFrontMemoryHint==="function")syncTwistFrontMemoryHint("");}catch(_){}return text;}
 function CE_CTX_touchUnsaid(text){try{initUnsaid();if(isNewStoryTurn(text))state.unsaid.turn++;state.unsaid.pending=null;state.unsaid.pendingCoreShiftAllowed=false;state.unsaid.pendingCoreCheck=false;state.unsaid.pendingRevealForced=false;}catch(_){}return text;}
 var modifier = (text) => {var original=text;try{
   if(typeof UN_resetHookCaches==="function")UN_resetHookCaches("context");
@@ -114,6 +115,7 @@ var modifier = (text) => {var original=text;try{
   working=typeof CE_runTurnFeature==="function"?CE_runTurnFeature("coordinator","context",function(){return CE_COORD_onContext(working);},working,typeof CE_COORD_onContext==="function"):(typeof CE_COORD_onContext==="function"?CE_COORD_onContext(working):working);
   working=typeof CE_runTurnFeature==="function"?CE_runTurnFeature("canon_sentinel","context",function(){return CECS_onContext(working);},working,typeof CECS_onContext==="function"):(typeof CECS_onContext==="function"?CECS_onContext(working):working);
   working=typeof CE_runTurnFeature==="function"?CE_runTurnFeature("full_hardening","context",function(){return CEFH_onContext(working);},working,typeof CEFH_onContext==="function"):(typeof CEFH_onContext==="function"?CEFH_onContext(working):working);
+  working=typeof CE_runTurnFeature==="function"?CE_runTurnFeature("causal_impact","context",function(){return CE_IMPACT_applyContext(working,original);},working,typeof CE_IMPACT_applyContext==="function"):(typeof CE_IMPACT_applyContext==="function"?CE_IMPACT_applyContext(working,original):working);
   return {text:working};
 }catch(e){try{if(typeof utRecordRuntimeError==="function")utRecordRuntimeError("Context/unified",e);}catch(_){}return {text:original};}finally{if(typeof utEndRuntimePhase==="function")utEndRuntimePhase(contextRuntimeToken);}};
 modifier(text);

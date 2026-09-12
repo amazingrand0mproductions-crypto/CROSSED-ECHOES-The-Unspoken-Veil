@@ -40,7 +40,7 @@ var ownedControlCommand = (raw) => {
     if (typeof Library !== "undefined" && Library.extractCommand) return Library.extractCommand(raw);
   } catch (e) {}
   const t = String(raw || "").replace(/\r/g, "").trim();
-  const owned = "(?:help|status|crossedechoesstatus|crossedechoes|cestatus|ce|threadboundstatus|threadbound|tbstatus|unifiedstatus|unified|unsaid|pe(?:e|a)k|card|alias|unalias|twistcategories|twisttypes|twistlog|twisthelp|twist|plant|mature|scenario|synergy|link|intensity|threads|rescan|twists|wiremerge|wireforget|wireprofile|wirestatus|wiretwists|wirehelp|wirerole|wireage|wires|wire|spark)";
+  const owned = "(?:help|status|pulse|activity|crossedechoesstatus|crossedechoes|cestatus|ce|threadboundstatus|threadbound|tbstatus|unifiedstatus|unified|unsaid|pe(?:e|a)k|card|alias|unalias|twistcategories|twisttypes|twistlog|twisthelp|twist|plant|mature|scenario|synergy|link|intensity|threads|rescan|twists|wiremerge|wireforget|wireprofile|wirestatus|wiretwists|wirehelp|wirerole|wireage|wires|wire|spark)";
   const direct = new RegExp(`^[!/:]${owned}\\b`, "i");
   const normalize = value => {
     let v = String(value || "").trim();
@@ -65,6 +65,7 @@ var crossedEchoesCommandHelp = () => [
   "/status — CROSSED ECHOES status; /status unsaid and /status wire also work",
   "/crossedechoes — CROSSED ECHOES status",
   "/crossedechoes help — command overview",
+  "/pulse — recent live engine activity; /pulse smart|verbose|off controls automatic pulses",
   "/wire help — Crossed Wires commands",
   "/unsaid — UNSPOKEN TURNS / CODEX commands",
   "/twists — TWISTS AND TURNS config/help",
@@ -296,7 +297,11 @@ var unsaidModifier = (text) => {
       }
     }
     const cfg = readUnsaidConfig();
-    if (!isUnsaidCommand && cfg && cfg.codexEnabled !== false && cfg.codexDirectScaffold !== false && typeof createCodexDirectScaffoldFromInput === "function") {
+    // A direct scaffold can only create a new Story Card. At the platform cap there is
+    // no free slot, so avoid an expensive archive-wide identity check and preserve the
+    // hook budget for relationship/NPC processing instead. Existing cards can still be
+    // read and updated by the normal CODEX pipeline.
+    if (!isUnsaidCommand && CE_inputCardCount < 5000 && cfg && cfg.codexEnabled !== false && cfg.codexDirectScaffold !== false && typeof createCodexDirectScaffoldFromInput === "function") {
       try { createCodexDirectScaffoldFromInput(originalText, cfg); } catch (e) { if (typeof utRecordRuntimeError === "function") utRecordRuntimeError("Input/Codex-direct", e); }
     }
     state.unsaid.controlRequest = "";
@@ -526,10 +531,17 @@ var unsaidModifier = (text) => {
 };
 var modifier = (text) => {
   var originalText = text;
+  var CE_inputHardCapacity = (typeof storyCards !== "undefined" && Array.isArray(storyCards) && storyCards.length >= 4500);
   try {
     if (typeof UN_resetHookCaches === "function") UN_resetHookCaches("input");
     if (typeof CEFH_prepareInput === "function") CEFH_prepareInput(originalText);
+    if (typeof CE_PULSE_beginTurn === "function") { try { CE_PULSE_beginTurn(originalText); } catch (_) {} }
     var coordinatorCommand = ownedControlCommand(originalText);
+    if (coordinatorCommand && /^\/(?:pulse|activity)\b/i.test(coordinatorCommand)) {
+      try { pushMessage(typeof CE_PULSE_command === "function" ? CE_PULSE_command(coordinatorCommand) : "CROSSED ECHOES Live Pulse unavailable."); } catch (_) {}
+      if (typeof CE_markActivationControlTurn === "function") CE_markActivationControlTurn(coordinatorCommand || "Live Pulse command");
+      return { text: null, stop: true };
+    }
     if (coordinatorCommand && /^\/(?:crossedechoes(?:status)?|cestatus|ce|threadbound(?:status)?|tbstatus|unified(?:status)?)\b/i.test(coordinatorCommand)) {
       try {
         if (/^\/(?:crossedechoes|ce)\s+doctor\s*$/i.test(coordinatorCommand)) {
@@ -581,8 +593,12 @@ var modifier = (text) => {
     else if (typeof CW_onInput === "function") visible = CW_onInput(visible);
     if (typeof CE_R2_syncFromCW === "function") { try { CE_R2_syncFromCW(); } catch (_) {} }
     if (typeof CE_runTurnFeature === "function") visible = CE_runTurnFeature("echo_veil", "input", function(){ return typeof EV_onInput === "function" ? EV_onInput(visible) : visible; }, visible, typeof EV_onInput === "function"); else if(typeof EV_onInput==="function")visible=EV_onInput(visible);
-    if (typeof CE_runTurnFeature === "function") CE_runTurnFeature("world_engine", "input", function(){ return CEW_onInput(visible); }, null, typeof CEW_onInput === "function"); else if(typeof CEW_onInput==="function")CEW_onInput(visible);
-    if (typeof CE_runTurnFeature === "function") visible = CE_runTurnFeature("canon_sentinel", "input", function(){ return CECS_onInput(visible); }, visible, typeof CECS_onInput === "function"); else if(typeof CECS_onInput==="function")visible=CECS_onInput(visible);
+    if (!CE_inputHardCapacity) {
+      if (typeof CE_runTurnFeature === "function") CE_runTurnFeature("world_engine", "input", function(){ return CEW_onInput(visible); }, null, typeof CEW_onInput === "function"); else if(typeof CEW_onInput==="function")CEW_onInput(visible);
+      if (typeof CE_runTurnFeature === "function") visible = CE_runTurnFeature("canon_sentinel", "input", function(){ return CECS_onInput(visible); }, visible, typeof CECS_onInput === "function"); else if(typeof CECS_onInput==="function")visible=CECS_onInput(visible);
+    } else {
+      try { if (typeof CE_markFeatureActivation === "function") { CE_markFeatureActivation("world_engine", "input", "ok", "deferred at hard Story Card capacity"); CE_markFeatureActivation("canon_sentinel", "input", "ok", "deferred at hard Story Card capacity"); } } catch (_) {}
+    }
     if (typeof CE_runTurnFeature === "function") visible = CE_runTurnFeature("full_hardening", "input", function(){ return CEFH_prepareInput(visible); }, visible, typeof CEFH_prepareInput === "function"); else if(typeof CEFH_prepareInput==="function")visible=CEFH_prepareInput(visible);
     if (typeof CE_runTurnFeature === "function") visible = CE_runTurnFeature("coordinator", "input", function(){ return CE_COORD_onInput(visible); }, visible, typeof CE_COORD_onInput === "function"); else if(typeof CE_COORD_onInput==="function")visible=CE_COORD_onInput(visible);
     if (typeof UN_profileConsensus === "function") UN_profileConsensus();

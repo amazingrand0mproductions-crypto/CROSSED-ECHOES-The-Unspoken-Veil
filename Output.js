@@ -1127,6 +1127,7 @@ var modifier = (text) => {
     if(typeof CE_runTurnFeature==="function")CE_runTurnFeature("storycard_presentation","output",function(){return CE_storyCardPresentationTick();},true,typeof CE_storyCardPresentationTick==="function");else if(typeof CE_storyCardPresentationTick==="function")CE_storyCardPresentationTick();
     if(!hardCapacity&&typeof observeUnsaidVisibleBehavior==="function")observeUnsaidVisibleBehavior(t);
     if(typeof CE_activationCompleteOutputTurn==="function")CE_activationCompleteOutputTurn();
+    if(typeof CE_PULSE_finishTurn==="function"){try{CE_PULSE_finishTurn(t);}catch(_){}}
     return {text:t};
   } catch(e) {
     try{if(typeof utRecordRuntimeError==="function")utRecordRuntimeError("Output/unified",e);}catch(_){}
