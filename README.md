@@ -114,7 +114,7 @@ For compatibility with published/attachable Script environments, this build trea
 
 Temporary narrative guidance is injected through the Context hook instead. Persistent CROSSED ECHOES runtime data stays in the script's own state, while editable configuration and generated public lore use Story Cards.
 
-Story Card creation follows AI Dungeon's documented core API and then verifies the resulting card identity. A numeric result from `addStoryCard()` is never trusted on its own. For Name/Notes metadata, CROSSED ECHOES uses the optional extended Story Card parameters when the host supports them, but always reacquires and verifies the live card afterwards and retains a core-API fallback.
+Story Card creation follows AI Dungeon's documented core API and then verifies the resulting card identity. A numeric result from `addStoryCard()` is never trusted on its own. For optional Name/Notes metadata, CROSSED ECHOES uses it only when the host actually persists it. AI Dungeon's documented scripting API guarantees only Triggers/Entry/Type writes, so a core-only host automatically switches private diagnostics to an inert `CROSSED ECHOES — PRIVATE SCRIPT STATE` dashboard card whose impossible trigger keeps it out of normal story context.
 
 ---
 
@@ -242,11 +242,11 @@ Story Card key parsing is now normalized across comma, semicolon, pipe and newli
 
 Per-turn health reporting is stricter too: a later successful call cannot erase an earlier failure from the same subsystem/hook. Shared Context packet assembly is fault-isolated, `/unsaid resetcodex` preserves the owned CODEX sentinel, and production code is statically checked so Story Card core/Notes fields are not mutated outside the compatibility layer.
 
-### 🧾 Live Character Notes self-repair
+### 🧾 Live Notes capability detection + private dashboard fallback
 
-Blank Character Notes are no longer treated as proof that presentation has already finished. CROSSED ECHOES checks the live card itself and automatically rebuilds the managed `🌒 CROSSED ECHOES — SCRIPT STATE` block for non-player Characters that have usable canon. Active Characters can repair during Context; the wider cast is migrated incrementally on Output.
+When a host genuinely persists writable Story Card Notes, CROSSED ECHOES can maintain the managed `🌒 CROSSED ECHOES — SCRIPT STATE` block there. When Notes do **not** survive the next isolated hook, the script marks that host as core-only, stops wasting turns retrying an unsupported field, and mirrors the most recently active entities into one inert `CROSSED ECHOES — PRIVATE SCRIPT STATE` dashboard Entry instead.
 
-The persistence watcher verifies what survives on the next isolated hook. If a Notes write disappears, that Character is requeued automatically instead of being marked complete. Large libraries use bounded migration chunks so self-repair does not turn a thousands-of-Characters first turn into an unbounded scan.
+The persistence watcher verifies what survives on the next isolated hook. Rich hosts keep using Character Notes; core-only hosts switch to the private dashboard. The durable relationship/mind/twist/ECHO state always remains in script state either way.
 
 Creator canon visible to scripts through current Context, Plot Essentials, Story Cards and recent story can also outrank stale older Story Card wording in the managed diagnostic block without rewriting the public Entry. AI Instructions themselves are higher-level model instructions and are not assumed to be directly readable by the JavaScript runtime. This is especially important for updated knowledge boundaries, relationship status, consent/boundaries and other current facts that may have changed since the Character card was authored.
 
@@ -352,7 +352,7 @@ CROSSED ECHOES now writes Story Card metadata through a replacement-safe compati
 
 Entity Notes are also verified independently from config-card persistence. Modern `🌒 CROSSED ECHOES — SCRIPT STATE` Character Notes are now a bounded recovery layer as well as a dashboard: if the private UNSAID state is lost or malformed, supported continuity such as private attitudes, core stability and recent private-memory snippets can be reconstructed conservatively from the managed Notes instead of resetting the NPC to a blank state. The CROSSED WIRES section writes every validated counterpart and every compatible active role rather than only the most recent few bonds. Creator-written Notes remain preserved above the managed block.
 
-If a managed Notes write still disappears on the next isolated hook, CROSSED ECHOES raises a warning, automatically requeues that Character and keeps retrying instead of pretending the dashboard is healthy. `/crossedechoes doctor` reports managed/missing Character Notes and persistence failures. The player Character remains intentionally excluded from NPC-private managed Notes.
+If a managed Notes write disappears on the next isolated hook, CROSSED ECHOES raises a one-time capability warning and switches to the inert private dashboard instead of pretending the Notes field is writable. `/crossedechoes doctor` reports whether the host is using rich Notes or the core-only dashboard fallback. The player Character remains excluded from NPC-private psychology.
 
 ---
 

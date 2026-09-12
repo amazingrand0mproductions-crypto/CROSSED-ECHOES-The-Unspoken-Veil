@@ -558,6 +558,10 @@ function CE_sharedStoryCardIndex() {
   function addMap(map,key,rec){ if(!key)return; if(!map[key])map[key]=[]; map[key].push(rec); }
   for (let i=0;i<cards.length;i++) {
     const card=cards[i]; if(!card)continue;
+    // Private diagnostics fallback uses an inert Story Card Entry only because
+    // AI Dungeon does not expose durable Notes writes to scripts. Never index
+    // that dashboard as story evidence or as an entity source.
+    if(typeof CE_privateDashboardCard==="function"&&CE_privateDashboardCard(card)){mix(i+"|private-dashboard|"+CE_cardKeysCore(card)+"|");continue;}
     const type=String(card.type||"").trim(), typeNorm=type.toLowerCase();
     const identity=CE_cardIdentityName(card), identityNorm=CE_sharedCardNorm(identity);
     const keysRaw=CE_cardKeysCore(card), keyParts=keysRaw.split(/[,;|\n]+/).map(function(x){return String(x||"").trim();}).filter(Boolean).slice(0,24);
@@ -920,6 +924,95 @@ function CE_entityNotesWatchState() {
   if(!Array.isArray(state.crossedEchoesEntityNotesWatch.pending))state.crossedEchoesEntityNotesWatch.pending=[];
   return state.crossedEchoesEntityNotesWatch;
 }
+
+var CE_PRIVATE_STATE_DASHBOARD_KEY = "__crossed_echoes_private_state_dashboard_7f3d__";
+var CE_PRIVATE_STATE_DASHBOARD_TITLE = "CROSSED ECHOES — PRIVATE SCRIPT STATE";
+function CE_notesCapabilityState(){
+  if(typeof state==="undefined"||!state)return null;
+  var box=state.crossedEchoesNotesCapability;
+  if(!box||typeof box!=="object")box=state.crossedEchoesNotesCapability={mode:"unknown",reason:"",wanted:{},lastDashboardTurn:-999999,lastNoticeTurn:-999999,verifiedRichWrites:0,failedRichWrites:0};
+  if(!box.wanted||typeof box.wanted!=="object")box.wanted={};
+  return box;
+}
+function CE_markNotesCapability(mode,reason){
+  try{
+    var box=CE_notesCapabilityState();if(!box)return null;
+    mode=String(mode||"unknown");
+    if(mode==="rich"){
+      box.verifiedRichWrites=Number(box.verifiedRichWrites||0)+1;
+      if(box.mode!=="core-only")box.mode="rich";
+    }else if(mode==="core-only"){
+      box.failedRichWrites=Number(box.failedRichWrites||0)+1;
+      box.mode="core-only";
+    }
+    if(reason)box.reason=String(reason).slice(0,220);
+    return box;
+  }catch(_){return null;}
+}
+function CE_privateDashboardCard(card){
+  try{return !!(card&&CE_hasCardKey(card,CE_PRIVATE_STATE_DASHBOARD_KEY));}catch(_){return false;}
+}
+function CE_notePrivateDashboardEntity(name){
+  try{
+    name=String(name||"").trim();if(!name||CE_isPlayerIdentity(name))return false;
+    var box=CE_notesCapabilityState();if(!box)return false;
+    var now=(typeof info!=="undefined"&&info&&Number.isFinite(Number(info.actionCount)))?Number(info.actionCount):0;
+    box.wanted[name]=now;
+    var rows=Object.keys(box.wanted).sort(function(a,b){return Number(box.wanted[b]||0)-Number(box.wanted[a]||0);});
+    if(rows.length>18)rows.slice(18).forEach(function(n){delete box.wanted[n];});
+    return true;
+  }catch(_){return false;}
+}
+function CE_findPrivateDashboardCard(){
+  try{
+    if(typeof storyCards==="undefined"||!Array.isArray(storyCards))return null;
+    return storyCards.find(function(c){return CE_privateDashboardCard(c);})||null;
+  }catch(_){return null;}
+}
+function CE_privateDashboardEntityBlock(name){
+  try{
+    var card=CE_findWritableEntityCard(name),kind=card&&typeof codexKindFromExistingCard==="function"?codexKindFromExistingCard(card,name):String(card&&card.type||"character").toLowerCase();
+    if(!["character","location","item","faction"].includes(kind))kind=/character|npc|person/.test(kind)?"character":/location|place/.test(kind)?"location":/item|object|device|weapon/.test(kind)?"item":/faction|group|organisation|organization|team/.test(kind)?"faction":"character";
+    var body=CE_renderManagedEntityNotes(name,card,kind);
+    return "━━━━━━━━━━ "+name+" ━━━━━━━━━━\n"+String(body||"").slice(0,1900);
+  }catch(_){return "━━━━━━━━━━ "+String(name||"Unknown")+" ━━━━━━━━━━\nState exists, but this entity summary could not be rendered this turn.";}
+}
+function CE_privateDashboardEntry(){
+  try{
+    var box=CE_notesCapabilityState()||{wanted:{}},now=(typeof info!=="undefined"&&info&&Number.isFinite(Number(info.actionCount)))?Number(info.actionCount):0;
+    var names=Object.keys(box.wanted||{}).filter(function(n){return !CE_isPlayerIdentity(n);}).sort(function(a,b){return Number(box.wanted[b]||0)-Number(box.wanted[a]||0);}).slice(0,4);
+    var lines=[
+      "Name: "+CE_PRIVATE_STATE_DASHBOARD_TITLE,
+      "Type: Private diagnostics / Notes API fallback",
+      "Trigger safety: this card uses an inert script-only trigger and should never enter normal story context.",
+      "AI Dungeon's documented scripting API can persist Story Card Triggers, Entry and Type, but not Notes. CROSSED ECHOES therefore keeps private minds/relationship diagnostics in script state and mirrors the most recently active entities here for player inspection.",
+      "Updated action: "+now,
+      "Player: "+(typeof CE_playerPrimaryName==="function"?CE_playerPrimaryName():"YOU"),
+      ""
+    ];
+    if(!names.length)lines.push("No active non-player entity is waiting for a dashboard refresh yet.");
+    names.forEach(function(n){lines.push(CE_privateDashboardEntityBlock(n));});
+    var out=lines.join("\n\n");
+    return out.length>7600?out.slice(0,7550)+"\n\n[Dashboard clipped; durable script state is unaffected.]":out;
+  }catch(_){return "Name: "+CE_PRIVATE_STATE_DASHBOARD_TITLE+"\nPrivate script state is active; dashboard rendering failed this turn.";}
+}
+function CE_syncPrivateStateDashboard(force){
+  try{
+    var box=CE_notesCapabilityState();if(!box||box.mode!=="core-only")return false;
+    var now=(typeof info!=="undefined"&&info&&Number.isFinite(Number(info.actionCount)))?Number(info.actionCount):0;
+    if(!force&&Number(box.lastDashboardTurn||-999999)===now)return true;
+    var entry=CE_privateDashboardEntry(),card=CE_findPrivateDashboardCard(),ok=false;
+    if(card){
+      var committed=CE_updateStoryCardCompat(card,CE_PRIVATE_STATE_DASHBOARD_KEY,entry,CE_CONFIG_CATEGORY,undefined,undefined,{forceHostWrite:true});
+      ok=!!(committed&&committed.ok);
+    }else{
+      var added=CE_tryAddStoryCard(CE_PRIVATE_STATE_DASHBOARD_KEY,entry,CE_CONFIG_CATEGORY,CE_PRIVATE_STATE_DASHBOARD_TITLE,undefined,{allowReserved:true});
+      ok=!!(added&&added.ok);
+    }
+    if(ok)box.lastDashboardTurn=now;
+    return ok;
+  }catch(_){return false;}
+}
 function CE_noteExpectedEntityNotes(card,name,notes) {
   try{
     if(!card || !CE_storyCardMetadataSurfaceAvailable())return;
@@ -952,6 +1045,8 @@ function CE_verifyExpectedEntityNotes(currentPhase) {
   try{
     if(!CE_storyCardMetadataSurfaceAvailable()){
       var dormant=CE_entityNotesWatchState();if(dormant)dormant.pending=[];
+      CE_markNotesCapability("core-only","AI Dungeon runtime exposes only core Story Card fields; Notes metadata is unavailable.");
+      try{CE_syncPrivateStateDashboard(false);}catch(_){}
       return 0;
     }
     var w=CE_entityNotesWatchState();if(!w||!w.pending.length)return 0;
@@ -961,29 +1056,25 @@ function CE_verifyExpectedEntityNotes(currentPhase) {
       if(!rec)return;
       if(Number(rec.action)===now&&String(rec.phase||"")===phase){keep.push(rec);return;}
       var card=CE_findExpectedNotesCard(rec),actual=card?String(card.description||card.notes||""):"";
-      if(card&&CE_notesFingerprint(actual)===String(rec.hash||""))return;
+      if(card&&CE_notesFingerprint(actual)===String(rec.hash||"")){CE_markNotesCapability("rich","Story Card Notes persisted across isolated hooks.");return;}
       failed.push(rec);
     });
     w.pending=keep;
     if(!failed.length)return 0;
-    // A failed Notes write must become actionable repair work immediately. The
-    // old watcher only counted failures; on a large cast the failed Character
-    // could then wait until the entire presentation queue cycled before being
-    // attempted again. Requeue failed identities at the front for the next
-    // presentation pass while retaining bounded work per hook.
-    try{
-      var cw=state.crossedWires;if(cw){
-        var existing=Array.isArray(cw.foundationPresentationQueue)?cw.foundationPresentationQueue.slice():[];
-        var retry=[];failed.forEach(function(rec){var n=String(rec&&rec.name||"").trim();if(n&&!retry.some(function(x){return CE_sameName(x,n);}))retry.push(n);});
-        existing=existing.filter(function(n){return !retry.some(function(x){return CE_sameName(x,n);});});
-        cw.foundationPresentationQueue=retry.concat(existing);
-      }
-    }catch(_){}
+    // AI Dungeon's documented scripting API persists only Triggers/Entry/Type.
+    // If rich Notes disappear between isolated hooks, stop retrying a field the
+    // host cannot save. Keep the actual private state in `state` and mirror the
+    // most recently active entities into one inert dashboard card whose Entry
+    // is writable through the official API and never triggers normal context.
+    CE_markNotesCapability("core-only","Story Card Notes write disappeared between isolated hooks.");
+    failed.forEach(function(rec){var n=String(rec&&rec.name||"").trim();if(n)CE_notePrivateDashboardEntity(n);});
+    try{var cw=state.crossedWires;if(cw)cw.foundationPresentationQueue=[];}catch(_){}
     w.failures=Number(w.failures||0)+failed.length;
-    w.lastReason="Story Card Notes write disappeared between isolated hooks";
-    if(now-Number(w.lastWarnAction||-999999)>=2){
+    w.lastReason="Story Card Notes are not writable on this AI Dungeon host; private diagnostics use the inert dashboard fallback.";
+    try{CE_syncPrivateStateDashboard(true);}catch(_){}
+    if(now-Number(w.lastWarnAction||-999999)>=20){
       w.lastWarnAction=now;
-      if(typeof pushMessage==="function")pushMessage("⚠️ CROSSED ECHOES: Character Story Card Notes did not persist between AI Dungeon hooks. The card has been requeued automatically and the story engine is still running. CROSSED ECHOES will keep retrying the live Notes repair path; /crossedechoes doctor shows current Notes coverage and persistence failures.");
+      if(typeof pushMessage==="function")pushMessage("ℹ️ CROSSED ECHOES: Character Story Card Notes did not persist on this AI Dungeon host, so live script diagnostics are being mirrored to the inert 'CROSSED ECHOES — PRIVATE SCRIPT STATE' card instead. Minds, relationships, ECHO and twists remain stored in script state.");
     }
     return failed.length;
   }catch(_){return 0;}
@@ -992,6 +1083,7 @@ function CE_verifyExpectedEntityNotes(currentPhase) {
 function CE_verifyExpectedStoryCardWrites(currentPhase) {
   try {
     var noteFailures=typeof CE_verifyExpectedEntityNotes==="function"?CE_verifyExpectedEntityNotes(currentPhase):0;
+    try{var notesCap=CE_notesCapabilityState();if(notesCap&&notesCap.mode==="core-only")CE_syncPrivateStateDashboard(false);}catch(_){}
     var w=CE_storyCardWriteWatchState(); if(!w||!w.pending.length)return noteFailures;
     var now=(typeof info!=="undefined"&&info&&Number.isFinite(Number(info.actionCount)))?Number(info.actionCount):0;
     var phase=String(currentPhase||""); var keep=[],failed=[];
@@ -6193,7 +6285,7 @@ function stripPossessive(w) {
 // word-subset comparison and, via "/card Unspoken," actually get spliced
 // into the real shared settings card's cast list and Notes. One shared
 // list here means it can't drift apart a second time.
-var OWN_CARD_TITLE_PREFIXES = ["Twists and Turns", "Twist — ", "UNSAID", "UNSPOKEN TURNS", "CROSSED ECHOES — Config"];
+var OWN_CARD_TITLE_PREFIXES = ["Twists and Turns", "Twist — ", "UNSAID", "UNSPOKEN TURNS", "CROSSED ECHOES — Config", "CROSSED ECHOES — PRIVATE SCRIPT STATE"];
 
 function isOwnCard(title) {
   return !!title && OWN_CARD_TITLE_PREFIXES.some(p => title.indexOf(p) === 0);
@@ -7187,7 +7279,7 @@ function renderCodexNotes() {
     "",
     "Generated Triggers use the exact entity name plus safe aliases actually supplied by the profile; generic words are not invented as triggers.",
     "",
-    "Story Card Entry contains public canon only. CROSSED ECHOES script diagnostics/private psychology belong in Notes and are excluded from story-evidence scans.",
+    "Story Card Entry contains public canon only. CROSSED ECHOES private diagnostics remain in script state. If this host truly persists Notes they may be mirrored there; otherwise they are mirrored to the inert CROSSED ECHOES — PRIVATE SCRIPT STATE dashboard, which is excluded from story-evidence scans.",
     "",
     "🛡️ STORY CARD WRITE SAFETY",
     "CODEX verifies identity separately from trigger overlap. If an Event, Plot or hand-written lore card happens to share the new entity's trigger, that card is left untouched and CODEX uses a collision-safe trigger set for the separate entity card. Documented core-field changes use updateStoryCard when available. /unsaid status reports whether card creation/update succeeded, was refused, degraded to compatibility mode, or recovered after a trigger collision.",
@@ -10994,6 +11086,15 @@ function syncMindToCard(name, allowCoreShift, useJson) {
 
   const card = findStoryCardForEntity(name);
   if (!card) return false;
+  try {
+    var notesCap = CE_notesCapabilityState();
+    if (!CE_storyCardMetadataSurfaceAvailable()) notesCap = CE_markNotesCapability("core-only","AI Dungeon runtime exposes no writable Notes metadata surface.");
+    if (notesCap && notesCap.mode === "core-only") {
+      CE_notePrivateDashboardEntity(CE_cardIdentityName(card) || name);
+      CE_syncPrivateStateDashboard(false);
+      return true;
+    }
+  } catch (_) {}
 
   const stabilityNote = typeof mind.coreSetTurn === "number" && state.unsaid.turn > mind.coreSetTurn
     ? ` (steady for ${state.unsaid.turn - mind.coreSetTurn} turn${state.unsaid.turn - mind.coreSetTurn === 1 ? "" : "s"})`
@@ -17486,7 +17587,7 @@ const ECHO_VEIL = (() => {
       "Fast chaotic story: DYNAMIC; if it becomes too busy, reduce OFFSCREEN_ACTIVITY or CONSEQUENCE_PRESSURE before disabling safety guards.",
       "",
       "CROSSED ECHOES CARD RULE",
-      "All five configuration cards use the Story Card category 'CROSSED ECHOES CONFIG'. Entry contains editable settings; Notes contain the full human-readable guide. Character, Location, Item and Faction cards use Entry for public canon; CROSSED ECHOES-managed diagnostics live in Notes and are excluded from story evidence."
+      "All five configuration cards use the Story Card category 'CROSSED ECHOES CONFIG'. Entry contains editable settings. Imported cards may include the full human-readable guide in Notes. Runtime private diagnostics stay in script state; rich hosts may mirror them into Notes, while core-only hosts use the inert CROSSED ECHOES — PRIVATE SCRIPT STATE dashboard instead."
     ].join("\n");
   }
 
@@ -22528,10 +22629,17 @@ function CE_isPlayerIdentity(name){
 }
 function CE_syncEntityCard(name){try{
   var card=CE_findWritableEntityCard(name);if(!card)return false;
+  var cap=CE_notesCapabilityState();
+  if(!CE_storyCardMetadataSurfaceAvailable()){cap=CE_markNotesCapability("core-only","AI Dungeon runtime exposes no writable Notes metadata surface.");}
   var kind=typeof codexKindFromExistingCard==="function"?codexKindFromExistingCard(card,name):String(card.type||"").toLowerCase();
   if(!["character","location","item","faction"].includes(kind)){var raw=String(card.type||"").toLowerCase();if(/character|npc|person/.test(raw))kind="character";else if(/location|place/.test(raw))kind="location";else if(/item|object/.test(raw))kind="item";else if(/faction|group|organization|organisation/.test(raw))kind="faction";else return false;}
   var displayName=String(CE_cardIdentityName(card)||name).trim()||name;
   if(kind==="character"&&CE_isPlayerIdentity(displayName))return false;
+  if(cap&&cap.mode==="core-only"){
+    CE_notePrivateDashboardEntity(displayName);
+    CE_syncPrivateStateDashboard(false);
+    return true;
+  }
   var base=CE_publicStoryCardNotes(card),managed=CE_renderManagedEntityNotes(displayName,card,kind),next=(base?base+"\n\n":"")+CE_CARD_NOTES_START+"\n"+managed;
   var before=String(card.description||card.notes||"");
   if(before===next)return before.indexOf(CE_CARD_NOTES_START)>=0;
@@ -22547,6 +22655,7 @@ function CE_syncEntityCard(name){try{
 function CE_syncCrossedWiresCardSection(name){
   try{
     var card=CE_findWritableEntityCard(name);if(!card||!/^(?:character|npc)$/i.test(String(card.type||"")))return false;
+    var cap=CE_notesCapabilityState();if(cap&&cap.mode==="core-only"){var dn=String(CE_cardIdentityName(card)||name).trim()||name;if(!CE_isPlayerIdentity(dn)){CE_notePrivateDashboardEntity(dn);CE_syncPrivateStateDashboard(false);return true;}}
     var playerDisplay=String(CE_cardIdentityName(card)||name).trim()||name;if(CE_isPlayerIdentity(playerDisplay))return false;
     var raw=String(card.description||card.notes||""),display=String(CE_cardIdentityName(card)||name).trim()||name,nextSection="❤️ CROSSED WIRES\n"+CE_crossedCardSection(display);
     // Fast path for existing managed Character cards. Relationship migrations
@@ -22602,6 +22711,7 @@ function CE_bridgeEchoThreadsToTwists(){
 
 function CE_characterCardNeedsManagedNotes(card){
   try{
+    var cap=CE_notesCapabilityState();if(cap&&cap.mode==="core-only")return false;
     if(!card||!/^(?:character|npc)$/i.test(String(card.type||"")))return false;
     var name=String(CE_cardIdentityName(card)||"").trim();
     if(!name||CE_isPlayerIdentity(name))return false;
@@ -27859,7 +27969,7 @@ function CEFH_doctor(){
     "Twists: "+(deep.twists&&deep.twists.threads||0)+" threads | safe ready="+(deep.twists&&deep.twists.safeReady||0)+" | blocked="+(deep.twists&&deep.twists.blockedReady||0),
     "Integrity: repairs="+s.integrity.repairCount+" | warnings="+s.integrity.warnings.length+" | state chars="+s.performance.lastStateChars,
     (typeof CE_activationHealthText==="function"?CE_activationHealthText():"Per-turn feature activation: unavailable"),
-    (function(){try{var n=CE_characterNotesCoverageSnapshot();var w=CE_entityNotesWatchState();return "Character Notes: managed="+n.managed+" / eligible="+n.eligible+" | missing="+n.missing+" | persistence failures="+Number(w&&w.failures||0);}catch(_){return "Character Notes: health unavailable";}})(),
+    (function(){try{var n=CE_characterNotesCoverageSnapshot(),w=CE_entityNotesWatchState(),cap=CE_notesCapabilityState();if(cap&&cap.mode==="core-only")return "Story Card Notes API: NOT WRITABLE on this host | private dashboard fallback=ACTIVE | persistence failures="+Number(w&&w.failures||0);return "Character Notes: managed="+n.managed+" / eligible="+n.eligible+" | missing="+n.missing+" | persistence failures="+Number(w&&w.failures||0);}catch(_){return "Character Notes: health unavailable";}})(),
     "Contracts: current explicit canon outranks scores; private thought cannot create world fact; counter-evidence vetoes reveals; Retry replaces rejected hidden state; family/professional roles never auto-convert into romance."
   ];
   return lines.join("\n");
