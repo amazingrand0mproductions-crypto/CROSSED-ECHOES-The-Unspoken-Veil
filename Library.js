@@ -174,9 +174,16 @@ function CE_playerIdentityKnownNames() {
       if(!identity) continue;
       var ck=CE_playerIdentityKey(identity); canonicalByKey[ck]=identity;
       var aliases=[identity];
-      String(CE_cardKeysCore(card)||"").split(/[,;|\n\r]+/).forEach(function(x){x=CE_playerIdentityCleanName(x);if(x)aliases.push(x);});
+      // Trigger keys are retrieval vocabulary, not identity aliases. Character
+      // cards often include phrases such as "Solar Girl suit", "Maya costume"
+      // or relationship/topic triggers. Treating every key as a player alias
+      // can make ordinary nouns become controlled identities and silently
+      // exclude real NPCs/entities from other systems.
       var am,arx=/(?:^|\n)\s*Alias(?:es)?\s*:\s*([^\n]{1,240})/ig;
-      while((am=arx.exec(String(entry||"")))!==null) String(am[1]||"").split(/[,;/]+/).forEach(function(x){x=CE_playerIdentityCleanName(x);if(x)aliases.push(x);});
+      while((am=arx.exec(String(entry||"")))!==null) String(am[1]||"").split(/[,;/]+/).forEach(function(x){
+        x=CE_playerIdentityCleanName(String(x||"").replace(/\s+[—–-]\s+.*$/, ""));
+        if(x)aliases.push(x);
+      });
       var seen=Object.create(null), cleanAliases=[];
       aliases.forEach(function(a){var ak=CE_playerIdentityKey(a);if(!ak||seen[ak])return;seen[ak]=1;cleanAliases.push(a);if(!aliasToOwners[ak])aliasToOwners[ak]=[];if(aliasToOwners[ak].indexOf(identity)<0)aliasToOwners[ak].push(identity);});
       aliasesByCanonical[ck]=cleanAliases;
@@ -894,6 +901,19 @@ function CE_notesFingerprint(value) {
   for(var i=0;i<s.length;i++){ h^=s.charCodeAt(i); h=(h+((h<<1)+(h<<4)+(h<<7)+(h<<8)+(h<<24)))>>>0; }
   return String(h>>>0)+":"+s.length;
 }
+function CE_storyCardMetadataSurfaceAvailable() {
+  try {
+    if (typeof storyCards === "undefined" || !Array.isArray(storyCards) || !storyCards.length) return false;
+    // The documented AI Dungeon scripting surface guarantees id/keys/entry/type.
+    // Rich title/Notes metadata is optional and must never be required for core behavior.
+    return storyCards.some(function(card){
+      return !!(card && (Object.prototype.hasOwnProperty.call(card,"description") ||
+        Object.prototype.hasOwnProperty.call(card,"notes") ||
+        Object.prototype.hasOwnProperty.call(card,"title") ||
+        Object.prototype.hasOwnProperty.call(card,"name")));
+    });
+  } catch (_) { return false; }
+}
 function CE_entityNotesWatchState() {
   if(typeof state==="undefined"||!state)return null;
   if(!state.crossedEchoesEntityNotesWatch||typeof state.crossedEchoesEntityNotesWatch!=="object")state.crossedEchoesEntityNotesWatch={pending:[],failures:0,lastWarnAction:-999999,lastReason:""};
@@ -902,7 +922,7 @@ function CE_entityNotesWatchState() {
 }
 function CE_noteExpectedEntityNotes(card,name,notes) {
   try{
-    if(!card)return;
+    if(!card || !CE_storyCardMetadataSurfaceAvailable())return;
     var w=CE_entityNotesWatchState();if(!w)return;
     var now=(typeof info!=="undefined"&&info&&Number.isFinite(Number(info.actionCount)))?Number(info.actionCount):0;
     var phase=(typeof UT_ACTIVE_RUNTIME_PHASE!=="undefined"&&UT_ACTIVE_RUNTIME_PHASE&&UT_ACTIVE_RUNTIME_PHASE.name)||"unknown";
@@ -930,6 +950,10 @@ function CE_findExpectedNotesCard(rec) {
 }
 function CE_verifyExpectedEntityNotes(currentPhase) {
   try{
+    if(!CE_storyCardMetadataSurfaceAvailable()){
+      var dormant=CE_entityNotesWatchState();if(dormant)dormant.pending=[];
+      return 0;
+    }
     var w=CE_entityNotesWatchState();if(!w||!w.pending.length)return 0;
     var now=(typeof info!=="undefined"&&info&&Number.isFinite(Number(info.actionCount)))?Number(info.actionCount):0;
     var phase=String(currentPhase||""),keep=[],failed=[];
@@ -3578,7 +3602,12 @@ var Library = (() => {
   function twistCardIsArchiveOnly(card, haystack) {
     const d = String(card && (card.description || card.notes) || "");
     const h = String(haystack || "");
-    return /\bTRIGGERS DISABLED\b/i.test(d) ||
+    const id = String(CE_cardIdentityName(card) || "");
+    const type = String(card && card.type || "").toLowerCase();
+    const explicitHistorical = /\b(?:HISTORICAL|ARCHIVE(?:D)?|COMPLETED (?:ARC|EVENT|SNAPSHOT)|timeline reference only|history only|historical handoff|historical snapshot)\b/i.test(h);
+    const oldEraTitle = /^(?:AFTERGLOW|NEXT CLASS|SECOND DAWN)\b/i.test(id) && !/\b(?:CURRENT|ACTIVE|OPEN|UNRESOLVED)\b/i.test(id);
+    const pastEvent = type === "event" && explicitHistorical && !/\b(?:CURRENT OPEN|CURRENT PRIORITY|CURRENT THREAT|ACTIVE MYSTERY)\b/i.test(h);
+    return /\bTRIGGERS DISABLED\b/i.test(d) || explicitHistorical || oldEraTitle || pastEvent ||
       /\bARCHIVE CONTEXT\b/i.test(h) ||
       /\bhistorical archive profile\b/i.test(h) ||
       /\bno confirmed appearance in (?:the )?(?:newest|supplied|current) story corpus\b/i.test(h) ||
@@ -4065,14 +4094,11 @@ var Library = (() => {
   // later, purely because the two scanners drew from different pattern
   // pools for what should be the same underlying check.
   function matchAnyThreadPattern(sentence, entity, cfg) {
-    const safeCfg = cfg || CP_DEFAULTS;
-    if (!twistSentenceEligibleForDiscovery(sentence, "live")) return null;
-    for (const p of CP_ALL_THREAD_PATTERNS) {
-      if (!p.rx.test(sentence)) continue;
-      if (!isCategoryAllowed(p.cat, entity, safeCfg, sentence)) continue;
-      return p.cat;
-    }
-    return null;
+    // Live prose must use the same detector as Story Cards / Plot Essentials.
+    // Older builds only checked the static pattern list here, silently skipping
+    // higher-value scenario rules such as documentary identity evidence and
+    // corporate/criminal ownership trails during ordinary play.
+    return matchScenarioCategory(sentence, entity, cfg || CP_DEFAULTS, "live");
   }
 
   function scanForLooseThreads(text, c, cfg, cardTitles) {
@@ -4136,13 +4162,20 @@ var Library = (() => {
     // motive when an established character conceals/downplays a capability and
     // demonstrates unexplained specialist knowledge. It asks what they know;
     // it does not decide they are a traitor or villain.
-    if (/\b(?:knowledge discrepancy|how (?:does|did|would|could) [^.!?]{0,40} know|since when (?:are|is|was|were) [^.!?]{0,45}(?:expert|knowledgeable)|knew [^.!?]{0,35}(?:without being told|despite never being told)|knows? [^.!?]{0,35}(?:too much|more than expected))\b/i.test(text) &&
+    if (/\b(?:knowledge discrepancy|how (?:does|did|would|could) [^.!?]{0,40} know|how (?:he|she|they|[A-Z][A-Za-z'’.-]{1,40}) knows? [^.!?]{0,55}|since when (?:are|is|was|were) [^.!?]{0,45}(?:expert|knowledgeable)|knew [^.!?]{0,35}(?:without being told|despite never being told)|knows? [^.!?]{0,35}(?:too much|more than expected))\b/i.test(text) &&
         /\b(?:spatial|temporal|chronal|mechanics|system|technical|classified|forbidden|specialist|power|ability|technopath|telemetry|resonance)\b/i.test(text)) {
       if (isCategoryAllowed("forbiddenKnowledge", entity, safeCfg, text)) return "forbiddenKnowledge";
     }
     if (/\b(?:no powers?|unpowered)\b[\s\S]{0,260}\b(?:technopath|power|ability|shut down|controlled|commanded)\b/i.test(text) &&
         /\b(?:unknown|why|hid|hidden|downplayed|lied|discrepancy|not been told)\b/i.test(text)) {
       if (isCategoryAllowed("forbiddenKnowledge", entity, safeCfg, text)) return "forbiddenKnowledge";
+    }
+    if (/\b(?:real (?:name|identity|face)|identity remains unknown|(?:name|identity|face) remains unconfirmed|no confirmed (?:name|identity|face)|unconfirmed (?:name|identity|face|codename)|known only as|codename(?:d)?(?: remains? unconfirmed| only)?|codename remains unconfirmed)\b/i.test(text)) {
+      if (isCategoryAllowed("hiddenIdentity", entity, safeCfg, text)) return "hiddenIdentity";
+    }
+    if (/\b(?:shell compan(?:y|ies)|holding compan(?:y|ies)|offshore entit(?:y|ies)|routes? payments?|money (?:trail|flow)|buried ownership|trustee|legitimate (?:front|business)|criminal network|launder(?:ing|ed)?|front compan(?:y|ies))\b/i.test(text)) {
+      const candidates=["criminalTies","theCoverUp","theKingmaker","hiddenFaction"];
+      for(let ci=0;ci<candidates.length;ci++)if(CP_CATEGORIES[candidates[ci]]&&isCategoryAllowed(candidates[ci],entity,safeCfg,text))return candidates[ci];
     }
     for (const p of CP_ALL_THREAD_PATTERNS) {
       if (!p.rx.test(text)) continue;
@@ -4239,7 +4272,7 @@ var Library = (() => {
           const exact=ik===wk;
           const related=ik.indexOf(wk+" ")===0 || ik.indexOf(wk+" —")===0 || ik.indexOf(wk+" -")===0;
           if(!exact&&!related)continue;
-          processCard(card,true,related&&!exact?wanted:null);used++;
+          processCard(card,exact,related&&!exact?wanted:null);used++;
         }
       });
     }
@@ -5499,10 +5532,10 @@ function hasStrongExplicitCodexNamingCue(name, text) {
   const cues = [
     new RegExp(`\\b(?:I\\s*(?:am|'m|’m)|my\\s+name\\s+(?:is|'s|’s)|call\\s+me|people\\s+call\\s+me|they\\s+call\\s+me|I\\s+go\\s+by|meet)\\s+${quote}${n}\\b`, "i"),
     new RegExp(`\\b(?:introduces?|introduced)\\s+(?:himself|herself|themself|themselves|itself)\\s+as\\s+${quote}${n}\\b`, "i"),
-    new RegExp(`\\b(?:${entityKind})\\s+(?:named|called|known\\s+as|dubbed|codenamed|designated)\\s+${quote}${n}\\b`, "i"),
-    new RegExp(`\\b(?:named|called|known\\s+as|dubbed|codenamed|designated)\\s+${quote}${n}\\b`, "i"),
+    new RegExp(`\\b(?:${entityKind})\\s+(?:named|called|known\\s+as|dubbed|codenamed|designated)\\s+(?:the\\s+)?${quote}${n}\\b`, "i"),
+    new RegExp(`\\b(?:named|called|known\\s+as|dubbed|codenamed|designated)\\s+(?:the\\s+)?${quote}${n}\\b`, "i"),
     // Canonical identity may omit an address-form abbreviation even when the prose includes one.
-    new RegExp(`\\b(?:named|called|known\\s+as|dubbed|codenamed|designated)\\s+(?:(?:Mr|Mrs|Ms|Miss|Dr|Prof|Capt|Gen|Col|Lt|Sgt|Cmdr|Maj|Adm|Rev|Hon|Gov|Sen|Rep|Det|Insp)\\.\\s+)?${quote}${n}\\b`, "i"),
+    new RegExp(`\\b(?:named|called|known\\s+as|dubbed|codenamed|designated)\\s+(?:the\\s+)?(?:(?:Mr|Mrs|Ms|Miss|Dr|Prof|Capt|Gen|Col|Lt|Sgt|Cmdr|Maj|Adm|Rev|Hon|Gov|Sen|Rep|Det|Insp)\\.\\s+)?${quote}${n}\\b`, "i"),
     // Quoted appositive labels: a small group of researchers—the 'Symmetry Cell'.
     new RegExp(`\\b(?:group|organization|organisation|team|cell|unit|project|program|programme|initiative)\\b[^\\n.!?]{0,96}(?:—|–|-|:)\\s*(?:the\\s+)?["“'‘]${n}[.!?]?["”'’]`, "i"),
     new RegExp(`\\b(?:codename|code\\s+name|callsign|call\\s+sign|designation|nickname|alias)\\s*(?::|=|is\\s+)?\\s*${quote}${n}\\b`, "i"),
@@ -5666,6 +5699,12 @@ function normalizeCodexCandidate(raw, source) {
   // a named venue/location (for example, "The Anchor"). Ordinary sentence
   // openers still lose "The" below. This must be decided from local visible
   // prose, not from capitalization alone.
+  const preserveLeadingDirectionalName = /^(?:North|South|East|West)\s+/i.test(rawIdentityName) && (function(){
+    if (/\b(?:Freight|Logistics|Transport|Shipping|Holdings?|Group|Partners?|Industries|Systems|Works|Labs?|Laboratories|Services|Solutions|Security|Bank|Trust|Foundation|Institute|University|College|Hospital|Hotel|Club|Agency|Company|Corporation|Corp|Ltd|Limited|LLC|PLC|Road|Street|Avenue|District|Quarter|Gate|Station|Harbour|Harbor|Port)\b/i.test(rawIdentityName)) return true;
+    const src=String(source||""), n=escapeForRegex(rawIdentityName);
+    return new RegExp("\\b"+n+"\\b[^\n.!?]{0,72}\\b(?:routes?|operates?|owns?|runs?|employs?|ships?|supplies?|funds?|pays?|leases?|handles?|based|located|warehouse|company|firm|business|network)\\b","i").test(src);
+  })();
+
   const preserveLeadingTheLocation = /^The\s+/i.test(rawIdentityName) && (function(){
     if (operationalExplicit && String(operationalExplicit).toLowerCase() === "location") return true;
     const n = escapeForRegex(rawIdentityName);
@@ -5681,6 +5720,7 @@ function normalizeCodexCandidate(raw, source) {
     while (words.length > 1 &&
       (CODEX_STOPWORDS.has(codexStopKey(words[0])) || CODEX_TITLE_WORDS.has(codexStopKey(words[0])))) {
       if (preserveLeadingTheLocation && codexStopKey(words[0]) === "the") break;
+      if (preserveLeadingDirectionalName && /^(?:north|south|east|west)$/i.test(codexStopKey(words[0]))) break;
       words.shift();
     }
     while (words.length > 1 &&
@@ -5975,6 +6015,7 @@ function initUnsaid() {
         pendingTypes: {},
         pendingForced: false,
         pendingRefreshNames: [],
+        scaffoldQueue: [],
         consecutiveFailedNames: [],
         lastTriggerTurn: 0,
         lastRefreshTriggerTurn: 0,
@@ -6032,6 +6073,7 @@ function initUnsaid() {
       pendingTypes: {},
       pendingForced: false,
       pendingRefreshNames: [],
+      scaffoldQueue: [],
       consecutiveFailedNames: [],
       lastTriggerTurn: 0,
       lastRefreshTriggerTurn: 0,
@@ -6067,6 +6109,8 @@ function initUnsaid() {
   if (!state.unsaid.codex.strongReasons || typeof state.unsaid.codex.strongReasons !== "object") state.unsaid.codex.strongReasons = {};
   if (typeof state.unsaid.codex.pendingForced !== "boolean") state.unsaid.codex.pendingForced = false;
   if (!Array.isArray(state.unsaid.codex.pendingRefreshNames)) state.unsaid.codex.pendingRefreshNames = [];
+  if (!Array.isArray(state.unsaid.codex.scaffoldQueue)) state.unsaid.codex.scaffoldQueue = [];
+  state.unsaid.codex.scaffoldQueue = state.unsaid.codex.scaffoldQueue.filter(function(rec){return rec && typeof rec.name === "string" && rec.name.trim();}).slice(-16);
   if (!Array.isArray(state.unsaid.codex.consecutiveFailedNames)) state.unsaid.codex.consecutiveFailedNames = [];
   if (typeof state.unsaid.codex.lastTriggerTurn !== "number") state.unsaid.codex.lastTriggerTurn = 0;
   if (typeof state.unsaid.codex.lastRefreshTriggerTurn !== "number") state.unsaid.codex.lastRefreshTriggerTurn = 0;
@@ -7898,6 +7942,12 @@ function codexOperationalExplicitType(name, text) {
   if (!source) return null;
   const n = escapeForRegex(rawName);
   const q1 = `["“'‘]?`, q2 = `["”'’]?`;
+  const businessShape = /(?:\b(?:Ltd|Limited|LLC|PLC|Inc|Incorporated|Corp|Corporation|Company|Holdings?|Partners?|Industries|Enterprises|Freight|Logistics|Transport|Shipping|Security|Services|Solutions|Group|Bank|Trust|Foundation|Agency)\b\.?$)/i.test(rawName);
+  if (businessShape) {
+    const businessUse = new RegExp(`\\b${n}\\b[^\\n.!?]{0,100}\\b(?:owns?|operates?|routes?|handles?|ships?|supplies?|funds?|pays?|employs?|leases?|holds?|controls?|company|firm|business|warehouse|payments?|logistics|property|properties|accounts?|network)\\b`, "i");
+    const businessPrefix = new RegExp(`\\b(?:company|firm|business|holding\\s+company|logistics\\s+company|freight\\s+company|registered\\s+company)\\b[^\\n.!?]{0,80}\\b${n}\\b`, "i");
+    if (businessUse.test(source) || businessPrefix.test(source)) return {type:"faction",score:11,reason:"named-business"};
+  }
   const operationalProjectName = /^(?:Project|Program|Programme|Protocol|Initiative|Operation)\b/i.test(rawName);
   const rules = [
     {
@@ -8138,11 +8188,13 @@ function resolveCodexEntityType(name, text) {
   const evidence = boundedCodexSemanticText(
     [codexEvidenceTextFor(name), live].filter(Boolean).join(" ")
   );
+  const operational = codexOperationalExplicitType(name, evidence);
   const explicitCharacter = explicitCodexCharacterCue(name, evidence);
   const strongNonCharacter = strongCodexNonCharacterEvidence(name, evidence);
 
-  // An explicit person introduction is the strongest signal. This preserves
-  // intentionally unusual names such as River, Castle, Angel, or Coffee.
+  // Explicit organization/location/item grammar outranks generic scene-presence
+  // verbs. A company that "routes" money must not become an NPC.
+  if (operational && operational.type !== "character") return operational.type;
   if (explicitCharacter) return "character";
   if (strongNonCharacter) return strongNonCharacter.type;
 
@@ -8173,9 +8225,18 @@ function reconcileCodexEntityType(name, text) {
       [codexEvidenceTextFor(name), typeof text === "string" ? text : ""]
         .filter(Boolean).join(" ")
     );
+    const operational = codexOperationalExplicitType(name, evidence);
     const explicitCharacter = explicitCodexCharacterCue(name, evidence);
     const strongNonCharacter = strongCodexNonCharacterEvidence(name, evidence);
 
+    if (operational && operational.type !== "character") {
+      codex.trustedEntities[name] = operational.type;
+      codex.observedTypes[name] = operational.type;
+      if (codex.likelyCharacters[name]) delete codex.likelyCharacters[name];
+      if (typeof codex.introducedTurn[name] !== "undefined") delete codex.introducedTurn[name];
+      if (typeof codex.appearanceTurns[name] !== "undefined") delete codex.appearanceTurns[name];
+      return operational.type;
+    }
     if (explicitCharacter) {
       // A real on-screen identity cue is allowed to recover an unusual
       // character name that previously looked like a place/item word.
@@ -8381,7 +8442,7 @@ function codexDetectionMode(cfg) {
 
 function collectCodexCandidates(source) {
   var text = String(source || "");
-  var out = [], seen = Object.create(null);
+  var out = [], seen = Object.create(null), selfSurnameToFull = Object.create(null);
   function add(raw) {
     var clean = String(raw || "")
       .replace(/^[\s"'“”‘’([{<]+|[\s"'“”‘’)\]}>.,:;!?]+$/g, "")
@@ -8405,6 +8466,22 @@ function collectCodexCandidates(source) {
     while ((rm = richRx.exec(text)) !== null) {
       add(rm[2] || rm[0]);
       if (rm[0] === "") richRx.lastIndex++;
+    }
+  } catch (_) {}
+
+  // A common interrogation/self-identification shape is a surname first,
+  // followed by the speaker giving their full name: `"Foster," he says.
+  // "Marcus Foster."`  This is strong person evidence but was previously
+  // missed because the full name has no adjacent `named/called` keyword.
+  try {
+    var selfNameRx=/["“]([A-ZÀ-ÖØ-ÞĀ-ſΑ-ΫА-ЯЁ][A-Za-zÀ-ÖØ-öø-ÿĀ-ſΑ-ωΆ-ώА-ЯЁа-яё'’.-]{1,40})[,.”"’']+\s*(?:he|she|they)\s+(?:says?|replies?|answers?|whispers?|murmurs?|grits?\s+out|admits?|states?)[^.!?]{0,50}[.!?]\s*["“]([A-ZÀ-ÖØ-ÞĀ-ſΑ-ΫА-ЯЁ][A-Za-zÀ-ÖØ-öø-ÿĀ-ſΑ-ωΆ-ώА-ЯЁа-яё'’.-]{1,40}\s+[A-ZÀ-ÖØ-ÞĀ-ſΑ-ΫА-ЯЁ][A-Za-zÀ-ÖØ-öø-ÿĀ-ſΑ-ωΆ-ώА-ЯЁа-яё'’.-]{1,40})\b/gu, sm;
+    while((sm=selfNameRx.exec(text))!==null){
+      var surname=String(sm[1]||""),full=String(sm[2]||"");
+      if(full.toLowerCase().split(/\s+/).slice(-1)[0]===surname.toLowerCase()){
+        selfSurnameToFull[surname.toLowerCase()]=full;
+        add(full);
+      }
+      if(sm[0]==="")selfNameRx.lastIndex++;
     }
   } catch (_) {}
 
@@ -8443,6 +8520,16 @@ function collectCodexCandidates(source) {
       (aliasMap[canonical]||[]).slice(-6).forEach(function(alias){ if(nameAppears(alias,text)) add(canonical); });
     });
   } catch (_) {}
+  // When the story explicitly self-identifies `"Foster," he says. "Marcus
+  // Foster."`, keep the full identity and discard the weaker surname-only
+  // candidate produced by generic proper-noun scanning. This does not merge
+  // unrelated people who merely share a surname; it only applies to the exact
+  // self-identification pattern recorded above.
+  out = out.filter(function(name){
+    var k=String(name||"").toLowerCase();
+    var full=selfSurnameToFull[k];
+    return !full || String(full).toLowerCase()===k;
+  });
   return out.slice(0, 72);
 }
 
@@ -10370,42 +10457,32 @@ function createCodexDirectScaffoldFromOutput(source, cfg) {
     if (!cfg || !cfg.codexEnabled || cfg.codexDirectScaffold === false || !state.unsaid || !state.unsaid.codex) return false;
     const codex = state.unsaid.codex;
     const epoch = (typeof info !== "undefined" && info && Number.isFinite(Number(info.actionCount))) ? Number(info.actionCount) : Number(state.unsaid.turn)||0;
-    if (Number(codex.lastDirectScaffoldOutputEpoch) === epoch) return false;
-    const fresh = collectCodexCandidates(source || "").slice(0,48);
-    // Include already-tracked names that occur in this Output. This lets a
-    // candidate whose strong typing was established on the previous turn get
-    // its card now even if the latest sentence uses a shorter repeat form.
-    Object.keys(codex.mentionCounts || {}).sort(function(a,b){
-      return Number((codex.lastMentionTurn||{})[b]||-999999)-Number((codex.lastMentionTurn||{})[a]||-999999);
-    }).slice(0,48).forEach(function(name){ if(nameAppears(name,source||"")) fresh.push(name); });
-
+    if (!Array.isArray(codex.scaffoldQueue)) codex.scaffoldQueue = [];
+    const fresh = collectCodexCandidates(source || "").slice(0,64);
+    Object.keys(codex.mentionCounts || {}).sort(function(a,b){return Number((codex.lastMentionTurn||{})[b]||-999999)-Number((codex.lastMentionTurn||{})[a]||-999999);}).slice(0,64).forEach(function(name){if(nameAppears(name,source||""))fresh.push(name);});
     const seen=Object.create(null), ranked=[];
     fresh.forEach(function(raw){
       let name=normalizeCodexCandidate(raw,source||"");
-      if(!name){
-        const rawName=stripPossessive(String(raw||"").trim());
-        const known=Object.keys(codex.trustedEntities||{}).concat(Object.keys(codex.likelyCharacters||{})).find(function(k){return isSameCardEntity(k,rawName);});
-        if(known)name=known;
-      }
-      if(!name)return;
-      name=resolveCodexTrackingKey(name,source||"",false)||name;
-      const key=normalizeUnsaidIdentity(name); if(!key||seen[key])return; seen[key]=true;
+      if(!name){const rawName=stripPossessive(String(raw||"").trim());const known=Object.keys(codex.trustedEntities||{}).concat(Object.keys(codex.likelyCharacters||{})).find(function(k){return isSameCardEntity(k,rawName);});if(known)name=known;}
+      if(!name)return;name=resolveCodexTrackingKey(name,source||"",false)||name;
+      const key=normalizeUnsaidIdentity(name);if(!key||seen[key])return;seen[key]=true;
       if(!isSafeTrackedCodexName(name)||isClearlyJunkCodexName(name))return;
       const evidence=[codexEvidenceTextFor(name),source||""].filter(Boolean).join(" ");
       const operational=codexOperationalExplicitType(name,evidence);
       const type=(operational&&operational.type)||reconcileCodexEntityType(name,source)||resolveCodexEntityType(name,source)||(codex.likelyCharacters[name]?"character":dominantCodexType(name));
-      if(!codexDirectScaffoldEligibility(name,type,cfg,source))return;
-      const strong=Number(codex.strongScores&&codex.strongScores[name]||0);
-      const importance=typeof codexImportanceScore==="function"?Number(codexImportanceScore(name,type,cfg)||0):0;
-      ranked.push({name:name,type:type,priority:(operational?100:0)+strong*3+importance+(codex.mentionCounts[name]||0)});
+      if(!codexDirectScaffoldEligibility(name,type,cfg,evidence)||codexExactStoryCardIdentityExists(name,type))return;
+      const strong=Number(codex.strongScores&&codex.strongScores[name]||0),importance=typeof codexImportanceScore==="function"?Number(codexImportanceScore(name,type,cfg)||0):0;
+      const first=Number(codex.firstSeenTurn&&codex.firstSeenTurn[name]),age=Number.isFinite(first)?Math.max(0,Number(state.unsaid.turn||0)-first):0;
+      ranked.push({name:name,type:type,evidence:evidence.slice(-2200),priority:(operational?100:0)+strong*3+importance+(codex.mentionCounts[name]||0)+Math.min(20,age),turn:Number(state.unsaid.turn||0)});
     });
-    ranked.sort(function(a,b){return b.priority-a.priority;});
-    for(let i=0;i<ranked.length;i++){
-      const result=createCodexDirectScaffoldCard(ranked[i].name,cfg,source);
-      if(result){codex.lastDirectScaffoldOutputEpoch=epoch;codex.lastTriggerTurn=state.unsaid.turn;return result;}
-    }
+    ranked.forEach(function(rec){const k=normalizeUnsaidIdentity(rec.name),idx=codex.scaffoldQueue.findIndex(function(q){return q&&normalizeUnsaidIdentity(q.name)===k;});if(idx>=0){const old=codex.scaffoldQueue[idx];old.type=rec.type||old.type;old.priority=Math.max(Number(old.priority||0),Number(rec.priority||0));old.lastTurn=rec.turn;if(rec.evidence)old.evidence=rec.evidence;}else codex.scaffoldQueue.push({name:rec.name,type:rec.type,evidence:rec.evidence,priority:rec.priority,firstTurn:rec.turn,lastTurn:rec.turn});});
+    codex.scaffoldQueue=codex.scaffoldQueue.filter(function(rec){if(!rec||!rec.name)return false;if(Number(state.unsaid.turn||0)-Number(rec.lastTurn||rec.firstTurn||0)>18)return false;if(codexExactStoryCardIdentityExists(rec.name,rec.type))return false;return true;}).sort(function(a,b){return Number(b.priority||0)-Number(a.priority||0)||Number(a.firstTurn||0)-Number(b.firstTurn||0);}).slice(0,16);
+    if(Number(codex.lastDirectScaffoldOutputEpoch)!==epoch)codex.directScaffoldCountThisEpoch=0;
+    let budget=Math.max(0,2-Number(codex.directScaffoldCountThisEpoch||0)),created=[];
+    while(budget>0&&codex.scaffoldQueue.length){const rec=codex.scaffoldQueue.shift();if(!rec||!rec.name)continue;const evidence=[rec.evidence||"",source||"",codexEvidenceTextFor(rec.name)].filter(Boolean).join(" ");const result=createCodexDirectScaffoldCard(rec.name,cfg,evidence);if(result){created.push(result);budget--;codex.directScaffoldCountThisEpoch=Number(codex.directScaffoldCountThisEpoch||0)+1;codex.lastTriggerTurn=state.unsaid.turn;}}
+    if(created.length){codex.lastDirectScaffoldOutputEpoch=epoch;return created[0];}
     return false;
-  } catch(e){ if(typeof utRecordRuntimeError==="function")utRecordRuntimeError("Codex/output-direct-scaffold",e); return false; }
+  } catch(e){if(typeof utRecordRuntimeError==="function")utRecordRuntimeError("Codex/output-direct-scaffold",e);return false;}
 }
 
 function buildCodexInstruction(names, text, forced, priorFailures, hardDeadline, compact, refreshMode) {
@@ -11752,7 +11829,13 @@ function unsaidObservableCue(sentence) {
     ["guarded/evasive", /\b(?:expression (?:becomes|turns|shifts to|is) (?:more )?(?:careful|guarded|closed)|careful expression|guarded expression|smooth,? almost rehearsed|sounds? rehearsed|explanation (?:is|sounds?) (?:smooth|rehearsed)|deciding how much to say|changes? the subject|deflects?|evades?|evasive|tension in (?:his|her|their) shoulders|sets? .{0,20} down (?:a little )?too carefully)\b/i],
     ["relief/easing", /\b(?:shoulders? (?:ease|drop|relax)|relax(?:es|ed|ing)|exhal(?:es|ed|ing)|lets? out (?:a )?(?:slow |long )?breath|tension (?:leaves|eases|drains))\b/i],
     ["grief/distress", /\b(?:tears? (?:well|gather|spill|run)|cries?|sobs?|voice (?:cracks|breaks)|wipes? (?:at )?(?:his|her|their) eyes)\b/i],
-    ["affectionate contact", /\b(?:takes? (?:his|her|their|your) hand|holds? (?:his|her|their|your) hand|rests? (?:his|her|their) hand on|touches? (?:his|her|their|your) (?:arm|shoulder|cheek)|leans? (?:into|against) (?:him|her|them|you))\b/i]
+    ["affectionate contact", /\b(?:takes? (?:his|her|their|your) hand|holds? (?:his|her|their|your) hand|rests? (?:his|her|their) hand on|touches? (?:his|her|their|your) (?:arm|shoulder|cheek)|leans? (?:into|against) (?:him|her|them|you))\b/i],
+    // Public speech is usable behavioural continuity even when the model omits
+    // the hidden UNSAID tag. We store the visible sentence only; this does not
+    // infer a secret motive, thought or emotion.
+    ["stated position", /(?:\b(?:says?|replies?|answers?|explains?|insists?|admits?|warns?|promises?|tells?|murmurs?|whispers?|adds?)\b[^.!?]{0,180}["“”]|["“][^"”]{1,180}["”][^.!?]{0,60}\b(?:says?|replies?|answers?|explains?|insists?|admits?|warns?|promises?|tells?|murmurs?|whispers?|adds?)\b)/i],
+    ["stated plan", /["“][^"”]{0,100}\b(?:I(?:'ll|’ll| will| want| need| plan)|we(?:'ll|’ll| will| need| should))\b[^"”]{0,120}["”]/i],
+    ["stated belief", /["“][^"”]{0,100}\b(?:I (?:think|believe|know|suspect)|we (?:think|believe|know|suspect))\b[^"”]{0,120}["”]/i]
   ];
   for (const [label,re] of cues) if (re.test(s)) return label;
   return "";
@@ -12930,9 +13013,11 @@ function CW_playerNames() {
     const clean = CW_cleanName(String(raw || ""));
     const key = CW_key(clean || raw);
     if (!key) return;
+    // CE_resolvePlayerIdentity already supplies the canonical first-name alias.
+    // Do not manufacture a first-token alias from every explicit alias: doing
+    // so turns a codename such as "Solar Girl" into the generic player alias
+    // "solar", which can collide with powers, items and prose.
     names.push(key);
-    const bits = key.split(/\s+/).filter(Boolean);
-    if (bits.length >= 2 && bits[0].length >= 3) names.push(bits[0]);
   }
   // One resolver owns player identity for the entire suite. Opening-story
   // declarations outrank stale copied Character-card/platform metadata.
@@ -14891,7 +14976,7 @@ function CW_addEvent(from, to, kind, severity, note, turn, source) {
   }
   if (CW_MATURE_EVENTS.includes(eventKind) && (!cfg.enableMatureThemes || !CW_pairAdults(fromClean, toClean))) return false;
   if (["adult_intimacy", "casual_intimacy"].includes(eventKind) && !cfg.enableAdultIntimacy) return false;
-  if (eventKind === "infidelity" && !cfg.enableInfidelity) return false;
+  if (eventKind === "infidelity" && !cfg.enableInfidelity && /(?:twist|generated|suggest)/i.test(String(source||""))) return false;
   if (eventKind === "breakup" && !cfg.enableBreakups) return false;
   if (eventKind === "parenthood_news" && !cfg.enableParenthoodThemes) return false;
   if (["proposal","marriage","breakup","exclusivity_mismatch"].includes(eventKind) && !CW_pairRelationshipFoundation(fromClean, toClean, turn)) return false;
@@ -27682,9 +27767,21 @@ function CEFH_inputAuthorizesPower(input, phrase){
   for(var x=0;x<stems.length;x++)if(p.indexOf(stems[x])>=0&&i.indexOf(stems[x])>=0)return true;
   return false;
 }
+function CEFH_extractPlayerUtterance(text){
+  var raw=String(text||"");
+  var patterns=[/(?:^|[>\n]\s*)You\s+(?:say|tell|ask|whisper|shout|admit|confess|reply|answer)\b[^"“”]*["“]([^"”]{1,700})["”]/i,/["“]([^"”]{1,700})["”]\s*[,—-]?\s*you\s+(?:say|tell|ask|whisper|shout|admit|confess|reply|answer)\b/i,/\byou\s+(?:say|tell|ask|whisper|shout|admit|confess|reply|answer)\b\s*[:,]?\s*([^.!?\n]{2,500})/i];
+  for(var k=0;k<patterns.length;k++){var m=patterns[k].exec(raw);if(m&&m[1])return String(m[1]).trim();}return "";
+}
+function CEFH_dialogueMatchesInput(sentence,input){
+  var out=CEFH_extractPlayerUtterance(sentence),inn=CEFH_extractPlayerUtterance(input);if(!out)return true;if(!inn)return false;
+  function norm(v){return String(v||"").toLowerCase().replace(/[^a-z0-9à-öø-ÿ]+/gi," ").replace(/\s+/g," ").trim();}
+  var a=norm(out),b=norm(inn);if(!a||!b)return false;if(a===b)return true;if(a.length>=12&&b.indexOf(a)>=0)return true;if(b.length>=12&&a.indexOf(b)>=0)return true;
+  var aw=a.split(" ").filter(Boolean),bw=b.split(" ").filter(Boolean),set={};bw.forEach(function(w){set[w]=1;});var hit=aw.filter(function(w){return set[w];}).length,den=Math.max(aw.length,bw.length);return den>0&&hit/den>=0.82;
+}
 function CEFH_agencySentenceViolation(sentence,input){
   var s=String(sentence||""),i=String(input||"");
   if(CEFH_transitionContradiction(s,i))return true;
+  if(/\byou\s+(?:say|tell|ask|whisper|shout|admit|confess|reply|answer)\b/i.test(s)&&!CEFH_dialogueMatchesInput(s,i))return true;
 
   // Voluntary power use always belongs to the player unless their actual input
   // authorizes the same action/power family. This applies even on Continue or
@@ -27696,13 +27793,13 @@ function CEFH_agencySentenceViolation(sentence,input){
   // A Say turn authorizes dialogue only. Do not let a short spoken line become
   // an unchosen physical action, movement, entry/exit, or power experiment.
   if(CEFH_playerInputIsDialogueOnly(i)){
-    var deliberate=/\byou\s+(?:break\s+into\s+(?:a\s+)?run|start\s+(?:to\s+)?(?:run|walk|move|follow)|begin\s+(?:to\s+)?(?:run|walk|move|follow)|reach(?:\s+out)?|focus|concentrate|close\s+your\s+eyes|raise\s+your\s+hand|extend\s+your\s+hand|grab|take|pull|push|shove|strike|hit|punch|kick|run|sprint|jog|walk|step|move|follow|head|turn|enter|leave|open|teleport|displace|activate|use|channel|summon|fire|blast|launch|fly|levitate|flex)\b/i;
+    var deliberate=/\byou\s+(?:break\s+into\s+(?:a\s+)?run|start\s+(?:to\s+)?(?:run|walk|move|follow)|begin\s+(?:to\s+)?(?:run|walk|move|follow)|reach(?:\s+out)?|focus|concentrate|close\s+your\s+eyes|raise\s+your\s+hand|extend\s+your\s+hand|nod|shake\s+your\s+head|shrug|grab|take|pull|push|shove|strike|hit|punch|kick|run|sprint|jog|walk|step|move|follow|head|turn|enter|leave|open|teleport|displace|activate|use|channel|summon|fire|blast|launch|fly|levitate|flex)\b/i;
     if(deliberate.test(s))return true;
   }
 
   // Never strip ordinary involuntary consequences (you stumble, you are hit,
   // pain flashes, etc.). Only target volunteered dialogue/decision/thought acts.
-  var voluntary=/\byou\s+(?:decide|choose|resolve|promise|agree|refuse|plan|intend|want|think|realize|realise|remember|feel|say|tell|ask|whisper|shout|admit|confess)\b/i.exec(s);
+  var voluntary=/\byou\s+(?:decide|choose|resolve|promise|agree|refuse|plan|intend|want|think|realize|realise|remember|feel)\b/i.exec(s);
   if(!voluntary)return false;
   var phrase=voluntary[0].replace(/^you\s+/i,"");
   if(phrase&&new RegExp("\\b"+phrase.replace(/[.*+?^${}()|[\]\\]/g,"\\$&")+"\\b","i").test(i))return false;
@@ -27732,8 +27829,20 @@ function CEFH_sentenceChunks(text){
 }
 function CEFH_repairPlayerAgency(text){
   var src=String(text||"");if(!src.trim())return src;var input=CEFH_lastPlayerInput();
-  var chunks=CEFH_sentenceChunks(src),kept=[],removed=[];
-  chunks.forEach(function(sentence){if(CEFH_agencySentenceViolation(sentence,input))removed.push(sentence);else kept.push(sentence);});
+  var chunks=CEFH_sentenceChunks(src),kept=[],removed=[],removedPlayerLead=false;
+  chunks.forEach(function(sentence){
+    var violation=CEFH_agencySentenceViolation(sentence,input);
+    // If a dialogue-only player turn is followed by an invented player action
+    // and then a bare quoted sentence, that quote is normally the continuation
+    // of the invented player beat (`You nod. "Good. We move tonight."`). Do not
+    // leave the orphaned invented dialogue behind after removing the action.
+    if(!violation&&removedPlayerLead&&CEFH_playerInputIsDialogueOnly(input)&&/^\s*["“]/.test(String(sentence||""))){
+      var fake='You say '+String(sentence||'');
+      if(!CEFH_dialogueMatchesInput(fake,input))violation=true;
+    }
+    if(violation){removed.push(sentence);removedPlayerLead=/\byou\b/i.test(String(sentence||""));}
+    else{kept.push(sentence);removedPlayerLead=false;}
+  });
   if(!removed.length)return src;
   CEFH_recordRepair("player-agency","Removed "+removed.length+" invented voluntary player sentence(s)");
   var out=kept.join(" ").replace(/\s{2,}/g," ").replace(/\s+([,.!?])/g,"$1").trim();return out||"\u200B";

@@ -20,6 +20,18 @@ The dedicated player-identity/liveness regression also verifies that correcting 
 
 ---
 
+## ☀️ Solar Girl 500-turn recovery hardening
+
+A real long-running **LEGACY: SOLAR GIRL** export exposed an important difference between a rich local test host and AI Dungeon's documented Story Card scripting surface. This release therefore treats `id`, `keys`, `entry` and `type` as the durable core contract. Optional Title/Notes metadata is used only when the host actually preserves it; **CODEX, UNSAID, TWISTS, CROSSED WIRES and ECHO no longer depend on writable Notes or Title metadata to function.**
+
+The recovery pass also fixes starvation and entity-quality problems found in that adventure: multiple strong introductions are queued instead of discarded after the first scaffold; up to two safe direct CODEX scaffolds may be written on one Output when several genuinely strong entities arrive together; directional names such as **North Star Freight** keep their full identity; article-prefixed codenames such as **the Archon** are recognised; self-identifications such as `"Foster," he says. "Marcus Foster."` coalesce to the full person; and corporate names such as **Halcyon Crest Ltd** are typed as organisations rather than people.
+
+TWISTS now distinguishes live/current mystery cards from archive history more carefully. Current evidence can reinforce the correct base entity, while historical cards do not become present-day twists merely because the same character walks into a scene. CODEX also retains its anti-junk protections: dotted honorifics are stripped from real names (`Dr. Klaus Von Heisler` → `Klaus Von Heisler`) and bare titles such as `Dr` are rejected.
+
+The strict official-core-API recovery regression is **15/15 PASS**. It deliberately removes writable Title/Notes support, leaves stale Ezra player metadata in place, loads a large old library, and verifies that new Solar Girl evidence can still create **North Star Freight, Marcus Foster, Archon and Halcyon Crest Ltd**, grow an evidence-backed Archon thread, preserve **Ava → YOU** relationship continuity, create durable NPC behavioural mind state, keep Maya out of autonomous NPC psychology, carry Archon continuity through ECHO, and strip invented Maya continuation.
+
+---
+
 ## ✨ Core systems
 
 ### 🧠 UNSPOKEN TURNS
@@ -42,7 +54,7 @@ Family is now directional and first-class rather than one generic `family` bucke
 
 Crossed Wires can bootstrap those bonds from Story Card fields such as `Relationships:`, `Relationship Status:`, `Family:`, `Kinship:`, `Parents:`, `Children:`, `Siblings:`, `Grandparents:`, `Aunts/Uncles:`, `Nieces/Nephews:`, `Cousins:`, `Friends:`, `Roommates:`, `Mentors:`, `Students:`, `Colleagues:`, `Teammates:`, `Doctor:`, `Patient:`, `Handler:`, `Asset:`, `Captain:`, `Crew:` and other explicit relationship fields. Compact imports such as `Family: Mara Stone (mother), Theo Stone (brother)` are split into exact directional bonds rather than flattened into one generic family label. Current explicit relationship-status cards may supersede older historical stages; cards that only say *potential*, *possible*, *unknown* or *early attraction* cannot promote a romance by themselves.
 
-Character Story Card **Notes now carry the complete validated relationship ledger** for that NPC. There is no five-counterpart display cap. If two people legitimately have more than one active bond—such as friend + roommate, sibling + colleague or parent + mentor—the compatible roles are retained together while one primary role remains available for existing behaviour logic. `best friend` subsumes plain `friend`, and an established `ex` state supersedes obsolete `romantic` status rather than displaying contradictory stages forever.
+When the host preserves writable Character Story Card metadata, **Notes can carry the complete validated relationship ledger** for that NPC. The runtime relationship graph itself lives in script state and does not depend on Notes persistence. There is no five-counterpart display cap. If two people legitimately have more than one active bond—such as friend + roommate, sibling + colleague or parent + mentor—the compatible roles are retained together while one primary role remains available for existing behaviour logic. `best friend` subsumes plain `friend`, and an established `ex` state supersedes obsolete `romantic` status rather than displaying contradictory stages forever.
 
 New explicit NPC↔NPC relationships can also be admitted from live prose when the wording is unambiguous and both characters are already known. Role-only bonds materialize in the relationship graph immediately, inverse roles are repaired where appropriate, and both affected Character Notes are refreshed. Negated or uncertain wording is not allowed to manufacture a bond.
 
