@@ -108,7 +108,7 @@ var modifier = (text) => {var original=text;try{
     working=typeof CE_runTurnFeature==="function"?CE_runTurnFeature("twists","context",function(){return CE_CTX_twists(working);},working,true):CE_CTX_twists(working);
     if(typeof CE_runTurnFeature==="function")CE_runTurnFeature("unsaid","context",function(){CE_CTX_touchUnsaid(original);return true;},true,true);else CE_CTX_touchUnsaid(original);
   }
-  working=typeof CE_runTurnFeature==="function"?CE_runTurnFeature("crossed_wires","context",function(){return CW_onContext(working);},working,typeof CW_onContext==="function"):(typeof CW_onContext==="function"?CW_onContext(working):working);
+  working=typeof CE_runTurnFeature==="function"?CE_runTurnFeature("crossed_wires","context",function(){return CW_onContext(working,original);},working,typeof CW_onContext==="function"):(typeof CW_onContext==="function"?CW_onContext(working,original):working);
   working=typeof CE_runTurnFeature==="function"?CE_runTurnFeature("echo_veil","context",function(){return EV_onContext(working);},working,typeof EV_onContext==="function"):(typeof EV_onContext==="function"?EV_onContext(working):working);
   if(typeof CE_runTurnFeature==="function")CE_runTurnFeature("world_engine","context",function(){return CEW_onContext(working,false);},"",typeof CEW_onContext==="function");else if(typeof CEW_onContext==="function")CEW_onContext(working,false);
   if(typeof CE_markFeatureActivation==="function")CE_markFeatureActivation("codex","context","ok","CODEX maintenance scheduled in Input/Output");

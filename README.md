@@ -38,13 +38,38 @@ Relevant public Story Card facts can also become **active canon pressure**, help
 
 ---
 
-## ❤️ CROSSED WIRES — Relationships That Actually Change Behaviour
+## ❤️ CROSSED WIRES — A Relationship Graph That Remembers the Past
 
-Relationships are stored directionally. How **Mara feels about Elias** does not have to equal how **Elias feels about Mara**.
+CROSSED WIRES does more than assign one label such as *friend* or *mother*. It builds a **directional, multi-role relationship graph** and then lets the emotional state around those roles evolve.
 
-Premade Character Story Cards can establish family, friendship, rivalry, romance, mentorship, guardianship, workplace, ally and other relationship roles before the story even begins. The script then tracks what happens between characters and allows the emotional state around those roles to evolve.
+A pair can hold several established roles at the same time. Two characters might be **siblings + coworkers + rivals**, or **former partners + current allies**. Ending one role does not erase every other connection or the history that came with it.
 
-CROSSED WIRES can track pressure such as:
+### Existing relationships are recovered instead of starting from zero
+
+When the script enters an already-developed adventure, it actively backfills relationship canon from the information AI Dungeon makes available, including:
+
+- premade Character/NPC Story Cards and their relationship fields
+- relationship blocks such as `Relationships:`, `Family:`, `Friends:`, `Allies:` and `Rivals:`
+- direct structured fields such as `Mother:`, `Children:`, `Mentor:`, `Boss:`, `Guardian:` and similar roles
+- the opening/start history and available recent Adventure history
+- Plot Essentials and other persistent lore that reaches model Context
+- Story Summary / persistent pre-history context
+- Author's Note / context-tail relationship canon when present
+- the current Input and visible model Output as the story continues
+
+That means a long-running scenario does not need every relationship to happen again after installing the script. If the existing canon already says two people are sisters, ex-spouses, mentor/mentee, roommates or rivals, CROSSED WIRES can recover that bond before the next scene needs it.
+
+### Broad built-in relationship coverage
+
+The built-in taxonomy covers family and kinship, romance and relationship history, friendship and social bonds, rivals/enemies, household relationships, education and mentorship, work and command structures, legal and medical/care relationships, protection/guardianship, political/feudal relationships, religious relationships, criminal/coercive relationships, creator/creation and supernatural bonds, ownership/caretaking relationships, clients/providers and many other scenario types.
+
+Examples include parents/children, biological/adoptive/foster/step family, siblings and twins, grandparents and great-grandparents, aunts/uncles, nieces/nephews, cousins, in-laws, godparents, spouses, fiancés, dating partners, exes, separated spouses, friends-with-benefits, crush direction, best/close/childhood/former friends, confidants, allies, companions, frenemies, rivals, enemies, neighbours, roommates, mentor/mentee, teacher/student, coach/trainee, advisor/advisee, master/apprentice, coworkers, teammates, business partners, boss/employee, captain/crew, landlord/tenant, creditor/debtor, buyer/seller, lawyer/client, doctor/patient, therapist/client, caregiver/dependent, handler/asset, sponsor/protégé, guardian/ward, protector/protectee, captor/captive, investigator/suspect, ruler/subject, liege/vassal, clergy/congregant, accomplices, informants, creator/creation, summoner/summoned and more.
+
+No finite list can cover every fictional relationship, so **explicit custom roles are also preserved** when they appear in trusted structured lore. A scenario can therefore establish something unusual such as *oathbound sentinel*, *blood-sworn witness* or *pack-second* without CROSSED WIRES forcing it into the wrong category. Custom roles are not guessed from ordinary prose.
+
+### Directional feelings stay separate from factual roles
+
+CROSSED WIRES can track:
 
 - trust
 - affection
@@ -58,11 +83,32 @@ CROSSED WIRES can track pressure such as:
 - intimacy
 - dependence
 - comfort
-- boundaries
+- boundary pressure
 
-Those values are not just statistics. When relevant, they become behavioural guidance. A suspicious ally should act differently from a trusting one. A resentful sibling should carry unresolved friction. A loyal friend should feel stronger pressure to help, defend or stay involved.
+These values are directional. **Mara → Elias** can be warm and trusting while **Elias → Mara** is suspicious or resentful. Public roles can be reciprocal while private attitudes are not.
 
-Established roles remain stable unless the story genuinely changes them. The system does not invent the player's private feelings or force the player to reciprocate an NPC's emotions.
+Structured Story Cards can seed an explicitly written attitude in one direction without inventing the other character's feelings. Live visible events then change the relationship over time: help, protection, betrayal, lies, apologies, attacks, boundary violations, reconciliation and other consequential interactions can leave durable pressure. Historical events exposed in Adventure history can also be backfilled once, so an old betrayal does not vanish simply because the script was installed later.
+
+### Relationships can change without deleting history
+
+CROSSED WIRES understands explicit role evolution such as dating, engagement, marriage, separation, divorce, breakups, estrangement, reconciliation and ended friendships. Former roles are retained as bounded history rather than silently overwritten.
+
+A stale premade card also does not automatically resurrect a relationship the live story has already ended. If the Story Card itself is deliberately edited later, the changed canon is detected and can refresh the graph.
+
+### Anti-inference safeguards
+
+The relationship engine deliberately refuses several tempting shortcuts:
+
+- a shared surname does not automatically mean family
+- two people standing in the same scene does not make them friends
+- flirting or kissing alone does not automatically create a formal romantic role
+- an NPC's feelings do not create the player's private feelings
+- negative statements such as “they are not sisters” or “they are not dating” do not create the denied relationship
+- relationship pressure can shape a twist, but it is not factual proof of the twist
+
+When relevant, established roles and accumulated sentiment become **behavioural guidance in Context**. A suspicious ally should verify claims. An estranged parent should carry shared history without automatically acting warm. A former mentor can retain familiarity without still having present authority. A loyal friend may accept more risk to help.
+
+The point is not to collect relationship statistics. It is to make old relationships, changing feelings and shared history **matter to the next scene**.
 
 ---
 

@@ -6052,7 +6052,7 @@ function renderUnsaidSection(cfg) {
     `player=${cfg.playerName || ""}\n`;
 }
 function CE_coreRelationshipDefaults() {
-  return { enabled:true, visibleEvents:true, seedCardRoles:true, relationshipTwists:true };
+  return { enabled:true, visibleEvents:true, seedCardRoles:true, relationshipTwists:true, bootstrapSources:true, historyScan:true, contextLoreScan:true, customRoles:true, roleEvolution:true, historyDepth:120, cardScanBudget:80 };
 }
 function renderCrossedWiresSection(cfg) {
   cfg = Object.assign(CE_coreRelationshipDefaults(), cfg || {});
@@ -6060,6 +6060,13 @@ function renderCrossedWiresSection(cfg) {
     `enabled=${cfg.enabled !== false}\n` +
     `visibleEvents=${cfg.visibleEvents !== false}\n` +
     `seedCardRoles=${cfg.seedCardRoles !== false}\n` +
+    `bootstrapSources=${cfg.bootstrapSources !== false}\n` +
+    `historyScan=${cfg.historyScan !== false}\n` +
+    `contextLoreScan=${cfg.contextLoreScan !== false}\n` +
+    `customRoles=${cfg.customRoles !== false}\n` +
+    `roleEvolution=${cfg.roleEvolution !== false}\n` +
+    `historyDepth=${Math.max(8, Math.min(240, Number(cfg.historyDepth)||120))}\n` +
+    `cardScanBudget=${Math.max(32, Math.min(128, Number(cfg.cardScanBudget)||80))}\n` +
     `relationshipTwists=${cfg.relationshipTwists !== false}\n`;
 }
 function applyCrossedWiresConfigText(cfg, section) {
@@ -6068,6 +6075,13 @@ function applyCrossedWiresConfigText(cfg, section) {
   var v=configBool(section,"enabled"); if(v!==null)cfg.enabled=v;
   v=configBool(section,"visibleEvents"); if(v!==null)cfg.visibleEvents=v;
   v=configBool(section,"seedCardRoles"); if(v!==null)cfg.seedCardRoles=v;
+  v=configBool(section,"bootstrapSources"); if(v!==null)cfg.bootstrapSources=v;
+  v=configBool(section,"historyScan"); if(v!==null)cfg.historyScan=v;
+  v=configBool(section,"contextLoreScan"); if(v!==null)cfg.contextLoreScan=v;
+  v=configBool(section,"customRoles"); if(v!==null)cfg.customRoles=v;
+  v=configBool(section,"roleEvolution"); if(v!==null)cfg.roleEvolution=v;
+  v=parseInt(configValue(section,"historyDepth"),10); if(!isNaN(v))cfg.historyDepth=Math.max(8,Math.min(240,v));
+  v=parseInt(configValue(section,"cardScanBudget"),10); if(!isNaN(v))cfg.cardScanBudget=Math.max(32,Math.min(128,v));
   v=configBool(section,"relationshipTwists"); if(v!==null)cfg.relationshipTwists=v;
   return cfg;
 }
@@ -6310,22 +6324,52 @@ function renderUnsaidNotes() {
 function renderCrossedWiresNotes(){
   return [
     CONFIG_SECTION_CROSSED,
-    "❤️ CROSSED WIRES — DIRECTIONAL RELATIONSHIPS",
-    "Tracks established roles from premade Character Story Cards plus live directional sentiment. Relationship state is causal: relevant trust, suspicion, resentment, loyalty, comfort, attraction, jealousy, fear and boundaries become behavioural pressure in later Context.",
+    "❤️ CROSSED WIRES — RELATIONSHIP GRAPH + HISTORY BACKFILL",
+    "Builds a directional, multi-role relationship graph from premade Character Story Cards, Plot Essentials / persistent Context, available Adventure history, opening text and live interactions. A pair can hold several simultaneous factual roles (for example sister + coworker + rival) while trust/affection/etc. evolve separately.",
     "",
     "enabled  [true/false]  Default: true",
-    "Master relationship switch. false preserves stored bonds but stops new relationship learning and relationship-context guidance.",
+    "Master relationship switch. false preserves stored bonds but pauses new relationship learning, source backfill and relationship-context guidance.",
     "",
     "visibleEvents  [true/false]  Default: true",
-    "Learns directional changes only from explicit visible interactions such as help, comfort, affection, flirting, arguments, threats, attacks, betrayal, apology, rescue and boundary violations. It does not invent the player's private feelings.",
+    "Learns directional sentiment changes from explicit visible interactions such as support, affection, lies, arguments, threats, betrayal, apology, rescue and boundary events. It never invents the player's private feelings.",
     "",
     "seedCardRoles  [true/false]  Default: true",
-    "Imports unambiguous public relationship roles from premade Character Story Cards. Family/friend/rival/ally/mentor/romantic and other supported roles are interpreted directionally; the script derives inverse family roles where appropriate.",
+    "Scans premade Character/NPC Story Cards for relationship blocks and direct fields such as Mother:, Children:, Mentor:, Boss:, Rival:, Relationships:, Family:, Allies:, etc. Structured roles are interpreted directionally and inverse roles are derived automatically.",
+    "",
+    "bootstrapSources  [true/false]  Default: true",
+    "Master backfill switch. When true, CROSSED WIRES actively recovers relationships that existed before the current turn instead of waiting for them to happen again on-screen.",
+    "",
+    "historyScan  [true/false]  Default: true",
+    "Scans the Adventure history currently exposed to scripts for explicit established relationships and role changes. Opening/start actions receive especially high confidence. AI Dungeon exposes recent history rather than an unlimited full transcript, so this uses everything the current hook can actually see.",
+    "",
+    "contextLoreScan  [true/false]  Default: true",
+    "Scans the persistent pre-history portion of model Context for explicit relationship canon. This is how Plot Essentials, Story Summary and other persistent lore can seed relationships even when the characters have not appeared in the latest action.",
+    "",
+    "customRoles  [true/false]  Default: true",
+    "Preserves explicit relationship labels that are not in the built-in taxonomy when they appear in trusted structured relationship lore. This lets unusual settings use roles such as oathbound sentinel, blood-bond witness or pack-second without being discarded. Custom labels are never guessed from ordinary prose.",
+    "",
+    "roleEvolution  [true/false]  Default: true",
+    "Tracks explicit relationship-status changes in live/history text: dating, engagement, marriage, divorce, breakups, ended friendships and similar transitions. Old roles are retained in bounded role history instead of being silently overwritten.",
+    "",
+    "historyDepth  [8–240]  Default: 120",
+    "Maximum recent history actions examined during backfill. Higher values improve recovery when the host exposes long history arrays; lower values reduce work in very large adventures. Already-scanned actions are fingerprinted so they are not repeatedly reprocessed.",
+    "",
+    "cardScanBudget  [32–128]  Default: 80",
+    "Relationship-card scan budget used only for very large (>1000 card) archives. Adventures up to 1000 cards receive a full relationship-card pass; huge archives are scanned incrementally to stay inside AI Dungeon's script timeout.",
     "",
     "relationshipTwists  [true/false]  Default: true",
-    "Allows established relationship pressure to reinforce compatible long-arc twist threads. This never counts mere relationship metrics as factual proof of a twist; normal evidence and payoff gates still apply.",
+    "Allows established relationship pressure to reinforce compatible long-arc twist threads. Relationship state can shape a twist but never counts as factual proof by itself; normal evidence/payoff gates still apply.",
     "",
-    "Direction matters: NPC → YOU is separate from YOU → NPC, and NPC ↔ NPC bonds are stored independently. Public role canon is preserved while live sentiment can evolve around it."
+    "BUILT-IN ROLE COVERAGE",
+    "Family/kinship: parents/children, biological/adoptive/foster/step family, siblings/half-siblings/step-siblings/twins, grandparents/great-grandparents, aunts/uncles, nieces/nephews, cousins, in-laws, godparents/godchildren, co-parents, ancestors/descendants and general kin.",
+    "Romantic/history: spouse, fiance, dating/romantic partner, ex-spouse/ex-partner, separated spouse, casual partner, friends-with-benefits, crush direction and explicit poly/open partners.",
+    "Social/household: best/close/ordinary/childhood friends, confidants, acquaintances, allies, companions, frenemies, rivals, enemies/nemeses, neighbours and roommates/flatmates/housemates.",
+    "Education/work/care/institutions: mentor/mentee, teacher/student, tutor/pupil, coach/trainee, advisor/advisee, master/apprentice, coworkers, teammates, business partners, superior/subordinate, captain/crew, client/provider, counsel/client, clinician/patient, therapist/client, caregiver/dependent, agent/principal, handler/asset, sponsor/protege, guardian/ward, protector/protectee, captor/captive, investigator/suspect, prosecutor/defendant, ruler/subject, liege/vassal, clergy/congregant, accomplices, informants and more.",
+    "",
+    "ANTI-INFERENCE RULES",
+    "The graph does NOT infer romance from flirting/kissing alone, family from a shared surname, friendship from simple co-presence, or player feelings from NPC behaviour. Explicit canon establishes roles; visible events change sentiment around those roles.",
+    "",
+    "Direction matters: NPC → YOU is separate from another NPC → YOU, and NPC ↔ NPC bonds are tracked independently. Multiple factual roles can coexist while live trust, affection, resentment, jealousy, loyalty, fear, comfort and boundaries change over time."
   ].join("\n");
 }
 function renderEchoNotes(){
@@ -6741,7 +6785,7 @@ function readUnsaidConfig() {
   });
   if (cfg.playerName) state.unsaid.castRegistry = state.unsaid.castRegistry.filter(function(n){return !isSameCardEntity(n,cfg.playerName);});
   if (state.unsaid.castRegistry.length > MAX_CAST_SIZE) state.unsaid.castRegistry = state.unsaid.castRegistry.slice(-MAX_CAST_SIZE);
-  state.unsaid.relationshipSettings={enabled:cfg.relationshipsEnabled!==false,visibleEvents:cfg.relationshipVisibleEvents!==false,seedCardRoles:cfg.relationshipSeedCardRoles!==false};
+  state.unsaid.relationshipSettings=Object.assign({},relCfg,{enabled:cfg.relationshipsEnabled!==false,visibleEvents:cfg.relationshipVisibleEvents!==false,seedCardRoles:cfg.relationshipSeedCardRoles!==false});
   return cfg;
 }
 function stripConfigNoise(text) {
@@ -11133,7 +11177,7 @@ function CW_cardEntryText(card) {
   return "";
 }
 var CW_LITE_SCHEMA = 2;
-var CW_LITE_VERSION = "2.0-startup-safe";
+var CW_LITE_VERSION = "2.4-relationship-graph";
 var CW_LITE_METRICS = ["trust","affection","attraction","respect","fear","resentment","jealousy","suspicion","loyalty","intimacy","dependence","comfort","boundaryPressure"];
 var CW_LITE_NAME_CACHE_KEY = "";
 var CW_LITE_NAME_CACHE_VALUE = [];
@@ -11186,6 +11230,10 @@ function CW_liteState(){
   if(!cw.twist||typeof cw.twist!=="object")cw.twist={history:[],pending:null,lastTurn:-999};
   if(!Array.isArray(cw.twist.history))cw.twist.history=[];
   if(!Array.isArray(cw.lastContextNames))cw.lastContextNames=[];
+  if(!cw.sourceScan||typeof cw.sourceScan!=="object")cw.sourceScan={historySigs:[],contextSig:"",contextTailSig:"",contextEventSigs:[],cardSigs:{},cardCursor:0,lastCardFullScanTurn:-999,lastCardSweepAction:-999,lastCardCount:0,lastBootstrapTurn:-999};
+  if(!Array.isArray(cw.sourceScan.historySigs))cw.sourceScan.historySigs=[];
+  if(!Array.isArray(cw.sourceScan.contextEventSigs))cw.sourceScan.contextEventSigs=[];
+  if(!cw.sourceScan.cardSigs||typeof cw.sourceScan.cardSigs!=="object")cw.sourceScan.cardSigs={};
   return cw;
 }
 function CW_turn(){return CW_liteTurn();}
@@ -11198,7 +11246,7 @@ function CW_isPlayerName(v){
   return false;
 }
 function CW_liteCanonical(name){
-  var clean=CW_liteClean(name);if(!clean)return "";if(CW_isPlayerName(clean))return "YOU";
+  var clean=CW_liteClean(name).replace(/[’\']s$/i,"");if(!clean)return "";if(CW_isPlayerName(clean))return "YOU";
   try { if(typeof resolveUnsaidCanonicalName==="function"){var r=resolveUnsaidCanonicalName(clean);if(r&&r!==clean)return r;} } catch(_){}
   try {
     var idx=typeof CE_sharedStoryCardIndex==="function"?CE_sharedStoryCardIndex():null;
@@ -11384,229 +11432,422 @@ function CW_liteParse(text,source){
     if(actor&&target){CW_liteRecord(actor,target,kind,sentence,source||"visible");lastPair=[actor,target];events++;}
   });return events+knowledge;
 }
-function CW_liteRoleFromText(text){
-  var s=String(text||"").toLowerCase();
-  if(/\b(?:wife|husband|spouse|married)\b/.test(s))return "spouse";
-  if(/\b(?:fianc[eé]e?|engaged partner)\b/.test(s))return "fiance";
-  if(/\b(?:girlfriend|boyfriend|romantic partner|dating|lover)\b/.test(s))return "romantic";
-  if(/\b(?:ex-wife|ex-husband|ex-girlfriend|ex-boyfriend|former partner|ex-partner)\b/.test(s))return "ex-partner";
-  if(/\b(?:great[- ]grandmother|great[- ]grandfather|great[- ]grandparent)\b/.test(s))return "great-grandparent";
-  if(/\b(?:great[- ]granddaughter|great[- ]grandson|great[- ]grandchild)\b/.test(s))return "great-grandchild";
-  if(/\b(?:grandmother|grandfather|grandparent)\b/.test(s))return "grandparent";
-  if(/\b(?:granddaughter|grandson|grandchild)\b/.test(s))return "grandchild";
-  if(/\b(?:great[- ]aunt|great[- ]uncle)\b/.test(s))return "great-aunt/uncle";
-  if(/\b(?:great[- ]niece|great[- ]nephew)\b/.test(s))return "great-niece/nephew";
-  if(/\b(?:aunt|uncle)\b/.test(s))return "aunt/uncle";
-  if(/\b(?:niece|nephew)\b/.test(s))return "niece/nephew";
-  if(/\b(?:mother|father|parent)\b/.test(s))return "parent";
-  if(/\b(?:daughter|son|child)\b/.test(s))return "child";
-  if(/\b(?:sister|brother|sibling)\b/.test(s))return "sibling";
-  if(/\bcousin\b/.test(s))return "cousin";
-  if(/\b(?:best friend|close friend|friends?|friendship)\b/.test(s))return "friend";
-  if(/\b(?:ally|allies|trusted ally|companion-in-arms)\b/.test(s))return "ally";
-  if(/\b(?:guardian|legal guardian|protector)\b/.test(s))return "guardian";
-  if(/\b(?:ward|protected dependent)\b/.test(s))return "ward";
-  if(/\b(?:neighbor|neighbour)\b/.test(s))return "neighbor";
-  if(/\b(?:mentor|teacher|coach|supervisor|adviser|advisor)\b/.test(s))return "mentor";
-  if(/\b(?:student|mentee|prot[eé]g[eé])\b/.test(s))return "mentee";
-  if(/\b(?:rival|enemy|nemesis|adversary)\b/.test(s))return "rival";
-  if(/\b(?:roommate|flatmate|housemate)\b/.test(s))return "roommate";
-  if(/\b(?:coworker|co-worker|colleague|teammate|team-mate|peer|peers|classmate|schoolmate)\b/.test(s))return "peer";
-  if(/\b(?:boss|manager|employer|commander|team leader)\b/.test(s))return "superior";
-  if(/\b(?:employee|subordinate|direct report|crew member)\b/.test(s))return "subordinate";
-  if(/\b(?:client)\b/.test(s))return "client";
-  if(/\b(?:lawyer|attorney|counsel)\b/.test(s))return "counsel";
-  if(/\b(?:partner|field partner|work partner|business partner)\b/.test(s))return "partner";
-  return "unknown";
+function CW_liteRoleSpecs(){
+  return [
+    // Family / kinship. Specific forms must appear before broad forms.
+    {rx:/\b(?:ex[- ]wife|ex[- ]husband|ex[- ]spouse|former spouse|divorced spouse)\b/i,role:"ex-spouse",inverse:"ex-spouse",cat:"romantic"},
+    {rx:/\b(?:separated wife|separated husband|estranged spouse|separated spouse)\b/i,role:"separated-spouse",inverse:"separated-spouse",cat:"romantic"},
+    {rx:/\b(?:wife|husband|spouse|married partner|married)\b/i,role:"spouse",inverse:"spouse",cat:"romantic"},
+    {rx:/\b(?:ex[- ]fianc(?:e|é|ée)|former fianc(?:e|é|ée))(?=\s|$|[,.;])/i,role:"ex-fiance",inverse:"ex-fiance",cat:"romantic"},
+    {rx:/\b(?:fianc(?:e|é|ée)|betrothed|engaged partner)(?=\s|$|[,.;])/i,role:"fiance",inverse:"fiance",cat:"romantic"},
+    {rx:/\b(?:ex[- ]girlfriend|ex[- ]boyfriend|ex[- ]partner|former romantic partner|former lover)\b/i,role:"ex-partner",inverse:"ex-partner",cat:"romantic"},
+    {rx:/\b(?:civil partner|domestic partner)\b/i,role:"civil-partner",inverse:"civil-partner",cat:"romantic"},
+    {rx:/\b(?:affair partner|paramour|mistress|one[- ]night stand)\b/i,role:"casual-romantic",inverse:"casual-romantic",cat:"romantic"},
+    {rx:/\b(?:friends? with benefits|fwb)\b/i,role:"friends-with-benefits",inverse:"friends-with-benefits",cat:"romantic"},
+    {rx:/\b(?:casual lover|casual partner|situationship)\b/i,role:"casual-romantic",inverse:"casual-romantic",cat:"romantic"},
+    {rx:/\b(?:polyamorous partner|poly partner|open[- ]relationship partner)\b/i,role:"romantic",inverse:"romantic",cat:"romantic"},
+    {rx:/\b(?:girlfriend|boyfriend|romantic partner|dating partner|dating|lover|significant other)\b/i,role:"romantic",inverse:"romantic",cat:"romantic"},
+    {rx:/\b(?:has a crush on|crush on)\b/i,role:"crush-on",inverse:"crush-target",cat:"romantic"},
+
+    {rx:/\b(?:great[- ]great[- ]grandmother|great[- ]great[- ]grandfather|great[- ]great[- ]grandparent)\b/i,role:"great-great-grandparent",inverse:"great-great-grandchild",cat:"family"},
+    {rx:/\b(?:great[- ]great[- ]granddaughter|great[- ]great[- ]grandson|great[- ]great[- ]grandchild)\b/i,role:"great-great-grandchild",inverse:"great-great-grandparent",cat:"family"},
+    {rx:/\b(?:great[- ]grandmother|great[- ]grandfather|great[- ]grandparent)\b/i,role:"great-grandparent",inverse:"great-grandchild",cat:"family"},
+    {rx:/\b(?:great[- ]granddaughter|great[- ]grandson|great[- ]grandchild)\b/i,role:"great-grandchild",inverse:"great-grandparent",cat:"family"},
+    {rx:/\b(?:grandmother|grandfather|grandparent|grandparents)\b/i,role:"grandparent",inverse:"grandchild",cat:"family"},
+    {rx:/\b(?:granddaughter|grandson|grandchild|grandchildren)\b/i,role:"grandchild",inverse:"grandparent",cat:"family"},
+    {rx:/\b(?:great[- ]aunt|great[- ]uncle)\b/i,role:"great-aunt/uncle",inverse:"great-niece/nephew",cat:"family"},
+    {rx:/\b(?:great[- ]niece|great[- ]nephew)\b/i,role:"great-niece/nephew",inverse:"great-aunt/uncle",cat:"family"},
+    {rx:/\b(?:mother[- ]in[- ]law|father[- ]in[- ]law|parent[- ]in[- ]law)\b/i,role:"parent-in-law",inverse:"child-in-law",cat:"family"},
+    {rx:/\b(?:daughter[- ]in[- ]law|son[- ]in[- ]law|child[- ]in[- ]law)\b/i,role:"child-in-law",inverse:"parent-in-law",cat:"family"},
+    {rx:/\b(?:sister[- ]in[- ]law|brother[- ]in[- ]law|sibling[- ]in[- ]law)\b/i,role:"sibling-in-law",inverse:"sibling-in-law",cat:"family"},
+    {rx:/\b(?:stepmother|stepfather|step[- ]parent)\b/i,role:"step-parent",inverse:"step-child",cat:"family"},
+    {rx:/\b(?:stepdaughter|stepson|step[- ]child)\b/i,role:"step-child",inverse:"step-parent",cat:"family"},
+    {rx:/\b(?:adoptive mother|adoptive father|adoptive parent|adopting parent)\b/i,role:"adoptive-parent",inverse:"adoptive-child",cat:"family"},
+    {rx:/\b(?:adopted daughter|adopted son|adopted child|adoptive child)\b/i,role:"adoptive-child",inverse:"adoptive-parent",cat:"family"},
+    {rx:/\b(?:foster mother|foster father|foster parent)\b/i,role:"foster-parent",inverse:"foster-child",cat:"family"},
+    {rx:/\b(?:foster daughter|foster son|foster child)\b/i,role:"foster-child",inverse:"foster-parent",cat:"family"},
+    {rx:/\b(?:godmother|godfather|godparent)\b/i,role:"godparent",inverse:"godchild",cat:"family"},
+    {rx:/\b(?:goddaughter|godson|godchild)\b/i,role:"godchild",inverse:"godparent",cat:"family"},
+    {rx:/\b(?:half[- ]sister|half[- ]brother|half[- ]sibling)\b/i,role:"half-sibling",inverse:"half-sibling",cat:"family"},
+    {rx:/\b(?:stepsister|stepbrother|step[- ]sibling)\b/i,role:"step-sibling",inverse:"step-sibling",cat:"family"},
+    {rx:/\b(?:adoptive sister|adoptive brother|adoptive sibling|adopted sister|adopted brother|adopted sibling)\b/i,role:"adoptive-sibling",inverse:"adoptive-sibling",cat:"family"},
+    {rx:/\b(?:foster sister|foster brother|foster sibling)\b/i,role:"foster-sibling",inverse:"foster-sibling",cat:"family"},
+    {rx:/\b(?:chosen family|found family|sworn family)\b/i,role:"chosen-family",inverse:"chosen-family",cat:"family"},
+    {rx:/\b(?:identical twin|fraternal twin|twin sister|twin brother|twin)\b/i,role:"twin",inverse:"twin",cat:"family"},
+    {rx:/\b(?:co[- ]parent|coparent)\b/i,role:"co-parent",inverse:"co-parent",cat:"family"},
+    {rx:/\b(?:aunt|uncle|aunts|uncles)\b/i,role:"aunt/uncle",inverse:"niece/nephew",cat:"family"},
+    {rx:/\b(?:niece|nephew|nieces|nephews)\b/i,role:"niece/nephew",inverse:"aunt/uncle",cat:"family"},
+    {rx:/\b(?:biological mother|birth mother|biological father|birth father|mother|father|parent|parents)\b/i,role:"parent",inverse:"child",cat:"family"},
+    {rx:/\b(?:daughter|son|child|children)\b/i,role:"child",inverse:"parent",cat:"family"},
+    {rx:/\b(?:older sister|younger sister|older brother|younger brother|sister|brother|sibling|siblings)\b/i,role:"sibling",inverse:"sibling",cat:"family"},
+    {rx:/\b(?:first cousin|second cousin|third cousin|cousin|cousins)\b/i,role:"cousin",inverse:"cousin",cat:"family"},
+    {rx:/\b(?:ancestor|forebear)\b/i,role:"ancestor",inverse:"descendant",cat:"family"},
+    {rx:/\b(?:descendant)\b/i,role:"descendant",inverse:"ancestor",cat:"family"},
+    {rx:/\b(?:relative|relation|kin|family member)\b/i,role:"kin",inverse:"kin",cat:"family"},
+
+    // Friendship / social bonds.
+    {rx:/\b(?:former friend|ex[- ]friend|friendship ended)\b/i,role:"former-friend",inverse:"former-friend",cat:"social"},
+    {rx:/\b(?:best friend|bestie)\b/i,role:"best-friend",inverse:"best-friend",cat:"social"},
+    {rx:/\b(?:close friend|trusted friend|dear friend)\b/i,role:"close-friend",inverse:"close-friend",cat:"social"},
+    {rx:/\b(?:childhood friend|old friend|longtime friend|long-term friend)\b/i,role:"friend",inverse:"friend",cat:"social"},
+    {rx:/\b(?:friend|friends|friendship)\b/i,role:"friend",inverse:"friend",cat:"social"},
+    {rx:/\b(?:confidant|confidante)\b/i,role:"confidant",inverse:"confidant",cat:"social"},
+    {rx:/\b(?:acquaintance)\b/i,role:"acquaintance",inverse:"acquaintance",cat:"social"},
+    {rx:/\b(?:trusted ally|ally|allies)\b/i,role:"ally",inverse:"ally",cat:"social"},
+    {rx:/\b(?:traveling companion|travelling companion|companion-in-arms|companion)\b/i,role:"companion",inverse:"companion",cat:"social"},
+    {rx:/\b(?:pen pal|penpal|online friend|internet friend)\b/i,role:"friend",inverse:"friend",cat:"social"},
+    {rx:/\b(?:frenemy)\b/i,role:"frenemy",inverse:"frenemy",cat:"adversarial"},
+    {rx:/\b(?:nemesis)\b/i,role:"nemesis",inverse:"nemesis",cat:"adversarial"},
+    {rx:/\b(?:archenemy|enemy|enemies|foe)\b/i,role:"enemy",inverse:"enemy",cat:"adversarial"},
+    {rx:/\b(?:archrival|arch-rival|rival|rivals|competitor|professional rival|academic rival)\b/i,role:"rival",inverse:"rival",cat:"adversarial"},
+    {rx:/\b(?:neighbor|neighbour|neighbors|neighbours)\b/i,role:"neighbor",inverse:"neighbor",cat:"social"},
+    {rx:/\b(?:roommate|flatmate|housemate|roommates|flatmates|housemates)\b/i,role:"roommate",inverse:"roommate",cat:"household"},
+    {rx:/\b(?:host)\b/i,role:"host",inverse:"guest",cat:"household"},
+    {rx:/\b(?:guest|houseguest)\b/i,role:"guest",inverse:"host",cat:"household"},
+
+    // Education / apprenticeship.
+    {rx:/\b(?:mentor|mentors)\b/i,role:"mentor",inverse:"mentee",cat:"education"},
+    {rx:/\b(?:mentee|prot[eé]g[eé]|prot[eé]g[eé]e)\b/i,role:"mentee",inverse:"mentor",cat:"education"},
+    {rx:/\b(?:teacher|professor|instructor)\b/i,role:"teacher",inverse:"student",cat:"education"},
+    {rx:/\b(?:student|pupil|learner)\b/i,role:"student",inverse:"teacher",cat:"education"},
+    {rx:/\b(?:tutor)\b/i,role:"tutor",inverse:"pupil",cat:"education"},
+    {rx:/\b(?:coach)\b/i,role:"coach",inverse:"trainee",cat:"education"},
+    {rx:/\b(?:trainee|athlete|player under .* coaching)\b/i,role:"trainee",inverse:"coach",cat:"education"},
+    {rx:/\b(?:adviser|advisor|research supervisor|thesis supervisor)\b/i,role:"advisor",inverse:"advisee",cat:"education"},
+    {rx:/\b(?:advisee)\b/i,role:"advisee",inverse:"advisor",cat:"education"},
+    {rx:/\b(?:master)\b/i,role:"master",inverse:"apprentice",cat:"education"},
+    {rx:/\b(?:apprentice)\b/i,role:"apprentice",inverse:"master",cat:"education"},
+    {rx:/\b(?:knight)\b/i,role:"knight",inverse:"squire",cat:"education"},
+    {rx:/\b(?:squire)\b/i,role:"squire",inverse:"knight",cat:"education"},
+
+    // Work / institutional / care relationships.
+    {rx:/\b(?:business partner|co-owner|cofounder|co-founder)\b/i,role:"business-partner",inverse:"business-partner",cat:"professional"},
+    {rx:/\b(?:collaborator|research collaborator|creative collaborator)\b/i,role:"collaborator",inverse:"collaborator",cat:"professional"},
+    {rx:/\b(?:landlord|property owner)\b/i,role:"landlord",inverse:"tenant",cat:"professional"},
+    {rx:/\b(?:tenant|renter|lessee)\b/i,role:"tenant",inverse:"landlord",cat:"professional"},
+    {rx:/\b(?:creditor|lender)\b/i,role:"creditor",inverse:"debtor",cat:"professional"},
+    {rx:/\b(?:debtor|borrower)\b/i,role:"debtor",inverse:"creditor",cat:"professional"},
+    {rx:/\b(?:buyer|purchaser)\b/i,role:"buyer",inverse:"seller",cat:"professional"},
+    {rx:/\b(?:seller|vendor)\b/i,role:"seller",inverse:"buyer",cat:"professional"},
+    {rx:/\b(?:coworker|co-worker|colleague|workmate)\b/i,role:"coworker",inverse:"coworker",cat:"professional"},
+    {rx:/\b(?:teammate|team-mate|squadmate)\b/i,role:"teammate",inverse:"teammate",cat:"professional"},
+    {rx:/\b(?:boss|manager|supervisor|employer|commander|commanding officer|team leader|department head)\b/i,role:"superior",inverse:"subordinate",cat:"hierarchy"},
+    {rx:/\b(?:employee|subordinate|direct report|report|staff member)\b/i,role:"subordinate",inverse:"superior",cat:"hierarchy"},
+    {rx:/\b(?:captain|ship captain)\b/i,role:"captain",inverse:"crew",cat:"hierarchy"},
+    {rx:/\b(?:crew member|crewmate|crew)\b/i,role:"crew",inverse:"captain",cat:"hierarchy"},
+    {rx:/\b(?:client|customer)\b/i,role:"client",inverse:"service-provider",cat:"professional"},
+    {rx:/\b(?:service provider|provider|consultant|contractor)\b/i,role:"service-provider",inverse:"client",cat:"professional"},
+    {rx:/\b(?:lawyer|attorney|legal counsel|counsel)\b/i,role:"counsel",inverse:"legal-client",cat:"professional"},
+    {rx:/\b(?:legal client)\b/i,role:"legal-client",inverse:"counsel",cat:"professional"},
+    {rx:/\b(?:doctor|physician|surgeon|nurse|medic)\b/i,role:"clinician",inverse:"patient",cat:"care"},
+    {rx:/\b(?:patient)\b/i,role:"patient",inverse:"clinician",cat:"care"},
+    {rx:/\b(?:therapist|counsellor|counselor|psychologist|psychiatrist)\b/i,role:"therapist",inverse:"therapy-client",cat:"care"},
+    {rx:/\b(?:therapy client|therapy patient)\b/i,role:"therapy-client",inverse:"therapist",cat:"care"},
+    {rx:/\b(?:caregiver|carer)\b/i,role:"caregiver",inverse:"dependent",cat:"care"},
+    {rx:/\b(?:dependent|care recipient)\b/i,role:"dependent",inverse:"caregiver",cat:"care"},
+    {rx:/\b(?:agent|representative)\b/i,role:"agent",inverse:"principal",cat:"professional"},
+    {rx:/\b(?:principal|represented client)\b/i,role:"principal",inverse:"agent",cat:"professional"},
+    {rx:/\b(?:handler)\b/i,role:"handler",inverse:"asset",cat:"institutional"},
+    {rx:/\b(?:asset|operative)\b/i,role:"asset",inverse:"handler",cat:"institutional"},
+    {rx:/\b(?:sponsor|patron)\b/i,role:"sponsor",inverse:"protege",cat:"professional"},
+    {rx:/\b(?:prot[eé]g[eé]|beneficiary)\b/i,role:"protege",inverse:"sponsor",cat:"professional"},
+    {rx:/\b(?:guardian|legal guardian)\b/i,role:"guardian",inverse:"ward",cat:"care"},
+    {rx:/\b(?:ward|protected dependent)\b/i,role:"ward",inverse:"guardian",cat:"care"},
+    {rx:/\b(?:protector|bodyguard|security detail)\b/i,role:"protector",inverse:"protectee",cat:"care"},
+    {rx:/\b(?:protectee|protected person)\b/i,role:"protectee",inverse:"protector",cat:"care"},
+    {rx:/\b(?:captor|kidnapper|jailer)\b/i,role:"captor",inverse:"captive",cat:"coercive"},
+    {rx:/\b(?:captive|hostage|prisoner)\b/i,role:"captive",inverse:"captor",cat:"coercive"},
+    {rx:/\b(?:investigator|detective)\b/i,role:"investigator",inverse:"suspect",cat:"legal"},
+    {rx:/\b(?:suspect|person of interest)\b/i,role:"suspect",inverse:"investigator",cat:"legal"},
+    {rx:/\b(?:prosecutor)\b/i,role:"prosecutor",inverse:"defendant",cat:"legal"},
+    {rx:/\b(?:defendant|accused)\b/i,role:"defendant",inverse:"prosecutor",cat:"legal"},
+    {rx:/\b(?:ruler|king|queen|emperor|empress|sovereign)\b/i,role:"ruler",inverse:"subject",cat:"political"},
+    {rx:/\b(?:subject|citizen under .* rule)\b/i,role:"subject",inverse:"ruler",cat:"political"},
+    {rx:/\b(?:liege|lord|lady)\b/i,role:"liege",inverse:"vassal",cat:"political"},
+    {rx:/\b(?:vassal)\b/i,role:"vassal",inverse:"liege",cat:"political"},
+    {rx:/\b(?:priest|priestess|cleric|pastor|imam|rabbi|chaplain)\b/i,role:"clergy",inverse:"congregant",cat:"religious"},
+    {rx:/\b(?:parishioner|congregant|member of .* congregation)\b/i,role:"congregant",inverse:"clergy",cat:"religious"},
+    {rx:/\b(?:spiritual mentor|guru)\b/i,role:"spiritual-mentor",inverse:"disciple",cat:"religious"},
+    {rx:/\b(?:disciple|devotee)\b/i,role:"disciple",inverse:"spiritual-mentor",cat:"religious"},
+    {rx:/\b(?:accomplice|co-conspirator|partner in crime)\b/i,role:"accomplice",inverse:"accomplice",cat:"criminal"},
+    {rx:/\b(?:gang leader|crew boss|crime boss)\b/i,role:"criminal-leader",inverse:"criminal-member",cat:"criminal"},
+    {rx:/\b(?:gang member|crew member|henchman|henchwoman)\b/i,role:"criminal-member",inverse:"criminal-leader",cat:"criminal"},
+    {rx:/\b(?:informant|source)\b/i,role:"informant",inverse:"handler",cat:"institutional"},
+    {rx:/\b(?:blackmailer)\b/i,role:"blackmailer",inverse:"blackmail-target",cat:"coercive"},
+    {rx:/\b(?:blackmail target|victim of blackmail)\b/i,role:"blackmail-target",inverse:"blackmailer",cat:"coercive"},
+    {rx:/\b(?:creator|maker)\b/i,role:"creator",inverse:"creation",cat:"fictional"},
+    {rx:/\b(?:creation|construct)\b/i,role:"creation",inverse:"creator",cat:"fictional"},
+    {rx:/\b(?:summoner)\b/i,role:"summoner",inverse:"summoned",cat:"fictional"},
+    {rx:/\b(?:summoned being|summoned creature|summoned)\b/i,role:"summoned",inverse:"summoner",cat:"fictional"},
+    {rx:/\b(?:pet owner|owner of (?:the |a |an )?(?:pet|animal|familiar)|handler of .* pet)\b/i,role:"caretaker",inverse:"companion-animal",cat:"care"},
+    {rx:/\b(?:pet|animal companion|familiar)\b/i,role:"companion-animal",inverse:"caretaker",cat:"care"},
+    {rx:/\b(?:associate|contact)\b/i,role:"associate",inverse:"associate",cat:"social"},
+    {rx:/\b(?:peers?|classmates?|schoolmates?)\b/i,role:"peer",inverse:"peer",cat:"social"},
+    {rx:/\b(?:partner|field partner|work partner)\b/i,role:"partner",inverse:"partner",cat:"professional"}
+  ];
 }
-var CW_LITE_ROLE_INVERSE={
-  "spouse":"spouse","fiance":"fiance","romantic":"romantic","ex-partner":"ex-partner",
-  "parent":"child","child":"parent","grandparent":"grandchild","grandchild":"grandparent",
-  "great-grandparent":"great-grandchild","great-grandchild":"great-grandparent",
-  "aunt/uncle":"niece/nephew","niece/nephew":"aunt/uncle",
-  "great-aunt/uncle":"great-niece/nephew","great-niece/nephew":"great-aunt/uncle",
-  "sibling":"sibling","cousin":"cousin","friend":"friend","ally":"ally","guardian":"ward","ward":"guardian","neighbor":"neighbor","mentor":"mentee","mentee":"mentor",
-  "rival":"rival","roommate":"roommate","peer":"peer","superior":"subordinate","subordinate":"superior","client":"counsel","counsel":"client","partner":"partner","unknown":"unknown"
-};
-function CW_liteInverseRole(role){return CW_LITE_ROLE_INVERSE[String(role||"unknown")]||"unknown";}
+var CW_LITE_ROLE_SPECS=CW_liteRoleSpecs();
+function CW_liteRoleMeta(role){
+  role=String(role||"unknown");
+  for(var i=0;i<CW_LITE_ROLE_SPECS.length;i++){var s=CW_LITE_ROLE_SPECS[i];if(s.role===role)return {role:s.role,inverse:s.inverse,category:s.cat,label:s.role,known:true};}
+  if(role==="custom")return {role:"custom",inverse:"custom",category:"custom",label:"custom relationship",known:false};
+  return {role:role,inverse:role,category:"social",label:role,known:role!=="unknown"};
+}
+function CW_liteCustomRoleLabel(raw){
+  var x=CW_liteClean(raw).replace(/^(?:a|an|the)\s+/i,"").replace(/\s+/g," ").trim();
+  if(!x||x.length<2||x.length>54)return "";
+  if(/^(?:unknown|relationship|connection|person|character|npc|none|n\/a)$/i.test(x))return "";
+  if(/[.!?]/.test(x))return "";
+  return x;
+}
+function CW_liteRoleMetasFromText(text,allowCustom){
+  var src=String(text||""),out=[],seen={};if(/^\s*(?:not|never|no longer|isn't|isnt|aren't|arent|wasn't|wasnt|weren't|werent)\b/i.test(src))return out;
+  for(var i=0;i<CW_LITE_ROLE_SPECS.length;i++){
+    var sp=CW_LITE_ROLE_SPECS[i];sp.rx.lastIndex=0;if(!sp.rx.test(src))continue;
+    var k=sp.role;if(seen[k])continue;seen[k]=1;out.push({role:sp.role,inverse:sp.inverse,category:sp.cat,label:sp.role,known:true,raw:CW_liteClip(src,80)});
+  }
+  var have={};out.forEach(function(r){have[r.role]=1;});
+  var shadow={
+    "ex-spouse":["spouse","partner"],"separated-spouse":["spouse","partner"],"spouse":["partner"],"ex-fiance":["fiance"],"ex-partner":["romantic","partner"],"civil-partner":["partner"],"romantic":["partner"],"casual-romantic":["partner"],
+    "best-friend":["close-friend","friend"],"close-friend":["friend"],
+    "great-great-grandparent":["great-grandparent","grandparent","parent"],"great-great-grandchild":["great-grandchild","grandchild","child"],
+    "great-grandparent":["grandparent","parent"],"great-grandchild":["grandchild","child"],
+    "step-parent":["parent"],"adoptive-parent":["parent"],"foster-parent":["parent"],"parent-in-law":["parent"],
+    "step-child":["child"],"adoptive-child":["child"],"foster-child":["child"],"child-in-law":["child"],
+    "half-sibling":["sibling"],"step-sibling":["sibling"],"adoptive-sibling":["sibling"],"foster-sibling":["sibling"],"twin":["sibling"],"sibling-in-law":["sibling"],
+    "professional-rival":["rival"],"business-partner":["partner"],"criminal-member":["crew"],"spiritual-mentor":["mentor"],"former-friend":["best-friend","close-friend","friend"]
+  };
+  var drop={};Object.keys(shadow).forEach(function(spec){if(have[spec])shadow[spec].forEach(function(r){drop[r]=1;});});
+  out=out.filter(function(r){return !drop[r.role];});
+  if(!out.length&&allowCustom){var label=CW_liteCustomRoleLabel(src);if(label)out.push({role:"custom",inverse:"custom",category:"custom",label:label,known:false,raw:label});}
+  return out;
+}
+function CW_liteRoleFromText(text){var m=CW_liteRoleMetasFromText(text,false);return m.length?m[0].role:"unknown";}
+function CW_liteInverseRole(role){var m=CW_liteRoleMeta(role);return m.inverse||"unknown";}
+function CW_liteRelationshipQualifiers(text){
+  var s=String(text||"").toLowerCase(),out=[];function q(rx,label){if(rx.test(s)&&out.indexOf(label)<0)out.push(label);}
+  q(/\bestranged\b/,"estranged");q(/\bsecret\b|\bhidden\b/,"secret");q(/\badopt(?:ed|ive)\b/,"adoptive");q(/\bbiological\b|\bbirth\b/,"biological");q(/\bstep[- ]/,"step");q(/\bhalf[- ]/,"half");q(/\bfoster\b/,"foster");q(/\blegal\b/,"legal");q(/\bformer\b|\bex[- ]/,"former");q(/\blate\b|\bdeceased\b|\bdead\b/,"deceased");q(/\blong[- ]distance\b/,"long-distance");q(/\bchildhood\b/,"childhood");q(/\bclose\b/,"close");q(/\bbest\b/,"best");q(/\barranged\b/,"arranged");q(/\bsworn\b|\boathbound\b/,"sworn");q(/\bprofessional\b/,"professional");q(/\bseparated\b/,"separated");q(/\bdivorc(?:ed|e)\b/,"divorced");q(/\bopen relationship\b/,"open");q(/\bpoly(?:amorous|amory)\b/,"polyamorous");q(/\bolder\b/,"older");q(/\byounger\b/,"younger");
+  return out.slice(0,6);
+}
+function CW_liteSourcePriority(source){var s=String(source||"").toLowerCase();if(s.indexOf("story-card")>=0)return 100;if(s.indexOf("plot")>=0||s.indexOf("context-lore")>=0)return 98;if(s.indexOf("opening")>=0)return 97;if(s.indexOf("summary")>=0)return 94;if(s.indexOf("history")>=0)return 90;if(s.indexOf("output")>=0)return 86;if(s.indexOf("input")>=0)return 82;if(s.indexOf("manual")>=0)return 110;return 80;}
+function CW_liteEnsureRoleRecords(link){
+  if(!link)return [];
+  if(!Array.isArray(link.roles))link.roles=[];
+  if(link.role&&link.role!=="unknown"&&!link.roles.some(function(r){return r&&r.active!==false&&r.role===link.role;}))link.roles.push({role:link.role,label:link.role,category:CW_liteRoleMeta(link.role).category,confidence:Number(link.confidence)||70,source:link.source||"legacy",active:true,firstTurn:link.firstTurn||0,lastTurn:link.lastTurn||0,qualifiers:[]});
+  if(!Array.isArray(link.roleHistory))link.roleHistory=[];
+  return link.roles;
+}
+function CW_liteRoleSpecificity(role){var r=String(role||"").toLowerCase(),w={"best-friend":150,"close-friend":140,"friend":130,"acquaintance":70,"kin":60,"associate":55,"peer":55,"partner":60,"custom":145,"ex-spouse":160,"separated-spouse":155,"spouse":150,"ex-fiance":150,"fiance":145,"ex-partner":140,"romantic":135,"casual-romantic":125,"friends-with-benefits":125,"step-parent":150,"adoptive-parent":150,"foster-parent":150,"parent":140,"step-child":150,"adoptive-child":150,"foster-child":150,"child":140,"twin":155,"half-sibling":150,"step-sibling":150,"sibling":140,"great-great-grandparent":160,"great-great-grandchild":160,"great-grandparent":155,"great-grandchild":155,"grandparent":150,"grandchild":150,"great-aunt/uncle":150,"great-niece/nephew":150,"aunt/uncle":145,"niece/nephew":145};return w[r]||100;}
+function CW_liteActiveRoles(link){return CW_liteEnsureRoleRecords(link).filter(function(r){return r&&r.active!==false;}).sort(function(a,b){return CW_liteRoleSpecificity(b.role)-CW_liteRoleSpecificity(a.role)||Number(b.confidence||0)-Number(a.confidence||0)||CW_liteSourcePriority(b.source)-CW_liteSourcePriority(a.source);});}
+function CW_litePrimaryRole(link){var a=CW_liteActiveRoles(link);return a.length?a[0].role:(link&&link.role?link.role:"unknown");}
+function CW_liteRoleLabel(rec){if(!rec)return "";var base=rec.role==="custom"?(rec.label||"custom relationship"):(rec.label&&rec.label!==rec.role?rec.label:rec.role);var q=Array.isArray(rec.qualifiers)?rec.qualifiers.filter(function(x){return base.toLowerCase().indexOf(String(x).toLowerCase())<0;}):[];return (q.length?q.slice(0,2).join(" ")+" ":"")+base;}
+function CW_liteDeactivateRole(link,roles,source,note){
+  if(!link)return 0;var set={};(Array.isArray(roles)?roles:[roles]).forEach(function(r){set[r]=1;});var n=0,turn=CW_liteTurn();CW_liteEnsureRoleRecords(link).forEach(function(rec){if(rec&&rec.active!==false&&set[rec.role]){rec.active=false;rec.endedTurn=turn;rec.endSource=source||"visible";link.roleHistory.push({turn:turn,role:rec.role,label:rec.label||rec.role,change:"ended",source:source||"visible",note:CW_liteClip(note||"",120)});n++;}});var p=CW_liteActiveRoles(link)[0];link.role=p?p.role:"unknown";link.confidence=p?Number(p.confidence)||0:0;return n;
+}
+function CW_liteAddRole(link,meta,confidence,source,qualifiers){
+  if(!link||!meta||!meta.role||meta.role==="unknown")return null;var turn=CW_liteTurn(),roles=CW_liteEnsureRoleRecords(link),label=meta.label||meta.role,q=Array.isArray(qualifiers)?qualifiers:[],rec=null;
+  var dominance={"former-friend":["best-friend","close-friend","friend"],"best-friend":["former-friend","close-friend","friend"],"close-friend":["former-friend","friend"],"friend":["former-friend"],"ex-spouse":["spouse","separated-spouse","fiance","romantic"],"separated-spouse":["spouse"],"ex-fiance":["fiance","romantic"],"ex-partner":["romantic","fiance","casual-romantic","friends-with-benefits"],"step-parent":["parent"],"adoptive-parent":["parent"],"foster-parent":["parent"],"step-child":["child"],"adoptive-child":["child"],"foster-child":["child"],"half-sibling":["sibling"],"step-sibling":["sibling"],"adoptive-sibling":["sibling"],"foster-sibling":["sibling"],"twin":["sibling"]};
+  var dominated=dominance[meta.role]||[];if(dominated.length){roles.forEach(function(old){if(old&&old.active!==false&&dominated.indexOf(old.role)>=0){old.active=false;old.endedTurn=turn;old.endSource=source||"visible";link.roleHistory.push({turn:turn,role:old.role,label:old.label||old.role,change:"refined",source:source||"visible",note:"refined by "+(meta.label||meta.role)});}});}
+  for(var i=0;i<roles.length;i++){var r=roles[i];if(!r||r.active===false)continue;if(r.role===meta.role&&(meta.role!=="custom"||CW_liteNorm(r.label)===CW_liteNorm(label))){rec=r;break;}}
+  if(!rec){rec={role:meta.role,label:label,category:meta.category||CW_liteRoleMeta(meta.role).category,confidence:Math.max(1,Math.min(100,Number(confidence)||80)),source:source||"visible",active:true,firstTurn:turn,lastTurn:turn,qualifiers:q.slice(0,6)};roles.push(rec);link.roleHistory.push({turn:turn,role:rec.role,label:rec.label,change:"established",source:rec.source});}
+  else{rec.confidence=Math.max(Number(rec.confidence)||0,Math.max(1,Math.min(100,Number(confidence)||80)));var pri=CW_liteSourcePriority(source),oldPri=CW_liteSourcePriority(rec.source);if(pri>=oldPri)rec.source=source||rec.source;rec.lastTurn=turn;if(pri>=oldPri){var temporal={former:1,estranged:1,separated:1,divorced:1};rec.qualifiers=rec.qualifiers.filter(function(x){return !temporal[x]||q.indexOf(x)>=0;});}q.forEach(function(x){if(rec.qualifiers.indexOf(x)<0)rec.qualifiers.push(x);});rec.qualifiers=rec.qualifiers.slice(0,6);}
+  if(link.roleHistory.length>30)link.roleHistory=link.roleHistory.slice(-30);
+  var primary=CW_liteActiveRoles(link)[0];if(primary){link.role=primary.role;link.confidence=primary.confidence;link.source=primary.source;}link.lastTurn=turn;return rec;
+}
+function CW_liteSeedRoleLink(from,to,roleOrMeta,source,confidence,qualifiers){
+  if(!from||!to||CW_liteKey(from)===CW_liteKey(to))return null;if(CW_isPlayerName(from))return null;
+  var meta=typeof roleOrMeta==="string"?CW_liteRoleMeta(roleOrMeta):roleOrMeta;if(!meta||!meta.role||meta.role==="unknown")return null;
+  var link=CW_liteLink(from,to,true);if(!link)return null;CW_liteAddRole(link,meta,confidence==null?95:confidence,source||"story-card",qualifiers||[]);return link;
+}
+function CW_liteInverseMeta(meta){if(!meta)return null;return {role:meta.inverse||CW_liteInverseRole(meta.role),inverse:meta.role,category:meta.category,label:(meta.role==="custom"?"counterpart to "+(meta.label||"custom relationship"):(meta.inverse||CW_liteInverseRole(meta.role))),known:meta.known!==false,raw:meta.raw||""};}
+function CW_liteApplyRolePair(from,to,meta,source,confidence,qualifiers){
+  var a=CW_liteCanonical(from),b=CW_liteCanonical(to);if(!a||!b||CW_liteKey(a)===CW_liteKey(b)||!meta)return 0;var inv=CW_liteInverseMeta(meta),n=0;
+  if(a==="YOU"&&b!=="YOU"){if(CW_liteSeedRoleLink(b,"YOU",inv,source,confidence,qualifiers))n++;return n;}
+  if(b==="YOU"&&a!=="YOU"){if(CW_liteSeedRoleLink(a,"YOU",meta,source,confidence,qualifiers))n++;return n;}
+  if(CW_liteSeedRoleLink(a,b,meta,source,confidence,qualifiers))n++;if(CW_liteSeedRoleLink(b,a,inv,source+"-reciprocal",Math.max(60,(Number(confidence)||90)-1),qualifiers))n++;return n;
+}
+function CW_liteHasRelationshipSignal(text){
+  var s=String(text||"");if(!s)return false;
+  return /\b(?:relationships?|family|kinship|bond|friend|ally|enemy|rival|partner|spouse|wife|husband|fianc|dating|lover|crush|parent|mother|father|child|daughter|son|sibling|sister|brother|aunt|uncle|niece|nephew|cousin|grandparent|grandchild|in[- ]law|step[- ]|adopt|foster|godparent|godchild|roommate|flatmate|housemate|neighbor|neighbour|mentor|mentee|teacher|student|classmate|schoolmate|coworker|colleague|boss|manager|supervisor|employee|subordinate|commander|captain|crew|client|lawyer|attorney|doctor|patient|therapist|caregiver|guardian|ward|protector|bodyguard|captor|hostage|prisoner|investigator|suspect|prosecutor|defendant|ruler|subject|liege|vassal|clergy|disciple|accomplice|informant|blackmail|creator|creation|summoner|familiar|associate|peer|trust|distrust|respect|fear|resent|hate|love|adore|loyal|suspicious|jealous|attracted|comfortable|estranged|betray|rescue|protect|support|comfort|apolog|threaten|attack)\w*\b/i.test(s);
+}
+function CW_liteSeedMetric(link,key,value){
+  if(!link||!link.metrics||CW_LITE_METRICS.indexOf(key)<0)return 0;var cur=Number(link.metrics[key]||0),v=Number(value)||0,next=v>=0?Math.max(cur,v):Math.min(cur,v);next=CW_liteClamp(next);if(next===cur)return 0;link.metrics[key]=next;link.lastTurn=CW_liteTurn();return 1;
+}
+function CW_liteSeedAttitudeValues(from,to,delta,source,note){
+  var a=CW_liteCanonical(from),b=CW_liteCanonical(to);if(!a||!b||a==="YOU"||CW_liteKey(a)===CW_liteKey(b))return 0;var link=CW_liteLink(a,b,true),n=0;if(!link)return 0;Object.keys(delta||{}).forEach(function(k){n+=CW_liteSeedMetric(link,k,delta[k]);});if(n){CW_liteRemember(link,"establishedAttitude",note||"explicit relationship attitude",source||"relationship-source");}return n;
+}
+function CW_liteSeedLocalAttitudes(from,to,text,source){
+  var s=String(text||""),d={};function set(k,v){if(typeof d[k]==="undefined"||Math.abs(v)>Math.abs(d[k]))d[k]=v;}
+  if(/\b(?:deeply |fully |strongly )?trusted\b|\btrust(?:s|ed)?\b/i.test(s))set("trust",4);if(/\b(?:distrusted|does not trust|doesn't trust|mistrust(?:s|ed)?)\b/i.test(s)){set("trust",-4);set("suspicion",4);}if(/\b(?:respected|respects)\b/i.test(s))set("respect",4);if(/\b(?:feared|fears|afraid of)\b/i.test(s))set("fear",4);if(/\b(?:resented|resents)\b/i.test(s))set("resentment",4);if(/\b(?:hated|hates|despised|despises)\b/i.test(s)){set("affection",-5);set("resentment",4);}if(/\b(?:beloved|loved|loves|adores|cares deeply for)\b/i.test(s))set("affection",4);if(/\b(?:loyal to|devoted to|fiercely loyal)\b/i.test(s))set("loyalty",4);if(/\b(?:suspicious of|wary of)\b/i.test(s))set("suspicion",4);if(/\b(?:jealous of|envious of)\b/i.test(s))set("jealousy",4);if(/\b(?:attracted to|desires)\b/i.test(s))set("attraction",4);if(/\b(?:comfortable with|at ease with|feels safe with)\b/i.test(s))set("comfort",4);if(/\b(?:uncomfortable with|uneasy around|estranged from)\b/i.test(s))set("comfort",-4);if(/\b(?:depends on|dependent on|relies heavily on)\b/i.test(s))set("dependence",4);if(/\b(?:emotionally intimate with|intimate with)\b/i.test(s))set("intimacy",4);
+  return Object.keys(d).length?CW_liteSeedAttitudeValues(from,to,d,source,s):0;
+}
+function CW_liteSeedPairAttitudes(sentence,from,to,source){
+  var s=String(sentence||""),ef=CW_liteNamePattern(from),et=CW_liteNamePattern(to),m;try{m=s.match(new RegExp(ef+"\\s+([^.;]{0,80}?)"+et,"i"));}catch(_){m=null;}if(!m)return 0;return CW_liteSeedLocalAttitudes(from,to,m[0],source);
+}
 function CW_liteRelationshipBlock(entry){
-  var src=String(entry||"").replace(/\r/g,""); if(!src)return "";
-  var lines=src.split("\n"),out=[],inside=false;
-  var stop=/^\s*(?:name|type|age|role|occupation|job|appearance|personality|traits?|powers?|abilities|skills?|equipment|background|history|goals?|fears?|secrets?|location|status|description|aliases?)\s*:/i;
+  var src=String(entry||"").replace(/\r/g,"");if(!src)return "";var lines=src.split("\n"),out=[],inside=false;
+  var stop=/^\s*(?:name|type|age|role|occupation|job|appearance|personality|traits?|powers?|abilities|skills?|equipment|background|history|goals?|fears?|secrets?|location|status|description|aliases?|notes?)\s*:/i;
   for(var i=0;i<lines.length;i++){
-    var line=lines[i];
-    var m=line.match(/^\s*(?:relationships?|family|friends?|allies|rivals?|connections?|bonds?)\s*:\s*(.*)$/i);
+    var line=lines[i],m=line.match(/^\s*(?:relationships?|family|friends?|allies|rivals?|enemies|connections?|bonds?|social ties|kinship|professional relationships?)\s*:\s*(.*)$/i);
     if(m){inside=true;if(m[1])out.push(m[1]);continue;}
     if(inside&&stop.test(line)){inside=false;continue;}
     if(inside){if(/^\s*$/.test(line)){if(out.length)out.push("");continue;}out.push(line);}
-    if(/^\s*(?:mother|father|parent|daughter|son|child|sister|brother|sibling|aunt|uncle|niece|nephew|cousin|grandmother|grandfather|grandparent|granddaughter|grandson|grandchild|spouse|wife|husband|partner|girlfriend|boyfriend|fianc[eé]e?|mentor|mentee|roommate|flatmate|rival|enemy|friend)\s*:/i.test(line))out.push(line);
+    var colon=line.match(/^\s*([^:]{2,44})\s*:\s*(.+)$/);if(colon&&CW_liteRoleMetasFromText(colon[1],false).length)out.push(line);
   }
   return out.join("\n").trim();
 }
-function CW_liteRelationshipTargets(block){
-  var src=String(block||""),out=[],seen={};
-  function add(n){n=CW_liteClean(n);var k=CW_liteKey(n);if(!n||!k||seen[k])return;seen[k]=1;out.push(n);}
-  try{(CE_playerIdentityNames()||[]).forEach(function(p){if(p&&CW_liteContainsName(src,p))add(p);});}catch(_){}
-  // Relationship sections are trusted structured lore. Extract person-shaped names directly
-  // instead of walking a potentially 5,000-card archive for every relationship-bearing card.
-  try{
-    var re=/\b(?:[A-ZÀ-ÖØ-Þ][A-Za-zÀ-ÖØ-öø-ÿ'’.-]{1,30})(?:\s+(?:[A-ZÀ-ÖØ-Þ][A-Za-zÀ-ÖØ-öø-ÿ'’.-]{1,30})){1,3}\b/g,m;
-    var reject=/^(?:Relationships?|Family|Friends?|Allies|Rivals?|Connections?|Bonds?|Professional Rival|Close Friend|Best Friend|Great Grandparent|Great Grandchild)$/i;
-    while(out.length<32&&(m=re.exec(src))){var n=String(m[0]||"").trim();if(!n||reject.test(n))continue;add(n);}
-  }catch(_){}
-  // Support common single-name relationship entries when that alias already resolves uniquely.
-  try{
-    var lines=src.split(/\n|\s*;\s*/).filter(Boolean);
-    for(var i=0;i<lines.length&&out.length<32;i++){
-      var x=lines[i].match(/^\s*[•*\-]?\s*([A-ZÀ-ÖØ-Þ][A-Za-zÀ-ÖØ-öø-ÿ'’.-]{2,30})\s*(?:\(|[:=—-])/);
-      if(!x)continue;var cand=x[1];
-      var rows=typeof CE_sharedLargeLookup==="function"?CE_sharedLargeLookup("alias",CE_sharedCardNorm(cand)):[];
-      if(rows&&rows.length===1&&rows[0].identity)add(rows[0].identity);
-    }
-  }catch(_){}
-  return out;
+function CW_liteStructuredNames(text){
+  var src=String(text||""),out=[],seen={};function add(raw){var n=CW_liteClean(String(raw||"").replace(/^(?:and|with)\s+/i,""));if(!n||n.length>80||/^(?:you|your|unknown|none|n\/a)$/i.test(n))return;var k=CW_liteKey(n);if(seen[k])return;seen[k]=1;out.push(n);}
+  var m;
+  var relTo=/relationship\s+to\s+([A-ZÀ-ÖØ-Þ][A-Za-zÀ-ÖØ-öø-ÿ'’.-]*(?:\s+[A-ZÀ-ÖØ-Þ][A-Za-zÀ-ÖØ-öø-ÿ'’.-]*){0,3})\s*[:=—-]/gi;while((m=relTo.exec(src)))add(m[1]);
+  src.split(/\n|\s*;\s*/).forEach(function(line){var x=line.match(/^\s*[•*\-]?\s*([^:—()]{1,80}?)\s*(?:\(([^)]+)\)|[—-]\s*([^,;]{2,54})|:\s*([^,;]{2,54}))\s*$/);if(x&&!CW_liteRoleMetasFromText(x[1],false).length&&CW_liteRoleMetasFromText(x[2]||x[3]||x[4]||"",true).length)add(x[1]);var f=line.match(/^\s*([^:]{2,44})\s*:\s*(.+)$/);if(f&&CW_liteRoleMetasFromText(f[1],false).length){String(f[2]).split(/\s*(?:,|\band\b|&)\s*/i).forEach(function(v){var nm=v.replace(/\([^)]*\).*$/,"").replace(/\s+[—-].*$/,"").trim();if(/^[A-ZÀ-ÖØ-Þ][A-Za-zÀ-ÖØ-öø-ÿ'’.-]*(?:\s+[A-ZÀ-ÖØ-Þ][A-Za-zÀ-ÖØ-öø-ÿ'’.-]*){0,3}$/.test(nm))add(nm);});}});
+  try{var re=/\b(?:[A-ZÀ-ÖØ-Þ][A-Za-zÀ-ÖØ-öø-ÿ'’.-]{1,30})(?:\s+(?:[A-ZÀ-ÖØ-Þ][A-Za-zÀ-ÖØ-öø-ÿ'’.-]{1,30})){1,3}\b/g;while(out.length<48&&(m=re.exec(src))){var n=String(m[0]||"").trim();if(!/^(?:Relationships?|Family|Friends?|Allies|Rivals?|Connections?|Bonds?|Professional Rival|Close Friend|Best Friend|Great Grandparent|Great Grandchild)$/i.test(n))add(n);}}catch(_){}
+  try{(CE_playerIdentityNames()||[]).forEach(function(p){if(p&&CW_liteContainsName(src,p))add(p);});}catch(_){}return out.slice(0,48);
 }
+function CW_liteRelationshipTargets(block){return CW_liteStructuredNames(block);}
 function CW_liteRelationshipLocal(block,other){
-  var src=String(block||""),full=String(other||"").trim();if(!src||!full)return "";
-  var lines=src.split(/\n|\s*;\s*/).filter(Boolean),first=full.split(/\s+/)[0]||"";
-  for(var i=0;i<lines.length;i++){if(CW_liteContainsName(lines[i],full))return lines[i].trim();}
-  if(first.length>2)for(var j=0;j<lines.length;j++){if(CW_liteContainsName(lines[j],first))return lines[j].trim();}
-  return "";
+  var src=String(block||""),full=String(other||"").trim();if(!src||!full)return "";var lines=src.split(/\n+/).filter(Boolean),first=full.split(/\s+/)[0]||"";
+  function segment(line){var parts=String(line||"").split(/\s*;\s*/).filter(Boolean),idx=-1;for(var i=0;i<parts.length;i++){if(CW_liteContainsName(parts[i],full)||(first.length>2&&CW_liteContainsName(parts[i],first))){idx=i;break;}}if(idx<0)return "";var out=parts[idx];for(var j=idx+1;j<parts.length;j++){if(CW_liteStructuredNames(parts[j]).length)break;if(CW_liteRoleMetasFromText(parts[j],false).length||CW_liteHasRelationshipSignal(parts[j]))out+="; "+parts[j];else break;}return out.trim();}
+  for(var i=0;i<lines.length;i++){var x=segment(lines[i]);if(x)return x;}return "";
 }
 function CW_liteRoleDescriptor(local,other){
-  var line=String(local||"").trim(),name=String(other||"").trim();if(!line)return {role:"unknown",direct:false};
-  var esc=name.replace(/[.*+?^${}()|[\]\\]/g,"\\$&"),m;
-  try{m=line.match(new RegExp("relationship\\s+to\\s+"+esc+"\\s*[:=—-]\\s*([^,;]+)","i"));if(m)return {role:CW_liteRoleFromText(m[1]),direct:true};}catch(_){}
-  try{m=line.match(new RegExp(esc+"\\s*(?:\\(([^)]+)\\)|[:=—-]\\s*([^,;]+))","i"));if(m)return {role:CW_liteRoleFromText(m[1]||m[2]),direct:false};}catch(_){}
-  try{m=line.match(new RegExp("([^,:;—-]{2,40})\\s*[:=—-]\\s*"+esc,"i"));if(m)return {role:CW_liteRoleFromText(m[1]),direct:false};}catch(_){}
-  var role=CW_liteRoleFromText(line);return {role:role,direct:false};
+  var line=String(local||"").trim(),name=String(other||"").trim();if(!line)return {roles:[],role:"unknown",direct:false,qualifiers:[]};var esc=name.replace(/[.*+?^${}()|[\]\\]/g,"\\$&"),m,raw="",direct=false;
+  try{m=line.match(new RegExp("relationship\\s+to\\s+"+esc+"\\s*[:=—-]\\s*([^,;]+)","i"));if(m){raw=m[1];direct=true;}}catch(_){}
+  if(!raw)try{m=line.match(new RegExp(esc+"\\s*(?:\\(([^)]+)\\)|[:=—-]\\s*(.+))$","i"));if(m)raw=m[1]||m[2];}catch(_){}
+  if(!raw){var field=line.match(/^\s*([^:]{2,44})\s*:\s*(.+)$/);if(field&&CW_liteContainsName(field[2],name))raw=field[1];}
+  if(!raw)try{m=line.match(new RegExp("([^,:;—-]{2,44})\\s*[:=—-]\\s*"+esc,"i"));if(m)raw=m[1];}catch(_){}
+  if(!raw)raw=line;
+  var allowCustom=true;try{allowCustom=CW_liteConfigSettings().customRoles!==false;}catch(_){}var roles=CW_liteRoleMetasFromText(raw,allowCustom);return {roles:roles,role:roles.length?roles[0].role:"unknown",direct:direct,qualifiers:CW_liteRelationshipQualifiers(raw),raw:raw};
 }
-function CW_liteSeedRoleLink(from,to,role,source){
-  if(!from||!to||!role||role==="unknown"||CW_liteKey(from)===CW_liteKey(to))return null;
-  if(CW_isPlayerName(from))return null;
-  var link=CW_liteLink(from,to,true);if(!link)return null;
-  if(link.role==="unknown"||link.source==="story-card"||String(link.source||"").indexOf("story-card")===0){link.role=role;link.confidence=Math.max(Number(link.confidence||0),95);link.source=source||"story-card";}
-  return link;
-}
-function CW_liteLocalRelationshipSegment(field,other){
-  var src=String(field||""); if(!src)return "";
-  var parts=src.split(/\s*;\s*/).filter(Boolean), full=String(other||"").trim(), first=full.split(/\s+/)[0]||"";
-  for(var i=0;i<parts.length;i++){
-    if(typeof CE_leanBoundaryContains==="function" && CE_leanBoundaryContains(parts[i],full))return parts[i];
-  }
-  if(first && first.length>1){
-    for(var j=0;j<parts.length;j++){
-      if(typeof CE_leanBoundaryContains==="function" && CE_leanBoundaryContains(parts[j],first))return parts[j];
-    }
-  }
-  return "";
+function CW_liteSeedRelationshipCardOnce(card,ownerHint,idx){
+  if(!card)return 0;var entry=CW_cardEntryText(card);if(!CW_liteHasRelationshipSignal(entry))return 0;var cw=CW_liteState(),ident=String(card.id||("idx:"+(idx==null?"?":idx))),sig=CW_liteHashText(String(card.keys||"")+"|"+String(card.type||"")+"|"+entry);if(cw.sourceScan.cardSigs[ident]===sig)return 0;cw.sourceScan.cardSigs[ident]=sig;var n=CW_liteSeedRelationshipFromCardObject(card,ownerHint);try{n+=CW_liteParse(entry,"story-card-history");}catch(_){}return n;
 }
 function CW_liteSeedCardRelationship(name){
   try{if(typeof CW_liteConfigSettings==="function"&&CW_liteConfigSettings().seedCardRoles===false)return 0;else if(state.unsaid&&state.unsaid.relationshipSettings&&state.unsaid.relationshipSettings.seedCardRoles===false)return 0;}catch(_){}
-  var owner=CW_liteCanonical(name),card=null;try{card=findStoryCardForEntity(owner==="YOU"?name:owner);}catch(_){}if(!card)return 0;
-  var block=CW_liteRelationshipBlock(CW_cardEntryText(card));if(!block)return 0;
-  var targets=CW_liteRelationshipTargets(block),count=0,ownerIsPlayer=CW_isPlayerName(owner)||owner==="YOU";
-  targets.forEach(function(otherRaw){
-    var other=CW_liteCanonical(otherRaw),ok=CW_liteKey(other);if(!other||CW_liteKey(owner)===ok)return;
-    var local=CW_liteRelationshipLocal(block,otherRaw);if(!local&&other==="YOU"){
-      try{var aliases=CE_playerIdentityNames()||[];for(var ai=0;ai<aliases.length&&!local;ai++)local=CW_liteRelationshipLocal(block,aliases[ai]);}catch(_){}
-    }
-    if(!local)return;
-    var d=CW_liteRoleDescriptor(local,otherRaw),describedRole=d.role;if(!describedRole||describedRole==="unknown")return;
-    if(ownerIsPlayer){
-      if(other!=="YOU"&&CW_liteSeedRoleLink(other,"YOU",d.direct?CW_liteInverseRole(describedRole):describedRole,"story-card-player"))count++;
-      return;
-    }
-    var ownerToOther=d.direct?describedRole:CW_liteInverseRole(describedRole);
-    var otherToOwner=CW_liteInverseRole(ownerToOther);
-    if(other==="YOU"){
-      if(CW_liteSeedRoleLink(owner,"YOU",ownerToOther,"story-card"))count++;
-    }else{
-      if(CW_liteSeedRoleLink(owner,other,ownerToOther,"story-card"))count++;
-      if(CW_liteSeedRoleLink(other,owner,otherToOwner,"story-card-reciprocal"))count++;
-    }
-  });
+  var owner=CW_liteCanonical(name),card=null;try{card=findStoryCardForEntity(owner==="YOU"?name:owner);}catch(_){}if(!card)return 0;var idx=-1;try{idx=storyCards.indexOf(card);}catch(_){}return CW_liteSeedRelationshipCardOnce(card,owner,idx);
+}
+function CW_liteSeedRelationshipFromCardObject(card,ownerHint){
+  if(!card||!/^(?:character|npc|person|cast|companion)$/i.test(String(card.type||"")))return 0;var owner=ownerHint||CW_liteCanonical(CE_cardIdentityName(card));if(!owner)return 0;var entry=CW_cardEntryText(card);if(!CW_liteHasRelationshipSignal(entry))return 0;var block=CW_liteRelationshipBlock(entry),count=0,ownerIsPlayer=CW_isPlayerName(owner)||owner==="YOU";
+  if(block){var targets=CW_liteRelationshipTargets(block);targets.forEach(function(otherRaw){var other=CW_liteCanonical(otherRaw),ok=CW_liteKey(other);if(!other||CW_liteKey(owner)===ok)return;var local=CW_liteRelationshipLocal(block,otherRaw);if(!local&&other==="YOU"){try{var aliases=CE_playerIdentityNames()||[];for(var ai=0;ai<aliases.length&&!local;ai++)local=CW_liteRelationshipLocal(block,aliases[ai]);}catch(_){}}if(!local)return;var d=CW_liteRoleDescriptor(local,otherRaw);if(!ownerIsPlayer)count+=CW_liteSeedLocalAttitudes(owner,other,local,"story-card-attitude");if(!d.roles.length)return;d.roles.forEach(function(meta){var m=meta;if(ownerIsPlayer){if(other!=="YOU"){var towardPlayer=d.direct?CW_liteInverseMeta(m):m;if(CW_liteSeedRoleLink(other,"YOU",towardPlayer,"story-card-player",99,d.qualifiers))count++;}return;}var ownerToOther=d.direct?m:CW_liteInverseMeta(m);count+=CW_liteApplyRolePair(owner,other,ownerToOther,"story-card",99,d.qualifiers);});});}
+  // Also understand explicit prose in Character cards such as “Maya is Ezra's aunt”.
+  count+=CW_liteScanRelationshipText(entry,"story-card-prose",97,{owner:owner,allowCustom:false,maxSentences:36});return count;
+}
+function CW_liteNamePattern(name){return String(name||"").replace(/[.*+?^${}()|[\]\\]/g,"\\$&");}
+function CW_liteScanPairSentence(sentence,a,b,source,confidence,opts){
+  var s=String(sentence||""),ea=CW_liteNamePattern(a),eb=CW_liteNamePattern(b),count=0,m,metaList=[],qual=CW_liteRelationshipQualifiers(s),roleText="";opts=opts||{};count+=CW_liteSeedPairAttitudes(s,a,b,source);
+  function apply(metas,from,to){metas.forEach(function(meta){count+=CW_liteApplyRolePair(from,to,meta,source,confidence,qual);});}
+  try{m=s.match(new RegExp(ea+"\\s+(?:is|was|became|remains?|served as|acts? as)\\s+(?:the\\s+)?([^.;]{1,55}?)\\s+(?:of|to)\\s+"+eb,"i"));if(m){metaList=CW_liteRoleMetasFromText(m[1],false);if(metaList.length){apply(metaList,a,b);return count;}}}catch(_){}
+  try{m=s.match(new RegExp(ea+"\\s+(?:is|was|became|remains?)\\s+"+eb+"[’']s\\s+([^,.;]{1,55})","i"));if(m){metaList=CW_liteRoleMetasFromText(m[1],false);if(metaList.length){apply(metaList,a,b);return count;}}}catch(_){}
+  try{m=s.match(new RegExp(eb+"[’']s\\s+([^,.;]{1,45})\\s+"+ea,"i"));if(m){metaList=CW_liteRoleMetasFromText(m[1],false);if(metaList.length){apply(metaList,a,b);return count;}}}catch(_){}
+  try{m=s.match(new RegExp(ea+"\\s+(?:is|was|became|remains?)\\s+(?:married to|engaged to|dating|friends? with|roommates? with|flatmates? with|housemates? with|allied with|enemies? with|rivals? with|coworkers? with|colleagues? with)\\s+"+eb,"i"));if(m){roleText=m[0].slice(String(a).length,m[0].length-String(b).length);metaList=CW_liteRoleMetasFromText(roleText,false);if(metaList.length){apply(metaList,a,b);return count;}}}catch(_){}
+  var both1=new RegExp(ea+"\\s+(?:and|&)\\s+"+eb+"\\s+(?:are|were|became|remain|remained|started as|have been)\\s+([^.;]{1,55})","i"),both2=new RegExp(eb+"\\s+(?:and|&)\\s+"+ea+"\\s+(?:are|were|became|remain|remained|started as|have been)\\s+([^.;]{1,55})","i");m=s.match(both1)||s.match(both2);if(m){metaList=CW_liteRoleMetasFromText(m[1],false);if(metaList.length){apply(metaList,a,b);return count;}}
+  try{m=s.match(new RegExp("(?:"+ea+"\s+(?:and|&)\s+"+eb+"|"+eb+"\s+(?:and|&)\s+"+ea+")\s+(?:are|were)\s+no longer\s+([^.;]{1,48})","i"));if(m){var ended=CW_liteRoleMetasFromText(m[1],false);if(ended.length){CW_liteEndPairRoles(a,b,ended.map(function(x){return x.role;}),source,s);return count;}}}catch(_){}
+  try{m=s.match(new RegExp(ea+"\s+(?:is|was)\s+no longer\s+"+eb+"[’']s\s+([^,.;]{1,45})","i"));if(m){var ended2=CW_liteRoleMetasFromText(m[1],false);if(ended2.length){var la=CW_liteLink(a,b,false);if(la)CW_liteDeactivateRole(la,ended2.map(function(x){return x.role;}),source,s);return count;}}}catch(_){}
+  var pairRx=new RegExp("(?:"+ea+"\\s+(?:and|&)\\s+"+eb+"|"+eb+"\\s+(?:and|&)\\s+"+ea+")","i");if(pairRx.test(s)){
+    if(/\b(?:became estranged|are estranged|were estranged|fell out)\b/i.test(s)){CW_liteSeedAttitudeValues(a,b,{comfort:-4,trust:-2},source,s);CW_liteSeedAttitudeValues(b,a,{comfort:-4,trust:-2},source,s);[CW_liteLink(a,b,false),CW_liteLink(b,a,false)].forEach(function(l){if(l)CW_liteActiveRoles(l).forEach(function(r){if(r.qualifiers.indexOf("estranged")<0)r.qualifiers.push("estranged");});});return count;}
+    if(/\b(?:reconciled|made up|repaired their relationship)\b/i.test(s)){CW_liteSeedAttitudeValues(a,b,{comfort:3,trust:2},source,s);CW_liteSeedAttitudeValues(b,a,{comfort:3,trust:2},source,s);[CW_liteLink(a,b,false),CW_liteLink(b,a,false)].forEach(function(l){if(l)CW_liteActiveRoles(l).forEach(function(r){r.qualifiers=(r.qualifiers||[]).filter(function(q){return q!=="estranged";});});});}
+
+    if(/\b(?:got married|married each other|became spouses?)\b/i.test(s)){apply(CW_liteRoleMetasFromText("spouse",false),a,b);return count;}
+    if(/\b(?:got engaged|became engaged)\b/i.test(s)){apply(CW_liteRoleMetasFromText("fiance",false),a,b);return count;}
+    if(/\b(?:started dating|began dating|became a couple)\b/i.test(s)){apply(CW_liteRoleMetasFromText("romantic partner",false),a,b);return count;}
+    if(/\b(?:divorced|got divorced|ended their marriage)\b/i.test(s)){CW_liteEndPairRoles(a,b,["spouse","fiance","romantic"],source,s);apply(CW_liteRoleMetasFromText("ex-spouse",false),a,b);return count;}
+    if(/\b(?:broke up|split up|ended their relationship|stopped dating)\b/i.test(s)){CW_liteEndPairRoles(a,b,["romantic","fiance","casual-romantic","friends-with-benefits"],source,s);apply(CW_liteRoleMetasFromText("ex-partner",false),a,b);return count;}
+    if(/\b(?:stopped being friends|no longer friends|friendship ended)\b/i.test(s)){CW_liteEndPairRoles(a,b,["friend","close-friend","best-friend"],source,s);return count;}
+  }
   return count;
 }
-function CW_liteRoleImpact(role){
-  role=String(role||"unknown").toLowerCase();
-  if(!role||role==="unknown")return "";
-  if(/^(?:parent|child|sibling|aunt\/uncle|niece\/nephew|cousin|grandparent|grandchild)$/.test(role))return "treat the family relationship as established history, not a first meeting; familiarity does not automatically mean warmth or agreement";
-  if(/^(?:spouse|fiance|romantic|partner|girlfriend|boyfriend)$/.test(role))return "treat the relationship as established and let its current trust, boundaries and history shape closeness; never force consent, intimacy or escalation";
-  if(/^(?:friend|best friend|ally)$/.test(role))return "preserve established familiarity and shared history while letting current sentiment determine how supportive or guarded they are";
-  if(/^(?:rival|enemy)$/.test(role))return "let the established opposition affect choices, interpretation and tension without making every scene openly hostile";
-  if(/^(?:mentor|mentee|teacher|student)$/.test(role))return "let the established guidance/power dynamic affect expectations and boundaries without erasing the individuals' autonomy";
-  if(/^(?:roommate|flatmate|coworker|colleague|teammate|peer|neighbor)$/.test(role))return "preserve the practical familiarity, obligations and accumulated history of the established role";
-  if(/^(?:guardian|ward|superior|subordinate|client|counsel)$/.test(role))return "let the established duty, power balance and boundaries of this role affect expectations and choices without removing anyone's autonomy";
-  return "treat this social role as established continuity rather than making the characters behave like strangers";
+function CW_liteEndPairRoles(a,b,roles,source,note){var n=0,l=CW_liteLink(a,b,false);if(l)n+=CW_liteDeactivateRole(l,roles,source,note);var r=CW_liteLink(b,a,false);if(r)n+=CW_liteDeactivateRole(r,roles,source,note);return n;}
+function CW_liteScanRelationshipText(text,source,confidence,opts){
+  var src=String(text||"");if(!src.trim())return 0;opts=opts||{};var maxSent=opts.maxSentences||80,sentences=src.replace(/\r/g,"").split(/(?<=[.!?])\s+|\n+/).map(function(x){return x.trim();}).filter(Boolean).slice(-maxSent),count=0;
+  sentences.forEach(function(sentence){
+    if(!sentence||sentence.length>900)return;var names=CW_liteCharacterNames(sentence,12),hasYou=CW_litePlayerMention(sentence)||CW_liteNamedPlayerMention(sentence);if(hasYou)names.push("YOU");var seen={},canon=[];names.forEach(function(n){n=CW_liteCanonical(n);var k=CW_liteKey(n);if(!k||seen[k])return;seen[k]=1;canon.push(n);});names=canon;
+    // Direct player-relative lore: “Alex Vale is your mother” / “your aunt, Jordan Vale”.
+    for(var ni=0;ni<names.length;ni++){var n=names[ni];if(n==="YOU")continue;var en=CW_liteNamePattern(n),m;try{m=sentence.match(new RegExp(en+"\\s+(?:is|was|remains?)\\s+your\\s+([^,.;]{1,48})","i"));if(m){CW_liteRoleMetasFromText(m[1],false).forEach(function(meta){count+=CW_liteApplyRolePair(n,"YOU",meta,source,confidence,CW_liteRelationshipQualifiers(sentence));});}}catch(_){}try{m=sentence.match(new RegExp("your\\s+([^,.;]{1,40}?)\\s*,?\\s+"+en,"i"));if(m){CW_liteRoleMetasFromText(m[1],false).forEach(function(meta){count+=CW_liteApplyRolePair(n,"YOU",meta,source,confidence,CW_liteRelationshipQualifiers(sentence));});}}catch(_){}
+    }
+    for(var i=0;i<names.length;i++)for(var j=i+1;j<names.length;j++){count+=CW_liteScanPairSentence(sentence,names[i],names[j],source,confidence,opts);count+=CW_liteScanPairSentence(sentence,names[j],names[i],source,confidence,opts);}
+  });return count;
+}
+function CW_liteHashText(text){var s=String(text||""),h=2166136261;for(var i=0;i<s.length;i++){h^=s.charCodeAt(i);h=Math.imul(h,16777619);}return (h>>>0).toString(36);}
+function CW_liteBootstrapStoryCards(rs){
+  if(!rs||rs.seedCardRoles===false)return 0;var cards=(typeof storyCards!=="undefined"&&Array.isArray(storyCards))?storyCards:[],cw=CW_liteState(),scan=cw.sourceScan,turn=CW_liteTurn(),n=0;if(!cards.length)return 0;
+  function visit(card,idx){if(!card||!/^(?:character|npc|person|cast|companion)$/i.test(String(card.type||"")))return;n+=CW_liteSeedRelationshipCardOnce(card,"",idx);}
+  if(cards.length<=1000){var ord=turn;try{if(typeof info!=="undefined"&&info&&Number.isInteger(info.actionCount))ord=Math.abs(info.actionCount);}catch(_){}if(scan.lastCardCount===cards.length&&Number(scan.lastCardSweepAction)===ord)return 0;for(var i=0;i<cards.length;i++)visit(cards[i],i);scan.lastCardFullScanTurn=turn;scan.lastCardSweepAction=ord;scan.lastCardCount=cards.length;scan.cardCursor=0;return n;}
+  var budget=Math.max(32,Math.min(128,Number(rs.cardScanBudget)||80)),start=Math.max(0,Number(scan.cardCursor)||0);for(var k=0;k<budget;k++){if(start>=cards.length)start=0;visit(cards[start],start);start++;}scan.cardCursor=start>=cards.length?0:start;scan.lastCardCount=cards.length;return n;
+}
+function CW_liteBootstrapHistory(rs){
+  if(!rs||rs.historyScan===false)return 0;var rows=(typeof history!=="undefined"&&Array.isArray(history))?history:[],depth=Math.max(8,Math.min(240,Number(rs.historyDepth)||120)),slice=rows.slice(-depth),cw=CW_liteState(),seen=cw.sourceScan.historySigs,n=0;
+  for(var i=0;i<slice.length;i++){var row=slice[i];if(!row||!String(row.text||"").trim())continue;var sig=CW_liteHashText(String(row.type||"")+"|"+String(row.text||""));if(seen.indexOf(sig)>=0)continue;seen.push(sig);if(seen.length>320)seen.splice(0,seen.length-320);var src=String(row.type||"").toLowerCase()==="start"?"opening-history":"history";var txt=String(row.text||"");n+=CW_liteScanRelationshipText(txt,src,src==="opening-history"?98:91,{allowCustom:false,maxSentences:36});if(CW_liteHasRelationshipSignal(txt))try{n+=CW_liteParse(txt,src+"-events");}catch(_){}}
+  return n;
+}
+function CW_litePersistentContextPrefix(text){
+  var src=String(text||"");if(!src)return "";var cut=src.length,markers=[/\nRecent Story\s*:/i,/\n\[CROSSED WIRES\b/i,/\n>\s*(?:You|I)\b/i];for(var i=0;i<markers.length;i++){var m=markers[i].exec(src);if(m&&m.index>=0)cut=Math.min(cut,m.index);}return src.slice(0,cut).slice(0,42000);
+}
+function CW_liteContextTail(text){var src=String(text||"");if(!src)return "";var cut=src.search(/\n\[CROSSED WIRES\b/i);if(cut>=0)src=src.slice(0,cut);return src.slice(-18000);}
+function CW_liteParseContextEventsOnce(text,source,cw){
+  var n=0,seen=cw.sourceScan.contextEventSigs,parts=String(text||"").replace(/\r/g,"").split(/(?<=[.!?])\s+|\n+/).map(function(x){return x.trim();}).filter(Boolean);for(var i=0;i<parts.length&&i<180;i++){var line=parts[i];if(!CW_liteHasRelationshipSignal(line))continue;var sig=CW_liteHashText(CW_liteNorm(line));if(seen.indexOf(sig)>=0)continue;seen.push(sig);if(seen.length>480)seen.splice(0,seen.length-480);try{n+=CW_liteParse(line,source+"-events");}catch(_){}}return n;
+}
+function CW_liteBootstrapContextLore(text,rs){
+  if(!rs||rs.contextLoreScan===false)return 0;var prefix=CW_litePersistentContextPrefix(text),tail=CW_liteContextTail(text),cw=CW_liteState(),n=0;if(prefix.trim()){var sig=CW_liteHashText(prefix);if(cw.sourceScan.contextSig!==sig){cw.sourceScan.contextSig=sig;n+=CW_liteScanRelationshipText(prefix,"context-lore",97,{allowCustom:false,maxSentences:150});n+=CW_liteParseContextEventsOnce(prefix,"context-lore",cw);}}if(tail.trim()){var ts=CW_liteHashText(tail);if(cw.sourceScan.contextTailSig!==ts){cw.sourceScan.contextTailSig=ts;n+=CW_liteScanRelationshipText(tail,"context-tail",94,{allowCustom:false,maxSentences:100});n+=CW_liteParseContextEventsOnce(tail,"context-tail",cw);}}return n;
+}
+function CW_liteBootstrapRelationshipSources(text,phase){
+  var rs=CW_liteConfigSettings();if(rs.enabled===false||rs.bootstrapSources===false)return 0;var n=0;try{n+=CW_liteBootstrapStoryCards(rs);}catch(_){}try{n+=CW_liteBootstrapHistory(rs);}catch(_){}if(phase==="context")try{n+=CW_liteBootstrapContextLore(text,rs);}catch(_){}CW_liteState().sourceScan.lastBootstrapTurn=CW_liteTurn();return n;
+}
+function CW_liteRoleImpact(roleOrRec){
+  var rec=roleOrRec&&typeof roleOrRec==="object"?roleOrRec:null,role=String(rec?rec.role:roleOrRec||"unknown").toLowerCase();if(!role||role==="unknown")return "";var cat=CW_liteRoleMeta(role).category,q=rec&&Array.isArray(rec.qualifiers)?rec.qualifiers:[];
+  if(q.indexOf("former")>=0||q.indexOf("divorced")>=0)return "treat this as a former relationship: preserve the shared history and residual consequences, but do not assume the old authority, intimacy, access or obligations are still current";
+  if(q.indexOf("estranged")>=0)return "preserve the established relationship and its shared history, but also preserve the estrangement: familiarity does not imply current warmth, access, trust or easy contact";
+  if(q.indexOf("separated")>=0)return "preserve the established relationship while respecting the separation and its current boundaries; do not write them as normally cohabiting or fully reconciled without evidence";
+  if(cat==="family")return "treat the family relationship as established history, not a first meeting; preserve the specific kinship, duties and familiarity without assuming warmth, agreement or access";
+  if(cat==="romantic")return "treat the explicitly established romantic history/status as canon while letting current trust, boundaries and events determine closeness; never force consent, attraction or reciprocity";
+  if(cat==="adversarial")return "let the established rivalry/opposition affect interpretation, caution and choices without making every scene automatically violent";
+  if(cat==="education")return "let the established teaching/learning dynamic affect expectations, authority and boundaries while preserving both characters' autonomy";
+  if(cat==="professional"||cat==="hierarchy")return "preserve the established work, command or service relationship and let its obligations/power balance shape choices without reducing the characters to their jobs";
+  if(cat==="care")return "preserve the established care, guardianship or protection duties and their boundaries without treating dependence as consent or ownership";
+  if(cat==="coercive")return "treat the coercive relationship as an established constraint with realistic fear, resistance, leverage and consequences; never normalize coercion as affection";
+  if(cat==="legal"||cat==="political"||cat==="religious"||cat==="institutional"||cat==="criminal")return "preserve the established institutional role, duties, leverage and boundaries when they are relevant";
+  if(cat==="custom")return "treat this explicitly established relationship label as canon continuity and infer only the obligations actually supported by the story";
+  if(cat==="household")return "preserve practical familiarity, shared-space expectations and accumulated household history";
+  return "preserve the established social role and shared history while letting current sentiment determine how warm, guarded, cooperative or distant the characters are";
 }
 function CW_liteMetricImpact(link){
-  if(!link)return "";var m=link.metrics||{},p=[];
-  function pos(k,n,txt){var v=Number(m[k]||0);if(v>=n)p.push(txt);}
-  function neg(k,n,txt){var v=Number(m[k]||0);if(v<=-n)p.push(txt);}
-  pos("trust",3,"more willing to rely on or believe the target");neg("trust",3,"less willing to rely on or take the target at face value");
-  pos("affection",3,"warmer and more personally caring");neg("affection",3,"less emotionally warm");
-  pos("respect",3,"more likely to take the target seriously");neg("respect",3,"more dismissive or resistant to the target's judgment");
-  pos("fear",3,"more cautious, defensive or avoidant around the target");
-  pos("resentment",3,"more likely to carry friction, impatience or unresolved hurt into choices");
-  pos("suspicion",3,"more guarded and more likely to verify claims before trusting them");
-  pos("loyalty",3,"more inclined to stand by, protect or prioritize the target when costs appear");
-  pos("comfort",3,"more relaxed and natural around the target");neg("comfort",3,"more tense or self-conscious around the target");
-  pos("jealousy",3,"jealous tension may color reactions, but never creates entitlement or overrides consent");
-  pos("attraction",3,"attraction may subtly color attention or tone when scenario-appropriate, but never predetermines romance or consent");
-  pos("boundaryPressure",3,"boundaries are under pressure: show caution, resistance or consequences rather than silently normalizing violations");
-  return p.slice(0,3).join("; ");
+  if(!link)return "";var m=link.metrics||{},p=[];function pos(k,n,txt){var v=Number(m[k]||0);if(v>=n)p.push(txt);}function neg(k,n,txt){var v=Number(m[k]||0);if(v<=-n)p.push(txt);}
+  pos("trust",3,"more willing to rely on or believe the target");neg("trust",3,"less willing to rely on or take the target at face value");pos("affection",3,"warmer and more personally caring");neg("affection",3,"less emotionally warm");pos("respect",3,"more likely to take the target seriously");neg("respect",3,"more dismissive or resistant to the target's judgment");pos("fear",3,"more cautious, defensive or avoidant around the target");pos("resentment",3,"more likely to carry friction, impatience or unresolved hurt into choices");pos("suspicion",3,"more guarded and more likely to verify claims before trusting them");pos("loyalty",3,"more inclined to stand by, protect or prioritize the target when costs appear");pos("comfort",3,"more relaxed and natural around the target");neg("comfort",3,"more tense or self-conscious around the target");pos("jealousy",3,"jealous tension may color reactions, but never creates entitlement or overrides consent");pos("attraction",3,"attraction may subtly color attention or tone when scenario-appropriate, but never predetermines romance or consent");pos("boundaryPressure",3,"boundaries are under pressure: show caution, resistance or consequences rather than silently normalizing violations");return p.slice(0,3).join("; ");
+}
+function CW_liteRelationSentence(link){
+  if(!link)return "";var m=link.metrics||{},bits=[];function add(k,label){var v=Number(m[k]||0);if(Math.abs(v)>=2)bits.push(label+" "+(v>0?"+":"")+Math.round(v));}add("trust","trust");add("affection","affection");add("attraction","attraction");add("respect","respect");add("fear","fear");add("resentment","resentment");add("jealousy","jealousy");add("suspicion","suspicion");add("loyalty","loyalty");add("intimacy","intimacy");add("comfort","comfort");add("boundaryPressure","boundary pressure");var roles=CW_liteActiveRoles(link).slice(0,4).map(CW_liteRoleLabel),roleText=roles.length?" ["+roles.join(" + ")+"]":"";return link.from+" → "+link.to+roleText+": "+(bits.length?bits.join(", "):(roles.length?"established role; live sentiment not yet observed":"forming/neutral"));
 }
 function CW_liteBehaviorSentence(link){
-  if(!link)return "";var role=CW_liteRoleImpact(link.role),pressure=CW_liteMetricImpact(link),bits=[];
-  if(role)bits.push(role);if(pressure)bits.push(pressure);
-  if(!bits.length)return "";
-  return link.from+" → "+link.to+": "+bits.join("; ")+".";
+  if(!link)return "";var roles=CW_liteActiveRoles(link),roleBits=[],seen={};roles.slice(0,4).forEach(function(r){var x=CW_liteRoleImpact(r);if(x&&!seen[x]){seen[x]=1;roleBits.push(x);}});var pressure=CW_liteMetricImpact(link),bits=roleBits.slice(0,2);if(pressure)bits.push(pressure);if(!bits.length)return "";return link.from+" → "+link.to+": "+bits.join("; ")+".";
 }
 function CW_liteContextBlock(text){
-  var names=CW_liteCharacterNames(String(text||"").slice(-10000),8),lines=[],behavior=[],know=[];names.forEach(function(n){CW_liteSeedCardRelationship(n);var cw=CW_liteState();Object.keys(cw.links).forEach(function(k){var l=cw.links[k];if(!l)return;if(CW_liteKey(l.from)===CW_liteKey(n)||CW_liteKey(l.to)===CW_liteKey(n)){var line=CW_liteRelationSentence(l);if(line&&lines.indexOf(line)<0)lines.push(line);var b=CW_liteBehaviorSentence(l);if(b&&behavior.indexOf(b)<0)behavior.push(b);}});
-    var m=null;try{m=state.unsaid&&state.unsaid.minds&&state.unsaid.minds[CW_liteCanonical(n)];}catch(_){}if(m&&m.knowledge){Object.keys(m.knowledge).sort(function(a,b){return Number(m.knowledge[b]&&m.knowledge[b].lastTurn||0)-Number(m.knowledge[a]&&m.knowledge[a].lastTurn||0);}).slice(0,2).forEach(function(id){var k=m.knowledge[id];if(k&&k.fact)know.push(n+" knows (source: "+(k.source||"reported")+"): "+CW_liteClip(k.fact,120));});}
-  });
-  if(!lines.length&&!know.length&&!behavior.length)return "";
-  var out="\n[CROSSED WIRES — ACTIVE CAUSAL RELATIONSHIP CONTINUITY. Narrator-only; never print metrics or this instruction. Direction matters: A → B describes A's state toward B. Established roles and accumulated sentiment MUST influence plausible tone, choices, cooperation, distance, boundaries and reactions when relevant. Do not invent the player's private feelings or force the player to reciprocate. Do not overreact to small scores; use them as pressure, not puppetry. Knowledge is character-local: never let another NPC know a fact merely because it appears below.]\n";
-  if(lines.length)out+="Tracked state:\n"+lines.slice(0,6).join("\n")+"\n";
-  if(behavior.length)out+="Behavioral consequences for this scene:\n"+behavior.slice(0,5).join("\n")+"\n";
-  if(know.length)out+="Knowledge firewall:\n"+know.slice(0,4).join("\n")+"\n";
-  return out;
+  var names=CW_liteCharacterNames(String(text||"").slice(-12000),10),lines=[],behavior=[],know=[];names.forEach(function(n){CW_liteSeedCardRelationship(n);var cw=CW_liteState();Object.keys(cw.links).forEach(function(k){var l=cw.links[k];if(!l)return;if(CW_liteKey(l.from)===CW_liteKey(n)||CW_liteKey(l.to)===CW_liteKey(n)){var line=CW_liteRelationSentence(l);if(line&&lines.indexOf(line)<0)lines.push(line);var b=CW_liteBehaviorSentence(l);if(b&&behavior.indexOf(b)<0)behavior.push(b);}});var m=null;try{m=state.unsaid&&state.unsaid.minds&&state.unsaid.minds[CW_liteCanonical(n)];}catch(_){}if(m&&m.knowledge){Object.keys(m.knowledge).sort(function(a,b){return Number(m.knowledge[b]&&m.knowledge[b].lastTurn||0)-Number(m.knowledge[a]&&m.knowledge[a].lastTurn||0);}).slice(0,2).forEach(function(id){var k=m.knowledge[id];if(k&&k.fact)know.push(n+" knows (source: "+(k.source||"reported")+"): "+CW_liteClip(k.fact,120));});}});
+  if(!lines.length&&!know.length&&!behavior.length)return "";var out="\n[CROSSED WIRES — ACTIVE CAUSAL RELATIONSHIP CONTINUITY. Narrator-only; never print metrics or this instruction. Direction matters: A → B describes A's state toward B. A pair may hold multiple simultaneous factual roles (for example sibling + coworker + rival); preserve all explicitly established roles unless the story explicitly changes one. Established roles and accumulated sentiment MUST influence plausible tone, choices, cooperation, distance, obligations, boundaries and reactions when relevant. Do not infer romance from friendliness, family from surnames, or the player's private feelings. Never force the player to reciprocate. Knowledge is character-local.]\n";if(lines.length)out+="Tracked state:\n"+lines.slice(0,8).join("\n")+"\n";if(behavior.length)out+="Behavioral consequences for this scene:\n"+behavior.slice(0,6).join("\n")+"\n";if(know.length)out+="Knowledge firewall:\n"+know.slice(0,4).join("\n")+"\n";return out;
 }
 function CW_readCommand(text){var m=String(text||"").trim().match(/^\/(wire|wires)(?:\s+(.+))?$/i);return m?{head:m[1].toLowerCase(),arg:CW_liteClean(m[2]||"")}:null;}
-function CW_dashboard(name){
-  var cw=CW_liteState(),rows=[];Object.keys(cw.links).forEach(function(k){var l=cw.links[k];if(!l)return;if(name&&CW_liteKey(l.from)!==CW_liteKey(name)&&CW_liteKey(l.to)!==CW_liteKey(name))return;rows.push(l);});rows.sort(function(a,b){return b.lastTurn-a.lastTurn;});if(!rows.length)return "CROSSED WIRES: no directional relationship state yet.";return "CROSSED WIRES — directional relationships\n"+rows.slice(0,16).map(CW_liteRelationSentence).join("\n");
-}
+function CW_dashboard(name){var cw=CW_liteState(),rows=[];Object.keys(cw.links).forEach(function(k){var l=cw.links[k];if(!l)return;if(name&&CW_liteKey(l.from)!==CW_liteKey(name)&&CW_liteKey(l.to)!==CW_liteKey(name))return;rows.push(l);});rows.sort(function(a,b){return b.lastTurn-a.lastTurn;});if(!rows.length)return "CROSSED WIRES: no directional relationship state yet.";return "CROSSED WIRES — directional relationship graph\n"+rows.slice(0,20).map(CW_liteRelationSentence).join("\n");}
 function CW_status(){return CW_dashboard("");}
+function CW_liteConfigNumber(key,field,fallback,min,max){try{var map=CE_LITE_configCardMap(),card=map[key],entry=card?CW_cardEntryText(card):"",section=CE_LITE_configSectionForKey(entry,key),v=parseInt(configValue(section,field),10);if(!isNaN(v))return Math.max(min,Math.min(max,v));}catch(_){}return fallback;}
 function CW_liteConfigSettings(){
-  var prior=state.unsaid&&state.unsaid.relationshipSettings&&typeof state.unsaid.relationshipSettings==="object"?state.unsaid.relationshipSettings:{};
-  var cfg={enabled:prior.enabled!==false,visibleEvents:prior.visibleEvents!==false,seedCardRoles:prior.seedCardRoles!==false,relationshipTwists:prior.relationshipTwists!==false};
-  cfg.enabled=CE_LITE_configBool(CE_CONFIG_KEY_CROSSED,"enabled",cfg.enabled);
-  cfg.visibleEvents=CE_LITE_configBool(CE_CONFIG_KEY_CROSSED,"visibleEvents",cfg.visibleEvents);
-  cfg.seedCardRoles=CE_LITE_configBool(CE_CONFIG_KEY_CROSSED,"seedCardRoles",cfg.seedCardRoles);
-  cfg.relationshipTwists=CE_LITE_configBool(CE_CONFIG_KEY_CROSSED,"relationshipTwists",cfg.relationshipTwists);
+  var prior=state.unsaid&&state.unsaid.relationshipSettings&&typeof state.unsaid.relationshipSettings==="object"?state.unsaid.relationshipSettings:{};var cfg={enabled:prior.enabled!==false,visibleEvents:prior.visibleEvents!==false,seedCardRoles:prior.seedCardRoles!==false,relationshipTwists:prior.relationshipTwists!==false,bootstrapSources:prior.bootstrapSources!==false,historyScan:prior.historyScan!==false,contextLoreScan:prior.contextLoreScan!==false,customRoles:prior.customRoles!==false,roleEvolution:prior.roleEvolution!==false,historyDepth:Number(prior.historyDepth)||120,cardScanBudget:Number(prior.cardScanBudget)||80};
+  cfg.enabled=CE_LITE_configBool(CE_CONFIG_KEY_CROSSED,"enabled",cfg.enabled);cfg.visibleEvents=CE_LITE_configBool(CE_CONFIG_KEY_CROSSED,"visibleEvents",cfg.visibleEvents);cfg.seedCardRoles=CE_LITE_configBool(CE_CONFIG_KEY_CROSSED,"seedCardRoles",cfg.seedCardRoles);cfg.relationshipTwists=CE_LITE_configBool(CE_CONFIG_KEY_CROSSED,"relationshipTwists",cfg.relationshipTwists);cfg.bootstrapSources=CE_LITE_configBool(CE_CONFIG_KEY_CROSSED,"bootstrapSources",cfg.bootstrapSources);cfg.historyScan=CE_LITE_configBool(CE_CONFIG_KEY_CROSSED,"historyScan",cfg.historyScan);cfg.contextLoreScan=CE_LITE_configBool(CE_CONFIG_KEY_CROSSED,"contextLoreScan",cfg.contextLoreScan);cfg.customRoles=CE_LITE_configBool(CE_CONFIG_KEY_CROSSED,"customRoles",cfg.customRoles);cfg.roleEvolution=CE_LITE_configBool(CE_CONFIG_KEY_CROSSED,"roleEvolution",cfg.roleEvolution);cfg.historyDepth=CW_liteConfigNumber(CE_CONFIG_KEY_CROSSED,"historyDepth",cfg.historyDepth,8,240);cfg.cardScanBudget=CW_liteConfigNumber(CE_CONFIG_KEY_CROSSED,"cardScanBudget",cfg.cardScanBudget,32,128);
   if(!state.unsaid||typeof state.unsaid!=="object")state.unsaid={};state.unsaid.relationshipSettings=cfg;return cfg;
 }
-function CW_onInput(text){var cmd=CW_readCommand(text);if(cmd){try{var arg=String(cmd.arg||"").trim(),low=arg.toLowerCase();if(low==="help"||low==="commands"||low==="guide")pushMessage("❤️ CROSSED WIRES COMMANDS\n/wire <name> — inspect one character's directional bonds\n/wire status — show all tracked relationships\n/wires — show all tracked relationships\nRelationship state is directional and never invents the player's private feelings.");else if(cmd.head==="wires"||!arg||low==="status")pushMessage(CW_dashboard(""));else pushMessage(CW_dashboard(arg));}catch(_){}return text;}var cw=CW_liteState(),rs=CW_liteConfigSettings();try{CW_liteCharacterNames(text,10).forEach(CW_liteSeedCardRelationship);}catch(_){}cw.lastInputText=CW_liteClip(text,700);if(rs.enabled!==false&&rs.visibleEvents!==false)CW_liteParse(text,"input");return text;}
-function CW_onContext(text){var rs=CW_liteConfigSettings();if(rs.enabled===false)return text;var block=CW_liteContextBlock(text);CW_liteState().lastContextNames=CW_liteCharacterNames(text,8);if(!block)return text;try{var fit=typeof fitInstructionToBudget==="function"?fitInstructionToBudget(text,block):block;return fit?text+fit:text;}catch(_){return text;}}
-function CW_onOutput(text){var cw=CW_liteState(),rs=CW_liteConfigSettings(),turn=CW_liteTurn();cw.lastProcessedOutputTurn=turn;if(rs.enabled===false||rs.visibleEvents===false)return text;if(cw.lastOutputTurn===turn&&cw.lastOutputText===CW_liteClip(text,700))return text;cw.lastOutputTurn=turn;cw.lastOutputText=CW_liteClip(text,700);CW_liteParse(text,"output");return text;}
+function CW_onInput(text){
+  var cmd=CW_readCommand(text);if(cmd){try{var arg=String(cmd.arg||"").trim(),low=arg.toLowerCase();if(low==="help"||low==="commands"||low==="guide")pushMessage("❤️ CROSSED WIRES COMMANDS\n/wire <name> — inspect one character's directional bonds\n/wire status — show all tracked relationships\n/wires — show all tracked relationships\nRelationship state is directional, can hold multiple simultaneous roles, backfills premade lore/history, and never invents the player's private feelings.");else if(cmd.head==="wires"||!arg||low==="status")pushMessage(CW_dashboard(""));else pushMessage(CW_dashboard(arg));}catch(_){}return text;}
+  var cw=CW_liteState(),rs=CW_liteConfigSettings();try{CW_liteBootstrapRelationshipSources(text,"input");}catch(_){}try{CW_liteCharacterNames(text,12).forEach(CW_liteSeedCardRelationship);}catch(_){}cw.lastInputText=CW_liteClip(text,700);if(rs.enabled!==false){if(rs.roleEvolution!==false)try{CW_liteScanRelationshipText(text,"input",84,{allowCustom:false,maxSentences:24});}catch(_){}if(rs.visibleEvents!==false)CW_liteParse(text,"input");}return text;
+}
+function CW_onContext(text,sourceText){var rs=CW_liteConfigSettings();if(rs.enabled===false)return text;try{CW_liteBootstrapRelationshipSources(sourceText||text,"context");}catch(_){}var block=CW_liteContextBlock(text);CW_liteState().lastContextNames=CW_liteCharacterNames(text,10);if(!block)return text;try{var fit=typeof fitInstructionToBudget==="function"?fitInstructionToBudget(text,block):block;return fit?text+fit:text;}catch(_){return text;}}
+function CW_onOutput(text){var cw=CW_liteState(),rs=CW_liteConfigSettings(),turn=CW_liteTurn();cw.lastProcessedOutputTurn=turn;if(rs.enabled===false)return text;if(cw.lastOutputTurn===turn&&cw.lastOutputText===CW_liteClip(text,700))return text;cw.lastOutputTurn=turn;cw.lastOutputText=CW_liteClip(text,700);if(rs.roleEvolution!==false)try{CW_liteScanRelationshipText(text,"output",88,{allowCustom:false,maxSentences:30});}catch(_){}if(rs.visibleEvents!==false)CW_liteParse(text,"output");return text;}
 function CW_init(){return CW_liteState();}
 function CW_playerNames(){var out=["you"],seen={you:1};function add(n){var k=CW_liteKey(n);if(!k||seen[k])return;seen[k]=1;out.push(k);}try{var p=state&&state.crossedEchoesPlayerIdentity;if(p&&typeof p==="object"){(Array.isArray(p.aliases)?p.aliases:[]).forEach(add);(Array.isArray(p.controlledNames)?p.controlledNames:[]).forEach(add);if(p.primary)add(p.primary);}}catch(_){}try{if(out.length===1&&typeof CE_platformCharacterNames==="function")CE_platformCharacterNames().forEach(function(n){add(n);var bits=String(n||"").trim().split(" ");if(bits.length>1&&bits[0].length>=3)add(bits[0]);});}catch(_){}return out;}
-function CW_getRole(a,b){var l=CW_liteLink(a,b,false),r=l&&l.role?l.role:"unknown";return /^(?:spouse|fiance|romantic)$/.test(r)?"romantic":r;}
-function CW_setRole(a,b,role,confidence,source){var l=CW_liteLink(a,b,true);if(!l)return null;l.role=String(role||"unknown");l.confidence=Math.max(0,Math.min(100,Number(confidence)||0));l.source=String(source||"manual");return l;}
+function CW_getRole(a,b){var l=CW_liteLink(a,b,false),r=l?CW_litePrimaryRole(l):"unknown";return /^(?:spouse|fiance|romantic|friends-with-benefits|casual-romantic)$/.test(r)?"romantic":r;}
+function CW_setRole(a,b,role,confidence,source){var l=CW_liteLink(a,b,true);if(!l)return null;var meta=CW_liteRoleMeta(role);CW_liteAddRole(l,meta,confidence,source||"manual",[]);return l;}
 function CW_registerNpcMind(name){if(!name||CW_isPlayerName(name))return null;return CW_liteMind(name);}
 function CW_computeLink(a,b){return CW_liteLink(a,b,false);}
 function CW_pairKey(a,b){return CW_litePairKey(a,b);}
-function CW_rebuildRoles(){return true;}
+function CW_rebuildRoles(){var rs=CW_liteConfigSettings();return CW_liteBootstrapRelationshipSources("","input")>=0&&rs.enabled!==false;}
 function CW_rebuildTwistIndexes(){return true;}
-function CW_maybeArmTwist(turn){
-  var settings=CW_liteConfigSettings();if(settings.enabled===false||settings.relationshipTwists===false)return null;var cw=CW_liteState(),t=Math.max(0,Number(turn)||CW_liteTurn());if(cw.twist.pending)return cw.twist.pending;
-  var hist=cw.twist.history||[];if(t<6||t-Number(cw.twist.lastTurn||-999)<8)return null;
-  var rows=Object.keys(cw.links||{}).map(function(k){return cw.links[k];}).filter(function(l){return l&&l.from!=="YOU"&&(l.to==="YOU"||l.role&&l.role!=="unknown");});
-  if(!rows.length)return null;rows.sort(function(a,b){return Number(b.lastTurn||0)-Number(a.lastTurn||0);});var l=rows[0],id="rel-"+CW_liteKey(l.from).replace(/\s+/g,"-")+"-"+CW_liteKey(l.to).replace(/\s+/g,"-")+"-"+t;
-  var p={id:id,turn:t,from:l.from,to:l.to,pairKey:CW_litePairKey(l.from,l.to),risk:"relationship-pressure",used:false};cw.twist.pending=p;cw.twist.lastTurn=t;hist.push(Object.assign({},p));if(hist.length>40)cw.twist.history=hist.slice(-40);return p;
-}
+function CW_maybeArmTwist(turn){var settings=CW_liteConfigSettings();if(settings.enabled===false||settings.relationshipTwists===false)return null;var cw=CW_liteState(),t=Math.max(0,Number(turn)||CW_liteTurn());if(cw.twist.pending)return cw.twist.pending;var hist=cw.twist.history||[];if(t<6||t-Number(cw.twist.lastTurn||-999)<8)return null;var rows=Object.keys(cw.links||{}).map(function(k){return cw.links[k];}).filter(function(l){return l&&l.from!=="YOU"&&(l.to==="YOU"||CW_liteActiveRoles(l).length);});if(!rows.length)return null;rows.sort(function(a,b){return Number(b.lastTurn||0)-Number(a.lastTurn||0);});var l=rows[0],id="rel-"+CW_liteKey(l.from).replace(/\s+/g,"-")+"-"+CW_liteKey(l.to).replace(/\s+/g,"-")+"-"+t;var p={id:id,turn:t,from:l.from,to:l.to,pairKey:CW_litePairKey(l.from,l.to),risk:"relationship-pressure",used:false};cw.twist.pending=p;cw.twist.lastTurn=t;hist.push(Object.assign({},p));if(hist.length>40)cw.twist.history=hist.slice(-40);return p;}
 function CW_registerNpc(name,turn,role){if(!name||CW_isPlayerName(name))return null;var cw=CW_liteState(),n=CW_liteCanonical(name),k=CW_liteKey(n);if(!cw.npcs[k])cw.npcs[k]={name:n,mentions:0,firstTurn:Number(turn)||CW_liteTurn(),lastTurn:Number(turn)||CW_liteTurn()};cw.npcs[k].mentions=(cw.npcs[k].mentions||0)+1;cw.npcs[k].lastTurn=Number(turn)||CW_liteTurn();if(role&&role!=="unknown")cw.roles[k]=role;return cw.npcs[k];}
 
 var CE_LITE_CONFIG_CARD_CACHE=null;
